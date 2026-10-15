@@ -1407,6 +1407,13 @@ const appManager = new AppManager({
 const btnAppManager = document.getElementById('btn-app-manager');
 if (btnAppManager) btnAppManager.addEventListener('click', () => appManager.open());
 
+const deviceSetupWizard = new DeviceSetupWizard({
+    getBackend: () => appManager.getBackend(),
+    log: (kind, text) => appendTerminalLine(kind, text),
+});
+const btnDeviceSetup = document.getElementById('btn-device-setup');
+if (btnDeviceSetup) btnDeviceSetup.addEventListener('click', () => deviceSetupWizard.open());
+
 // =========================================================================
 // The running app's own web page (apps/<id>/web.html): the simulated
 // device answers its calls; a board over HTTP opens its own page

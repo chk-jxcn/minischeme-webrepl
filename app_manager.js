@@ -13,7 +13,9 @@
  * (examples/esp_idf/main/setup_page.html); keep the two in step.
  */
 
-const AM_BUNDLED_INDEX = 'apps/index.json';   // written by tools/build_apps.py
+const AM_GITHUB_APPS_INDEX = 'https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json';
+const AM_GITHUB_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-apps/releases/download/v1.0.0/';
+const AM_LOCAL_INDEX = 'apps/index.json';
 
 function amEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -138,7 +140,7 @@ class AppManager {
                 <div class="am-body">
                     <h4 class="am-h">设备上的应用</h4>
                     <div class="am-installed">—</div>
-                    <h4 class="am-h">可安装的应用 <span class="am-note">（WebREPL 的 apps/ 目录，由 tools/build_apps.py 生成）</span></h4>
+                    <h4 class="am-h">可安装的应用 <span class="am-note am-market-note">（读取自 GitHub 官方应用仓库）</span></h4>
                     <div class="am-bundled">—</div>
                 </div>
                 <div class="fm-status" role="status" aria-live="polite"></div>
@@ -148,6 +150,7 @@ class AppManager {
         this.el = {
             root, target: q('.fm-target'), boot: q('.am-boot'), installed: q('.am-installed'),
             bundled: q('.am-bundled'), status: q('.fm-status'), resetBtn: q('[data-act="reset"]'),
+            marketNote: q('.am-market-note'),
         };
         root.addEventListener('click', (e) => {
             if (e.target === root) { this.close(); return; }
@@ -205,17 +208,29 @@ class AppManager {
             this.bootPath = r.boot || '';
             this.open_ = {};
             try {
-                const res = await fetch(AM_BUNDLED_INDEX, { cache: 'no-store' });
-                /* the system settings are no boot app: the device market installs them */
-                this.bundled = (res.ok ? await res.json() : []).filter((b) => (b.kind || 'app') === 'app');
+                let res = await fetch(AM_GITHUB_APPS_INDEX, { cache: 'no-store' });
+                if (!res.ok) res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
+                const list = res.ok ? await res.json() : [];
+                this.bundled = list.filter((b) => (b.kind || 'app') === 'app');
+                this.marketSource = res.url.includes('github') ? 'GitHub 官方市场' : '本地离线包';
             } catch (e) {
-                this.bundled = [];
+                try {
+                    const res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
+                    this.bundled = (res.ok ? await res.json() : []).filter((b) => (b.kind || 'app') === 'app');
+                    this.marketSource = '本地离线包';
+                } catch (err) {
+                    this.bundled = [];
+                    this.marketSource = '离线';
+                }
             }
             this._render();
         });
     }
 
     _render() {
+        if (this.el.marketNote) {
+            this.el.marketNote.textContent = `（来源: ${this.marketSource || 'GitHub 官方市场'}）`;
+        }
         const bootApp = this.apps.find((a) => a.boot);
         this.el.boot.innerHTML = `启动应用：<b>${amEsc(bootApp ? bootApp.name : amRel(this.bootPath))}</b>`;
         this.el.installed.innerHTML = this.apps.map((a, i) => `
@@ -408,9 +423,23 @@ class AppManager {
     async _install(i) {
         const b = this.bundled[i];
         const ok = await this._run(`安装 ${b.name}…`, async () => {
-            const res = await fetch(`apps/${b.file}`, { cache: 'no-store' });
-            if (!res.ok) throw new Error(`读取 apps/${b.file} 失败`);
-            const bytes = new Uint8Array(await res.arrayBuffer());
+            let bytes = null;
+            // 1. Try downloading prebuilt binary from GitHub release assets
+            try {
+                const ghUrl = `${AM_GITHUB_RELEASE_BASE}${b.file}`;
+                const ghRes = await fetch(ghUrl, { cache: 'no-store' });
+                if (ghRes.ok) {
+                    bytes = new Uint8Array(await ghRes.arrayBuffer());
+                }
+            } catch (e) { /* ignore and fallback */ }
+
+            // 2. Fallback to local apps/<file>
+            if (!bytes) {
+                const res = await fetch(`apps/${b.file}`, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`读取 ${b.file} 失败 (GitHub Release 与本地均未获取到)`);
+                bytes = new Uint8Array(await res.arrayBuffer());
+            }
+
             await this.backend.fsWrite(`/spiffs/apps/${b.id}/app.msbc`, bytes);   /* the app's folder, as the market */
             return true;
         });

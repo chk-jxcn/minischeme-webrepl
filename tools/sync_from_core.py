@@ -26,18 +26,19 @@ def sync_core():
                 shutil.copytree(app_folder, target, dirs_exist_ok=True)
         print(f"[+] Synced application sources to {apps_dst}")
 
-    # 2. Build index.json
-    index_path = os.path.join(apps_dst, "index.json")
-    app_list = []
-    for d in glob.glob(os.path.join(apps_dst, "*")):
-        if os.path.isdir(d):
-            app_id = os.path.basename(d)
-            if app_id != "lib":
-                app_list.append(app_id)
-    app_list.sort()
-    with open(index_path, "w", encoding="utf-8") as f:
-        json.dump({"apps": app_list}, f, indent=2)
-    print(f"[+] Re-generated {index_path} with {len(app_list)} apps.")
+    # 2. Sync compiled .msbc binaries and rich index.json
+    dist_src = os.path.join(ROOT_DIR, "minischeme-apps", "dist")
+    if os.path.exists(dist_src):
+        for msbc_file in glob.glob(os.path.join(dist_src, "*.msbc")):
+            shutil.copy2(msbc_file, apps_dst)
+        print(f"[+] Synced compiled MSBC binaries to {apps_dst}")
+
+    index_src = os.path.join(ROOT_DIR, "minischeme-apps", "apps", "index.json")
+    if not os.path.exists(index_src):
+        index_src = os.path.join(dist_src, "index.json")
+    if os.path.exists(index_src):
+        shutil.copy2(index_src, os.path.join(apps_dst, "index.json"))
+        print(f"[+] Synced rich app market index.json to {apps_dst}")
 
     # 3. Check WASM artifacts
     vm_wasm = os.path.join(BASE_DIR, "minischeme_vm.wasm")
