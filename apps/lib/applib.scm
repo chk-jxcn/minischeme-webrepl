@@ -275,8 +275,8 @@
           ((equal? (vector-ref (car c) 0) url) (car c))
           (else (loop (cdr c))))))
 
-;; A carousel visits every page in turn: keep all their documents then
-(define (app-cache-max) (if app-carousel (max APP-CACHE-MAX (app-npages)) APP-CACHE-MAX))
+;; Keep all page documents in memory so page switches are instantaneous
+(define (app-cache-max) (max APP-CACHE-MAX (app-npages)))
 
 ;; Newest first; past (app-cache-max) documents the oldest one goes, never the
 ;; home page's (the page shown most)
@@ -330,6 +330,22 @@
       (vector-set! v 0 (if t (string->symbol t) 'none)))
     v))
 
+;; Pre-fetches the next uncached page in the background right after boot
+(define (app-prefetch-next!)
+  (let loop ((i 0))
+    (if (< i (app-npages))
+        (let ((url (vector-ref app-urls i)))
+          (cond
+            ((or (string=? url "") (app-cache-entry url))
+             (loop (+ i 1)))
+            (else
+             (set! app-feed-url url)
+             (set! app-loading #t)
+             (json-feed-start url (vector-ref (vector-ref app-pages i) 2) APP-KEYS APP-SELECTORS
+                              APP-POOL APP-VALUE-LEN 2)
+             #t)))
+        #f)))
+
 ;; A new document: copy it, or keep the old data when the proxy sent an error
 (define (app-take-document!)
   (let ((items (let loop ((i (- (json-feed-count) 1)) (acc '()))
@@ -340,7 +356,8 @@
         (begin
           (set! app-error #f)
           (app-cache-put! (json-feed-url) items)
-          (if app-data-proc (app-data-proc items))))
+          (if app-data-proc (app-data-proc items))
+          (app-prefetch-next!)))
     (app-invalidate-all)))
 
 ;; 7. Drawing --------------------------------------------------------------------------------
@@ -481,7 +498,10 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (if (not (equal? (vector-ref app-urls i) app-feed-url)) (app-start-feed!))
+  (let ((url (vector-ref app-urls i)))
+    (if (not (equal? url app-feed-url))
+        (if (not (app-cache-entry url))
+            (app-start-feed!))))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))
