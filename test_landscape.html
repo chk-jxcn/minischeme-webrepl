@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c" width="480" height="320"></canvas>
+<img id="out-img">
+<script>
+async function run() {
+    try {
+        const wasmRes = await fetch('minischeme_vm.wasm');
+        const wasmBytes = await wasmRes.arrayBuffer();
+        const importObject = {
+            env: {
+                sin: Math.sin, cos: Math.cos, tan: Math.tan,
+                asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+                pow: Math.pow, log: Math.log, exp: Math.exp, sqrt: Math.sqrt,
+                floor: Math.floor, ceil: Math.ceil, round: Math.round, fabs: Math.abs,
+                random: Math.random,
+                putchar: (c) => {},
+                js_print: (ptr, len) => {},
+                mini_register_hardware_lib: () => {}
+            }
+        };
+        const results = await WebAssembly.instantiate(wasmBytes, importObject);
+        const vm = results.instance;
+        vm.exports.wasm_init();
+        
+        function evalWasm(str) {
+            const encoder = new TextEncoder();
+            const b = encoder.encode(str + '\0');
+            const p = vm.exports.malloc(b.length);
+            new Uint8Array(vm.exports.memory.buffer).set(b, p);
+            const rPtr = vm.exports.wasm_eval(p);
+            vm.exports.free(p);
+            const mem = new Uint8Array(vm.exports.memory.buffer);
+            let s = '';
+            for (let i = rPtr; mem[i] !== 0; i++) s += String.fromCharCode(mem[i]);
+            return s;
+        }
+
+        const guiCode = await (await fetch('gui.scm')).text();
+        const infoCode = await (await fetch('desktop_infocard.scm')).text();
+
+        evalWasm(guiCode);
+        evalWasm(infoCode);
+        evalWasm('(begin (gui-set-resolution 480 320) (infocard-render))');
+
+        const w = 480;
+        const h = 320;
+        const vfbPtr = vm.exports.wasm_get_vfb_ptr();
+
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d');
+        const imgData = ctx.createImageData(w, h);
+        const buf32 = new Uint32Array(imgData.data.buffer);
+        const vfb = new Uint16Array(vm.exports.memory.buffer, vfbPtr, w * h);
+
+        for (let i = 0; i < w * h; i++) {
+            const rgb565 = vfb[i];
+            const red = (rgb565 >> 11) & 0x1F;
+            const green = (rgb565 >> 5) & 0x3F;
+            const blue = rgb565 & 0x1F;
+            const r8 = (red << 3) | (red >> 2);
+            const g8 = (green << 2) | (green >> 4);
+            const b8 = (blue << 3) | (blue >> 2);
+            buf32[i] = (255 << 24) | (b8 << 16) | (g8 << 8) | r8;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        document.getElementById('out-img').src = canvas.toDataURL();
+    } catch(e) {
+        console.error(e);
+    }
+}
+run();
+</script>
+</body>
+</html>

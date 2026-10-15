@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WxPusher</title>
+<!-- appweb -->
+<style>
+.msg.unread .t{font-weight:600}
+.new{color:var(--bad);border-color:var(--bad)}
+#qr img{width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:6px}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2>消息 <span id="unread" class="tag"></span>
+<button class="plain small" onclick="load()">刷新</button><button class="plain small" onclick="act('read')">全部已读</button><button class="plain small" onclick="clearAll()">清空</button></h2>
+<div id="list" class="desc">读取中...</div>
+</section>
+
+<section>
+<h2>登录状态 <span id="state" class="tag"></span></h2>
+<div id="qr"></div>
+<div class="desc" id="info"></div>
+<button class="plain small" id="logout" onclick="logout()" hidden>退出登录</button>
+<div class="desc" style="margin-top:8px">消息由应用代理（tools/app_proxy.py）以 WxPusher 客户端的身份接收：
+代理保持与 WxPusher 的 WebSocket 连接，设备每 5 秒取一次。登录信息只保存在代理电脑的
+<code>tools/app_proxy.wxpusher.json</code>。</div>
+<div class="desc" style="margin-top:8px">设备上：短按从新到旧看完整消息，看完回到列表；首页长按（0.8 秒）全部标为已读；在消息上长按标为已读，已读的消息长按回到列表。</div>
+</section>
+</main>
+<script>
+const STATE = {ok: '已登录', login: '未登录', starting: '连接中', error: '连接中断'};
+let proxy = '';
+
+function take(r) {
+  proxy = r.proxy || '';
+  $('unread').textContent = (r.unread ? `未读 ${r.unread}` : '全部已读') +
+    (r.pending ? `，${r.pending} 条删除等待同步到代理` : '');
+  const ms = r.messages || [];
+  $('list').className = ms.length ? '' : 'desc';
+  $('list').innerHTML = ms.map((m) => `
+    <div class="item msg${m.read ? '' : ' unread'}">
+      ${m.read ? '' : '<span class="tag new">新</span>'}
+      <div class="grow"><div class="t">${esc(m.title || '')}</div><div>${esc(m.text || '')}</div>
+        <div class="desc">${esc(m.topic || '')} ${esc(m.time)}</div></div>
+      ${m.read ? '' : `<button class="small plain" onclick="act('read', {id: '${esc(m.id)}'})">已读</button>`}
+      <button class="small plain" onclick="act('delete', {id: '${esc(m.id)}'})">删除</button>
+    </div>`).join('') || '暂无消息';
+  $('state').textContent = STATE[r.state] || '等待代理';
+  $('info').textContent = !proxy ? '没有设置应用代理（系统设置 → 应用代理）'
+    : r.state === 'login' ? '用手机微信扫描屏幕或下面的二维码登录' : (r.info || '');
+  $('qr').innerHTML = proxy && r.state === 'login'
+    ? `<img alt="登录二维码" src="${esc(proxy)}/wxpusher/qr.jpg?t=${Date.now() >> 16}">` : '';
+  $('logout').hidden = !(proxy && r.state === 'ok');
+}
+
+async function load() { await attempt(async () => take(await appCall('list'))); }
+
+async function act(name, fields) { await attempt(async () => take(await appCall(name, fields))); }
+
+async function clearAll() {
+  if (!confirm('清空全部消息？代理和 WxPusher 上的这些消息也会删除。')) return;
+  await act('clear');
+}
+
+async function logout() {
+  if (!confirm('让应用代理退出 WxPusher 登录？之后需要重新扫码。')) return;
+  await attempt(async () => {
+    const r = await fetch(proxy + '/wxpusher/logout', {method: 'POST'}).then((x) => x.json());
+    if (!r.success) throw new Error(r.error || '退出失败');
+    say('已退出登录，稍后屏幕显示新的二维码', 'ok');
+  });
+}
+
+load();   /* once: 刷新 reads again (an open page puts no load on the board) */
+</script>
+</body>
+</html>

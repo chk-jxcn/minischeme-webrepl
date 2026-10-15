@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniScheme WASM WebREPL ➔ ESP32 执行控制台</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="app-header">
+        <div class="logo-area">
+            <span class="logo-badge">λ</span>
+            <h1>MiniScheme WebREPL</h1>
+            <span class="arch-badge">WASM ➔ ESP32 预编译架构</span>
+        </div>
+        <div class="status-area">
+            <div class="mode-selector">
+                <label for="target-mode">执行目标: </label>
+                <select id="target-mode" class="mode-dropdown">
+                    <option value="wasm" selected>💻 本地 WASM 设备仿真 (与固件一致)</option>
+                    <option value="http">📡 ESP32 硬件 (WiFi HTTP)</option>
+                    <option value="serial">🔌 ESP32 硬件 (USB 串口)</option>
+                    <option value="sim">🖥️ 本地模拟进程 (server.py)</option>
+                </select>
+            </div>
+            <span class="status-indicator online" id="status-dot"></span>
+            <span id="device-status-text">WASM 编译器准备就绪</span>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- 左侧：终端交互 REPL -->
+        <section class="repl-pane">
+            <div class="pane-header">
+                <span class="pane-title">交互式 REPL 终端</span>
+                <span class="pane-subtitle" id="target-desc">原生 C VM 编译为 WASM ➔ Scheme 编译器生成 MSBC 字节码 ➔ ESP32 执行</span>
+            </div>
+            <div class="device-link-bar" id="device-link-bar" style="display:none;">
+                <label for="device-host" id="device-host-label">设备地址:</label>
+                <input type="text" id="device-host" class="device-host-input" placeholder="192.168.x.x" spellcheck="false" autocomplete="off">
+                <button id="device-connect-btn" class="pill-btn highlight">连接设备</button>
+                <label class="device-opt" title="固件内置编译器时，直接发送源码由设备编译">
+                    <input type="checkbox" id="device-src-mode" disabled> 设备端编译
+                </label>
+                <span id="device-link-status" class="device-link-status">未连接</span>
+            </div>
+            <div id="terminal" class="terminal-body">
+                <div class="term-line banner">============================================================</div>
+                <div class="term-line banner">  MiniScheme 1.0 (WASM Native VM + Pure Scheme Compiler)   </div>
+                <div class="term-line banner">  核心架构: 原生 C VM 运行于 WASM，载入 Scheme 优化编译器 (compiler.scm) </div>
+                <div class="term-line banner">  编译输出: 纯二进制 MSBC 字节码，无缝下发给 ESP32 执行   </div>
+                <div class="term-line banner">============================================================</div>
+                <div class="term-line info">输入任意 Scheme 表达式，例如 (+ 10 (* 3 5)) 或点击下方示例。</div>
+            </div>
+            
+            <div class="input-bar">
+                <!-- 智能自动补全浮窗 (按 Tab 唤出，按 1-9 或 鼠标点击 选择) -->
+                <div id="ac-popup" class="autocomplete-popup" style="display:none;" role="listbox">
+                    <div class="ac-header">
+                        <span class="ac-title">⚡ 自动补全 (按 1-9 或 点击 选择，Esc 取消)</span>
+                        <span class="ac-close" id="ac-close-btn" title="关闭">&times;</span>
+                    </div>
+                    <div id="ac-list" class="ac-list"></div>
+                </div>
+                <span class="prompt-symbol">minischeme&gt;</span>
+                <textarea id="cmd-input" rows="1" placeholder="输入 Scheme 代码，回车发送 (Tab 自动补全，Shift+Enter 换行)..." autofocus autocomplete="off" spellcheck="false"></textarea>
+                <button id="send-btn" class="action-btn">编译并执行</button>
+                <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件：WASM 仿真时直接运行 (带元数据的应用按开机应用启动)；连接硬件时安装到设备，应用装到 /spiffs/apps/&lt;id&gt;.msbc 并设为启动应用后重启。也可以把文件拖到页面上">📁 上传字节码</button>
+                <input type="file" id="input-fasl-upload" style="display:none;" accept=".fasl,.msbc,.bin,.scm">
+            </div>
+
+            <!-- Quick commands: each fills the input box (nothing runs until sent) -->
+            <div class="quick-toolbar">
+                <span class="tb-label">快捷命令:</span>
+                <button class="pill-btn" data-code="(system-info)" title="填入 (system-info)：当前目标的全部硬件与系统信息 (内存、存储、网络、显示、字体…)">🧾 系统信息</button>
+                <button class="pill-btn" data-code="(config-set! &quot;wifi&quot; &quot;wifi_ssid&quot; &quot;YOUR_SSID&quot;)\n(config-set! &quot;wifi&quot; &quot;wifi_password&quot; &quot;YOUR_PASSWORD&quot;)\n(wifi-connect &quot;YOUR_SSID&quot; &quot;YOUR_PASSWORD&quot;)" title="填入 WiFi 设置：把 YOUR_SSID / YOUR_PASSWORD 换成自己的网络；写入 config.ini [wifi] 并立即连接">📶 设置 WiFi</button>
+                <button class="pill-btn" data-code="(wifi-status)" title="填入 (wifi-status)：WiFi 是否已连接">📡 WiFi 状态</button>
+                <button class="pill-btn" data-code="(backlight-auto #t)" title="填入 (backlight-auto #t)：亮度跟随光敏电阻自动调节；改成 #f 关闭。设置保存在 config.ini [display] auto_backlight">🌗 光敏开关</button>
+                <button class="pill-btn" data-code="(backlight-set 180)" title="填入 (backlight-set 180)：固定亮度 0~255，同时关闭自动亮度；保存在 config.ini [display] backlight">💡 设置亮度</button>
+                <button class="pill-btn" data-code="; one-line text: none / pixel / char / page\n(config-set! &quot;text&quot; &quot;marquee&quot; &quot;pixel&quot;)\n(config-set! &quot;text&quot; &quot;marquee_fps&quot; &quot;20&quot;)\n(config-set! &quot;text&quot; &quot;marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'pixel 20 1 1)\n; wrapped text: none / pixel / line / page\n(config-set! &quot;text&quot; &quot;wrap_marquee&quot; &quot;line&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_fps&quot; &quot;0.5&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'wrap 'line 0.5 1 1)" title="填入跑马灯设置，单行和多行分开。单行 marquee: none (截断加“…”) / pixel (按像素) / char (按字) / page (按文本框宽度整段替换)；多行 wrap_marquee: none / pixel (按像素上移) / line (按行上移) / page (整框替换)。fps: 每秒刷新次数 0.1~25；step: 每次移动的像素 / 字 / 行数；hold: 回到开头后停留的秒数 (可小于 1，0 不停)。写入 config.ini [text] 并立即生效">📜 跑马灯</button>
+                <button class="pill-btn" data-code="(list (font-info 0) (font-config) (fontrom-list))" title="填入字体信息：默认字体 (名称 高度 字数 来源 字节)、字体来源与替换配置、系统字库中的字体">🔤 字体信息</button>
+                <button class="pill-btn" data-code="(vm-stats)" title="填入 (vm-stats)：GC 次数、累计分配、存活 / 峰值堆、栈峰值">📊 VM 统计</button>
+                <button class="pill-btn" data-code="(app-list)" title="填入 (app-list)：设备上安装的应用 (/spiffs/apps)">📦 应用列表</button>
+                <button class="pill-btn" data-code="(config-set! &quot;system&quot; &quot;boot_app&quot; &quot;apps/weather.msbc&quot;)\n(restart)" title="填入：设置开机启动的应用并重启 (把 weather 换成要启动的应用 id)">🚀 设置启动应用</button>
+                <button class="pill-btn" data-code="(app-carousel-pause)" title="填入 (app-carousel-pause)：应用 (天气、新闻、股票、用量) 停止自动翻页，停在当前页，页码左侧的倒计时条变为一条暗色；短按仍可手动翻页。返回 paused，没有开启轮播时返回 off。重启后恢复">⏸ 暂停翻页</button>
+                <button class="pill-btn" data-code="(app-carousel-resume)" title="填入 (app-carousel-resume)：恢复自动翻页，当前页重新计时。返回 running">▶ 恢复翻页</button>
+                <button class="pill-btn" data-code="(json-feed-status)" title="填入 (json-feed-status)：应用数据源的连接状态、抓取次数、失败次数、耗时">🌐 数据源状态</button>
+                <button class="pill-btn" data-code="(config-get &quot;palette&quot;)" title="填入 (config-get key)：读取 config.ini 中某个键的值 (只有键名一个参数)">⚙️ 读取配置</button>
+                <button class="pill-btn" data-code="(restart)" title="填入 (restart)：立即重启设备">🔄 重启</button>
+                <button class="pill-btn" data-code="(help)" title="填入 (help)：内置函数参考；(help 'name) 查看单个函数">❓ 帮助</button>
+            </div>
+
+            <!-- On-board management: apps, files and the system font ROM of the target -->
+            <div class="quick-toolbar">
+                <span class="tb-label">板载管理:</span>
+                <button class="pill-btn highlight" id="btn-app-manager" title="当前目标 (ESP32 或 WASM 设备) 上的应用：查看信息、按表单修改配置、设置启动应用、从 web_repl/apps 安装">📦 App 管理</button>
+                <button class="pill-btn highlight" id="btn-file-manager" title="管理设备文件系统 (/spiffs) 中的文件：上传、下载、重命名、删除、编辑文本 (含 config.ini)">🗂️ 文件管理</button>
+                <button class="pill-btn highlight" id="btn-app-web" title="运行中应用自带的网页 (apps/&lt;id&gt;/web.html)：板子网页的第一个选项卡。WASM 设备仿真在这里打开，调用由模拟设备回答；ESP32 硬件打开板子的网页">🌐 应用网页</button>
+                <button class="pill-btn highlight" id="btn-font-manager" title="管理 Flash 字库分区 (Font ROM)：添加、删除字库，应用用 (use-font id &quot;face&quot; size) 引用">🔤 系统字库</button>
+            </div>
+        </section>
+
+        <!-- 右侧：WASM 仿真硬件屏幕与遥测监视器 -->
+        <aside class="inspector-pane">
+            <div class="pane-header">
+                <span class="pane-title">ESP32 硬件仿真与遥测监视器</span>
+            </div>
+
+            <!-- Simulated 3.5" ESP32 desktop display -->
+            <div class="inspector-section device-sim-section">
+                <div class="sim-header">
+                    <h3>📟 3.5寸 ESP32 桌面显示屏 (硬件仿真)</h3>
+                    <div class="hardware-leds">
+                        <span class="hw-led led-pwr active" title="电源指示灯 (3.3V)">PWR</span>
+                        <span class="hw-led led-wifi" id="led-wifi" title="WiFi 状态 (蓝色)">WiFi</span>
+                        <span class="hw-backlight-badge" id="hw-backlight-badge">背光: 100%</span>
+                    </div>
+                </div>
+
+                <!-- 仿真参数与显示模式调节条 -->
+                <div class="sim-config-toolbar">
+                    <div class="sim-config-item">
+                        <label for="sim-resolution-select">📐 屏幕规格:</label>
+                        <select id="sim-resolution-select" class="compact-select">
+                            <option value="320x480" selected>320×480 竖屏 (默认 ILI9488)</option>
+                            <option value="480x320">480×320 横屏 (旋转 90°)</option>
+                            <option value="240x320">240×320 小竖屏</option>
+                            <option value="320x240">320×240 小横屏</option>
+                        </select>
+                    </div>
+                    <div class="sim-config-item">
+                        <label for="sim-speed-select">⏱️ 拟合速度:</label>
+                        <select id="sim-speed-select" class="compact-select">
+                            <option value="240" selected>⚡ ESP32 240MHz (~20ms 并口)</option>
+                            <option value="80">🐢 ESP32 80MHz (~40ms 并口)</option>
+                            <option value="0">🚀 PC WASM 极速无延迟</option>
+                        </select>
+                    </div>
+                    <div class="sim-config-item">
+                        <label for="sim-fb-select">🖥️ 缓冲模式:</label>
+                        <select id="sim-fb-select" class="compact-select" title="config.ini [display] mode: 显示管线 (默认与 ESP32 固件相同)">
+                            <option value="band" selected>条带 band: 13 行 (与固件一致)</option>
+                            <option value="1">全帧 full: 整屏缓冲</option>
+                            <option value="0">直驱 direct: 无缓冲, 直接画到屏幕</option>
+                        </select>
+                    </div>
+                    <div class="sim-config-item" id="sim-bpp-item">
+                        <label for="sim-bpp-select">🎨 颜色位数:</label>
+                        <select id="sim-bpp-select" class="compact-select" title="config.ini [display] color_bits: 缓冲中每个像素的位数, 三种模式都适用">
+                            <option value="16" selected>16-bit RGB565 (默认)</option>
+                            <option value="8">8-bit 调色板 (256 色)</option>
+                            <option value="4">4-bit 调色板 (16 色)</option>
+                            <option value="2">2-bit 调色板 (4 色)</option>
+                            <option value="1">1-bit 调色板 (2 色)</option>
+                        </select>
+                    </div>
+                    <div class="sim-config-item" id="sim-palette-item">
+                        <label for="sim-palette-select">🌗 配色方案:</label>
+                        <select id="sim-palette-select" class="compact-select" title="config.ini [display] palette: 调色板与颜色映射, 与颜色位数无关">
+                            <option value="0" selected>color 彩色</option>
+                            <option value="1">gray 灰度</option>
+                            <option value="2">eink 墨水屏 (白底黑字)</option>
+                            <option value="3">green 荧光绿</option>
+                            <option value="4">amber 琥珀</option>
+                            <option value="5">cyan 青蓝</option>
+                            <option value="6">gameboy 四级绿</option>
+                            <option value="7">invert 反色</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 虚拟屏幕外壳与 LCD 屏幕 (默认 320x480 竖屏) -->
+                <div class="lcd-enclosure" id="lcd-enclosure">
+                    <div class="lcd-bezel-top">
+                        <span class="lcd-brand" id="lcd-brand-text" title="当前连接目标">WASM emulator</span>
+                    </div>
+                    <div class="lcd-screen-wrapper">
+                        <canvas id="virtual-lcd" width="320" height="480"></canvas>
+                    </div>
+                    <div class="lcd-bezel-bottom">
+                        <div class="hw-buttons">
+                            <button id="btn-hw-k18" class="hw-btn primary-hw-btn" title="GPIO 18 物理按键，与固件一致：短按、短长按（0.8 秒）和中长按（3.5 秒）交给应用，长长按（8 秒）打开硬件信息，在硬件信息页上中长按进入系统设置；时间可在 config.ini [system] button_*_ms 中设定。HTTP 连接硬件时，按下和松开同步发送到设备">🔘 KEY 18 (物理按键)</button>
+                        </div>
+                        <span class="lcd-mode-tag" id="lcd-mode-tag" title="显示模式与每秒刷新的帧数">条带 · 0 帧/s</span>
+                    </div>
+                </div>
+
+                <!-- 光敏数据发送到硬件 (HTTP 连接时) -->
+                <div class="sensor-control-bar">
+                    <label class="device-opt" for="sim-light-remote" title="选中后，下方光敏滑块的值通过 HTTP 发送到设备，代替设备上光敏电阻的读数；取消选中恢复设备的实测值">
+                        <input type="checkbox" id="sim-light-remote"> 模拟光敏数据 (连接硬件时同步到设备)
+                    </label>
+                </div>
+
+                <!-- 光敏传感器与环境光调节 -->
+                <div class="sensor-control-bar">
+                    <label for="sim-light-slider">☀️ 光敏传感器 (IO35): </label>
+                    <input type="range" id="sim-light-slider" min="0" max="4095" value="2048" title="拖动模拟环境光变化">
+                    <span id="sim-light-val">2048 (500 lux)</span>
+                </div>
+
+                <!-- WiFi 仿真遥测条 -->
+                <div class="wifi-telemetry-bar">
+                    <div class="wifi-field">
+                        <span class="wf-k">WiFi:</span>
+                        <span class="wf-v" id="sim-wifi-status">未连接</span>
+                    </div>
+                    <div class="wifi-field">
+                        <span class="wf-k">SSID:</span>
+                        <span class="wf-v" id="sim-wifi-ssid">--</span>
+                    </div>
+                    <div class="wifi-field">
+                        <span class="wf-k">IP:</span>
+                        <span class="wf-v" id="sim-wifi-ip">0.0.0.0</span>
+                    </div>
+                    <div class="wifi-field">
+                        <span class="wf-k">信号:</span>
+                        <span class="wf-v" id="sim-wifi-rssi">-- dBm</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="inspector-section">
+                <h3>⚡ 浏览器 WASM 编译指标</h3>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <span class="m-val" id="metric-compile-time">0.0 ms</span>
+                        <span class="m-lbl">WASM 编译耗时</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="m-val" id="metric-bytecode-len">0 字节</span>
+                        <span class="m-lbl">二进制字节码尺寸</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="m-val highlight" id="metric-ram-saving">&gt; 90%</span>
+                        <span class="m-lbl">设备端节省内存</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="inspector-section">
+                <h3>🔍 传输的二进制字节码 (Hex Stream)</h3>
+                <div class="hex-viewer" id="hex-viewer">等待编译中...</div>
+            </div>
+
+            <div class="inspector-section">
+                <h3>📜 反汇编指令 (Disassembly)</h3>
+                <pre class="disasm-viewer" id="disasm-viewer">等待编译中...</pre>
+            </div>
+
+            <div class="inspector-section">
+                <h3 id="dev-panel-title">📟 运行内存与 ESP32 负荷估算</h3>
+                <div class="device-status-card">
+                    <div class="dev-row">
+                        <span class="dev-k">虚拟机模式:</span>
+                        <span class="dev-v" id="dev-vm-mode">WASM 本地 VM (估算 200KB ESP32)</span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">当前堆占用:</span>
+                        <span class="dev-v highlight" id="dev-heap-alloc">-- 字节</span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">活动半区总容量:</span>
+                        <span class="dev-v" id="dev-heap-capacity">-- 字节</span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">显存缓冲 (VFB):</span>
+                        <span class="dev-v highlight" id="dev-vfb-ram">0 KB (直驱关闭)</span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">显存开销评估:</span>
+                        <span class="dev-v" id="dev-vfb-estimate"><span class="status-badge-ok">🟢 零显存 (适合所有 ESP32)</span></span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">应用堆负荷评估:</span>
+                        <span class="dev-v" id="dev-esp32-estimate">估算中...</span>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k">SRAM 综合承载:</span>
+                        <span class="dev-v" id="dev-sram-total-estimate">估算中...</span>
+                    </div>
+                    <div class="dev-row" id="dev-iram-row" style="display: none">
+                        <span class="dev-k">IRAM 使用率:</span>
+                        <span class="dev-v" id="dev-iram">--</span>
+                    </div>
+                    <div class="heap-progress-bar-container">
+                        <div class="heap-progress-track">
+                            <div class="heap-progress-fill" id="heap-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="heap-progress-labels">
+                            <span id="heap-progress-text">0 / 64 KB (0%)</span>
+                            <span class="heap-limit-badge">ESP32 108KB VM 堆</span>
+                        </div>
+                    </div>
+                    <div class="dev-row">
+                        <span class="dev-k" id="dev-exec-label">拟合执行/刷新延迟:</span>
+                        <span class="dev-v highlight" id="dev-exec-time">-- μs</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="device_link.js"></script>
+    <script src="sim_storage.js"></script>
+    <script src="hw_mirror.js"></script>
+    <script src="file_manager.js"></script>
+    <script src="font_generator.js"></script>
+    <script src="font_manager.js"></script>
+    <script src="app_manager.js"></script>
+    <script src="app_web.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

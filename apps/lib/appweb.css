@@ -1,0 +1,23 @@
+/* appweb.css: the look of an app's own web page, as the board's settings page */
+:root{--bg:#0b1118;--card:#121b26;--line:#2a3a4d;--text:#e6ecf3;--muted:#93a4b8;--accent:#62d0f0;--ok:#72d696;--warn:#f0bc55;--bad:#ee7c7c}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:720px;margin:0 auto;padding:4px 16px 24px}
+h2{font-size:16px;margin:0 0 10px;color:var(--accent)}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0}
+label{display:block;color:var(--muted);font-size:13px;margin:8px 0 3px}
+input,select,textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:#0e151e;color:var(--text);font:inherit}
+input[type=checkbox]{width:auto;margin-right:6px;vertical-align:middle}
+textarea{min-height:90px}
+button{padding:7px 13px;border-radius:6px;border:1px solid var(--accent);background:#173f52;color:var(--text);font:inherit;cursor:pointer;margin:8px 8px 0 0}
+button.plain{border-color:var(--line);background:transparent}
+button.small{padding:2px 9px;margin:0 0 0 6px;font-size:13px}
+.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1}.row>button{flex:none}
+.item{border-top:1px solid var(--line);padding:9px 0;display:flex;gap:8px;align-items:flex-start}
+.item:first-child{border-top:0}.item>.grow{flex:1;min-width:0;overflow-wrap:anywhere}
+.desc,.muted{color:var(--muted);font-size:13px}
+.tag{display:inline-block;font-size:12px;padding:0 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.up{color:#ee7c7c}.down{color:#72d696}
+#msg{position:sticky;top:0;display:none;padding:8px 12px;border-radius:6px;margin:8px 0;background:#173f52;z-index:2}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:4px 6px 4px 0;border-bottom:1px solid #1b2836;text-align:left}
+th{color:var(--muted);font-weight:normal;font-size:13px}td.num,th.num{text-align:right}

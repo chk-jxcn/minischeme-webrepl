@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div id="output">Running test...</div>
+<script>
+async function test() {
+    try {
+        const importObject = {
+            env: {
+                js_print: (ptr, len) => {}
+            }
+        };
+        const resp = await fetch('compiler.wasm');
+        const bytes = await resp.arrayBuffer();
+        const results = await WebAssembly.instantiate(bytes, importObject);
+        const inst = results.instance;
+        const mem = inst.exports.memory;
+
+        function passStr(str) {
+            const enc = new TextEncoder().encode(str + '\0');
+            const ptr = inst.exports.malloc(enc.length);
+            new Uint8Array(mem.buffer, ptr, enc.length).set(enc);
+            return ptr;
+        }
+
+        function readStr(ptr) {
+            const u8 = new Uint8Array(mem.buffer);
+            let end = ptr;
+            while (u8[end] !== 0) end++;
+            return new TextDecoder().decode(u8.subarray(ptr, end));
+        }
+
+        const srcPtr = passStr("(+ 10 (* 3 5))");
+        const resPtr = inst.exports.wasm_compile(srcPtr);
+        const jsonStr = readStr(resPtr);
+        document.getElementById('output').innerText = "WASM_OUTPUT:" + jsonStr;
+    } catch (e) {
+        document.getElementById('output').innerText = "WASM_ERROR:" + e.message;
+    }
+}
+test();
+</script>
+</body>
+</html>

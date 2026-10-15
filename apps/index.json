@@ -1,0 +1,17 @@
+{
+  "apps": [
+    "album",
+    "calendar",
+    "crypto",
+    "futures",
+    "memo",
+    "news",
+    "notifier",
+    "pcmonitor",
+    "settings",
+    "stocks",
+    "usage",
+    "weather",
+    "wxpusher"
+  ]
+}

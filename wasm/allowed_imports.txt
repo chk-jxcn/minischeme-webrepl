@@ -1,0 +1,17 @@
+js_print
+sin
+cos
+tan
+asin
+acos
+atan
+atan2
+pow
+log
+exp
+sqrt
+floor
+ceil
+round
+fabs
+js_now_ms

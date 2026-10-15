@@ -1,0 +1,11 @@
+# Python and cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+_tmp_*
+
+# Editor and temporary files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
