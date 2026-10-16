@@ -348,6 +348,68 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("idx", types)
         conn.close()
 
+    def test_09b_market_endpoints(self):
+        """Verify /app/futures, /app/crypto, and /app/stocks return correct schema tags"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+
+        # 1. Futures: list view has "q", trend has "trend", all has both
+        conn.request("GET", "/app/futures?view=list&codes=RB0,AU0,CU0")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("q", tags, "Futures list must contain 'q' tags for Scheme app items-all")
+        self.assertIn("meta", tags)
+
+        conn.request("GET", "/app/futures?view=all&codes=RB0,AU0,CU0&chart=AU0")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("q", tags)
+        self.assertIn("trend", tags)
+        self.assertIn("k", tags)
+
+        # 2. Crypto: list view has "c", trend has "trend", all has both
+        conn.request("GET", "/app/crypto?view=list&symbols=BTC,ETH,SOL")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("c", tags, "Crypto list must contain 'c' tags for Scheme app items-all")
+        self.assertIn("meta", tags)
+
+        conn.request("GET", "/app/crypto?view=all&symbols=BTC,ETH,SOL&chart=BTC")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("c", tags)
+        self.assertIn("trend", tags)
+        self.assertIn("k", tags)
+
+        # 3. Stocks: home view has "idx", "trend", and "q", all has "k"
+        conn.request("GET", "/app/stocks?view=home&codes=sh600519,sz300750&index=sh000001")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("idx", tags, "Stocks home must contain 'idx' for index tiles")
+        self.assertIn("q", tags, "Stocks home must contain 'q' for watchlist rows")
+        self.assertIn("trend", tags)
+
+        conn.request("GET", "/app/stocks?view=all&codes=sh600519,sz300750&index=sh000001")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("idx", tags)
+        self.assertIn("q", tags)
+        self.assertIn("trend", tags)
+        self.assertIn("k", tags)
+
+        conn.close()
+
     def test_10_device_web_and_wifi_controller(self):
         """Verify AppWebPanel multi-tab device web page and WASM simulator WiFi controller"""
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
