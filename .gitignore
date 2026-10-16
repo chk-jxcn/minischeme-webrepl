@@ -9,3 +9,11 @@ _tmp_*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime SQLite databases and generated configs
+*.db
+*.db-shm
+*.db-wal
+config.ini
+.pytest_cache/
+

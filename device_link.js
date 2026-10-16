@@ -46,10 +46,11 @@ function expectSuccess(r, what) {
 }
 
 class HttpDeviceLink {
-    constructor(host) {
+    constructor(host, password = '') {
         let h = (host || '').trim().replace(/\/+$/, '');
         if (h && !/^https?:\/\//i.test(h)) h = 'http://' + h;
         this.base = h;
+        this.password = password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
         this.kind = 'http';
         this.onLog = null;
     }
@@ -61,7 +62,19 @@ class HttpDeviceLink {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), timeoutMs);
         try {
-            const res = await fetch(this.base + path, { ...options, signal: ctrl.signal });
+            const opts = { ...options };
+            const headers = { ...(opts.headers || {}) };
+            const pwd = this.password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
+            if (pwd) {
+                headers['X-MiniScheme-Auth'] = pwd;
+                const sep = path.includes('?') ? '&' : '?';
+                path = path + sep + 'auth=' + encodeURIComponent(pwd);
+            }
+            opts.headers = headers;
+            const res = await fetch(this.base + path, { ...opts, signal: ctrl.signal });
+            if (res.status === 401 || res.status === 403) {
+                throw new Error(`HTTP ${res.status} 密码错误/未授权: 请检查硬件访问密码`);
+            }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return await read(res);
         } catch (e) {

@@ -257,6 +257,7 @@ class AppManager {
                 <div class="am-desc">${amEsc(b.description)}</div>
                 <div class="am-desc">${amEsc(b.file)} · ${amSize(b.size)} · ${b.pages} 页 · v${amEsc(b.version)}</div>
                 <div class="am-actions">
+                    <button class="pill-btn highlight" data-act="edit" data-i="${i}">📝 编辑源码</button>
                     ${state === '已安装' ? '' : `<button class="pill-btn" data-act="install" data-i="${i}">${have ? '更新' : '安装'}</button>`}
                 </div>
             </div>`;
@@ -278,6 +279,13 @@ class AppManager {
             case 'save-file': await this._saveFile(n); break;
             case 'delete': await this._delete(n); break;
             case 'install': await this._install(n); break;
+            case 'edit': {
+                this.close();
+                if (window.SchemeEditor) {
+                    window.SchemeEditor.openWithApp(this.bundled[n]);
+                }
+                break;
+            }
             default: break;
         }
     }

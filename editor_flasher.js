@@ -1,7 +1,7 @@
 /**
  * @file editor_flasher.js
- * @brief In-browser Scheme Editor, WASM Compiler, GitHub App Market,
- *        and Web Serial Firmware Flasher for MiniScheme WebREPL.
+ * @brief In-browser Scheme IDE, Web Serial ESP32 Firmware Flasher,
+ *        Metadata Extraction, and WASM Compiler integration.
  */
 
 // ---------------------------------------------------------------------------
@@ -28,143 +28,985 @@ function getAuthHeaders(headers = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Scheme Code Editor & Metadata Extraction
+// 2. Metadata Extraction, INI Generation & FNV-1a Binary Trailer
 // ---------------------------------------------------------------------------
+function fnv1a32(bytes) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < bytes.length; i++) {
+        h = Math.imul(h ^ bytes[i], 16777619) >>> 0;
+    }
+    return h >>> 0;
+}
+
+function detectApiRequirement(sourceCode) {
+    const tokens = new Set(sourceCode.match(/[a-zA-Z0-9_\-+*/<=>!?:%]+/g) || []);
+    let maxVer = "1.0";
+    
+    // v1.5 APIs
+    const v15Apis = ['gui-marquee', 'backlight-auto', 'json-feed-status', 'app-carousel-pause', 'app-carousel-resume'];
+    for (const api of v15Apis) {
+        if (tokens.has(api)) return "1.5";
+    }
+    // v1.2 APIs
+    const v12Apis = ['http-get', 'json-ref', 'font-load', 'use-font', 'gui-polygon', 'gui-round-rect'];
+    for (const api of v12Apis) {
+        if (tokens.has(api)) maxVer = "1.2";
+    }
+    return maxVer;
+}
+
 function extractSchemeMetadata(code) {
     const meta = {
         id: "custom_app",
-        name: "Custom App",
-        description: "Created in MiniScheme Web IDE",
+        name: "自定义应用",
+        description: "在 MiniScheme Web IDE 中创建",
         version: "1.0.0",
         pages: 1,
-        api_version: "1.5.0"
+        api_version: detectApiRequirement(code),
+        proxy_url: "http://proxy.local:8087",
+        converter_url: "http://converter.local:8087"
     };
 
-    const idMatch = code.match(/;;;\s*\[app\]\s*id\s*=\s*([a-zA-Z0-9_-]+)/i) ||
+    const idMatch = code.match(/;;;\s*(?:\[app\])?\s*id\s*=\s*([a-zA-Z0-9_-]+)/i) ||
                     code.match(/\(define\s+APP-ID\s+"([^"]+)"\)/i) ||
                     code.match(/;;;\s*ID:\s*([a-zA-Z0-9_-]+)/i);
     if (idMatch) meta.id = idMatch[1].trim();
 
-    const nameMatch = code.match(/;;;\s*\[app\]\s*name\s*=\s*([^\r\n]+)/i) ||
+    const nameMatch = code.match(/;;;\s*(?:\[app\])?\s*name\s*=\s*([^\r\n]+)/i) ||
+                      code.match(/\(define\s+APP-NAME\s+"([^"]+)"\)/i) ||
                       code.match(/;;;\s*Name:\s*([^\r\n]+)/i);
     if (nameMatch) meta.name = nameMatch[1].trim();
 
-    const descMatch = code.match(/;;;\s*\[app\]\s*description\s*=\s*([^\r\n]+)/i);
+    const descMatch = code.match(/;;;\s*(?:\[app\])?\s*description\s*=\s*([^\r\n]+)/i);
     if (descMatch) meta.description = descMatch[1].trim();
 
-    const verMatch = code.match(/;;;\s*\[app\]\s*version\s*=\s*([^\r\n]+)/i);
+    const verMatch = code.match(/;;;\s*(?:\[app\])?\s*version\s*=\s*([^\r\n]+)/i) ||
+                     code.match(/\(define\s+APP-VERSION\s+"([^"]+)"\)/i);
     if (verMatch) meta.version = verMatch[1].trim();
 
-    const apiMatch = code.match(/;;;\s*\[app\]\s*api_version\s*=\s*([^\r\n]+)/i) ||
-                     code.match(/API\s+(\d+\.\d+(\.\d+)?)/i);
+    const pagesMatch = code.match(/;;;\s*(?:\[app\])?\s*pages\s*=\s*(\d+)/i);
+    if (pagesMatch) meta.pages = parseInt(pagesMatch[1], 10);
+
+    const apiMatch = code.match(/;;;\s*(?:\[app\])?\s*api(?:_version)?\s*=\s*([0-9.]+)/i);
     if (apiMatch) meta.api_version = apiMatch[1].trim();
+
+    const proxyMatch = code.match(/;;;\s*(?:\[config\])?\s*proxy_url\s*=\s*([^\r\n]+)/i);
+    if (proxyMatch) meta.proxy_url = proxyMatch[1].trim();
+
+    const convMatch = code.match(/;;;\s*(?:\[config\])?\s*converter_url\s*=\s*([^\r\n]+)/i);
+    if (convMatch) meta.converter_url = convMatch[1].trim();
 
     return meta;
 }
 
-function formatMetaIni(meta) {
-    return `[app]\nid = ${meta.id}\nname = ${meta.name}\ndescription = ${meta.description}\nversion = ${meta.version}\npages = ${meta.pages}\napi_version = ${meta.api_version}\n\n[config]\nproxy_url = http://proxy.local:8087\nconverter_url = http://converter.local:8087\n`;
+function generateMetaIniText(meta) {
+    return `[app]\nid = ${meta.id}\nname = ${meta.name}\ndescription = ${meta.description}\nversion = ${meta.version}\npages = ${meta.pages}\napi = ${meta.api_version}\n\n[config]\nproxy_url = ${meta.proxy_url || ''}\nconverter_url = ${meta.converter_url || ''}\n`;
 }
 
-// ---------------------------------------------------------------------------
-// 3. Online WASM Compilation & LocalStorage Storage
-// ---------------------------------------------------------------------------
-async function compileSchemeSource(sourceCode) {
-    const meta = extractSchemeMetadata(sourceCode);
-    if (window.WasmCompiler && typeof window.WasmCompiler.compile === "function") {
-        const msbcBytes = await window.WasmCompiler.compile(sourceCode);
-        return { success: true, bytes: msbcBytes, meta };
+function generateSchemeHeaderComment(meta) {
+    return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; pages = ${meta.pages}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || 'http://proxy.local:8087'}\n;;; converter_url = ${meta.converter_url || 'http://converter.local:8087'}\n\n`;
+}
+
+function attachMetaTrailerToMsbc(msbcBytes, meta) {
+    const iniText = generateMetaIniText(meta);
+    const metaBytes = new TextEncoder().encode(iniText);
+    const metaLen = metaBytes.length;
+    const hash = fnv1a32(metaBytes);
+
+    // Trailer structure: [meta bytes] + [uint32_le len] + [uint32_le hash] + [4 bytes 'MSMD']
+    const trailer = new Uint8Array(metaLen + 4 + 4 + 4);
+    trailer.set(metaBytes, 0);
+
+    const dv = new DataView(trailer.buffer, metaLen);
+    dv.setUint32(0, metaLen, true);
+    dv.setUint32(4, hash, true);
+    trailer[metaLen + 8] = 0x4D; // 'M'
+    trailer[metaLen + 9] = 0x53; // 'S'
+    trailer[metaLen + 10] = 0x4D; // 'M'
+    trailer[metaLen + 11] = 0x44; // 'D'
+
+    const combined = new Uint8Array(msbcBytes.length + trailer.length);
+    combined.set(msbcBytes, 0);
+    combined.set(trailer, msbcBytes.length);
+
+    return {
+        combinedBytes: combined,
+        metaBytes: metaBytes,
+        metaLen: metaLen,
+        hash: hash
+    };
+}
+
+function parseMsbcTrailer(bytes) {
+    if (bytes.length < 12) return null;
+    const n = bytes.length;
+    const magic = String.fromCharCode(bytes[n - 4], bytes[n - 3], bytes[n - 2], bytes[n - 1]);
+    if (magic !== 'MSMD') return null;
+
+    const dv = new DataView(bytes.buffer, bytes.byteOffset + n - 12, 8);
+    const metaLen = dv.getUint32(0, true);
+    const hash = dv.getUint32(4, true);
+
+    if (metaLen <= 0 || metaLen > n - 12) return null;
+
+    const metaOffset = n - 12 - metaLen;
+    const metaSlice = bytes.subarray(metaOffset, metaOffset + metaLen);
+    const computedHash = fnv1a32(metaSlice);
+    if (computedHash !== hash) {
+        console.warn('MSMD trailer checksum mismatch', { computedHash, storedHash: hash });
     }
-    // Fallback via server API
-    const resp = await fetch("/api/compile_scheme", {
-        method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: sourceCode
-    });
-    if (!resp.ok) {
-        throw new Error(`Server compile failed: ${resp.statusText}`);
+
+    const iniText = new TextDecoder('utf-8').decode(metaSlice);
+    return {
+        hasTrailer: true,
+        metaLen,
+        hash,
+        iniText,
+        meta: extractSchemeMetadata(iniText),
+        bytecodeBytes: bytes.subarray(0, metaOffset)
+    };
+}
+
+// ---------------------------------------------------------------------------
+// 3. Web Serial Firmware Flasher (esptool-js integration)
+// ---------------------------------------------------------------------------
+const GITHUB_ESP32_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-esp32/releases/download/v1.0.0/';
+
+async function loadEsptoolBundle() {
+    if (window.__esptool) return window.__esptool;
+    try {
+        window.__esptool = await import('./esptool-bundle.js');
+        return window.__esptool;
+    } catch (e1) {
+        console.warn('Failed to load local esptool-bundle.js, trying unpkg CDN fallback...', e1);
+        window.__esptool = await import('https://unpkg.com/esptool-js@0.5.2/bundle.js');
+        return window.__esptool;
     }
-    const buf = await resp.arrayBuffer();
-    return { success: true, bytes: new Uint8Array(buf), meta };
 }
 
-function saveEditorDraft(appId, code) {
-    localStorage.setItem(`minischeme_code_${appId}`, code);
-}
-
-function loadEditorDraft(appId) {
-    return localStorage.getItem(`minischeme_code_${appId}`) || "";
-}
-
-function downloadBinaryFile(filename, bytes) {
-    const blob = new Blob([bytes], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
-// ---------------------------------------------------------------------------
-// 4. Web Serial Firmware Flasher
-// ---------------------------------------------------------------------------
-class WebSerialFlasher {
+class WebSerialFirmwareFlasher {
     constructor() {
+        this.dialog = null;
         this.port = null;
+        this.esploader = null;
+        this.transport = null;
+        this.isFlashing = false;
+
+        this.githubFirmware = {
+            bootloader: null,
+            partition: null,
+            firmware: null,
+            status: 'idle'
+        };
+
+        this.manualFirmware = {
+            bootloader: null,
+            partition: null,
+            firmware: null
+        };
     }
 
-    isSupported() {
-        return "serial" in navigator;
-    }
+    init() {
+        this.dialog = document.getElementById('flasher-dialog');
+        if (!this.dialog) return;
 
-    async requestPort() {
-        if (!this.isSupported()) {
-            throw new Error("Web Serial API is not supported in this browser. Please use Chrome, Edge, or Opera.");
+        // Mode switch (GitHub vs Manual)
+        const radioGh = document.getElementById('flasher-mode-gh');
+        const radioManual = document.getElementById('flasher-mode-manual');
+        const ghSection = document.getElementById('flasher-gh-section');
+        const manualSection = document.getElementById('flasher-manual-section');
+
+        const updateMode = () => {
+            if (radioGh && radioGh.checked) {
+                if (ghSection) ghSection.style.display = 'block';
+                if (manualSection) manualSection.style.display = 'none';
+            } else {
+                if (ghSection) ghSection.style.display = 'none';
+                if (manualSection) manualSection.style.display = 'block';
+            }
+        };
+
+        if (radioGh) radioGh.addEventListener('change', updateMode);
+        if (radioManual) radioManual.addEventListener('change', updateMode);
+
+        // Fetch GitHub release assets
+        const btnFetchGh = document.getElementById('flasher-fetch-gh-btn');
+        if (btnFetchGh) {
+            btnFetchGh.addEventListener('click', () => this.fetchGithubAssets());
         }
-        this.port = await navigator.serial.requestPort({
-            filters: [
-                { usbVendorId: 0x10c4 }, // CP2102
-                { usbVendorId: 0x1a86 }, // CH340
-                { usbVendorId: 0x0403 }, // FTDI
-                { usbVendorId: 0x303a }  // Espressif USB JTAG/Serial
-            ]
+
+        // File pickers for manual mode
+        this._bindFileInput('flasher-file-boot', (bytes, name) => {
+            this.manualFirmware.bootloader = bytes;
+            this._setFileLabel('flasher-label-boot', `${name} (${this._formatSize(bytes.length)})`);
         });
-        return this.port;
-    }
+        this._bindFileInput('flasher-file-part', (bytes, name) => {
+            this.manualFirmware.partition = bytes;
+            this._setFileLabel('flasher-label-part', `${name} (${this._formatSize(bytes.length)})`);
+        });
+        this._bindFileInput('flasher-file-app', (bytes, name) => {
+            this.manualFirmware.firmware = bytes;
+            this._setFileLabel('flasher-label-app', `${name} (${this._formatSize(bytes.length)})`);
+        });
 
-    async flashFirmware(bootloaderBin, partitionBin, appBin, onProgress, onLog) {
-        if (!this.port) await this.requestPort();
-        onLog("[*] Serial port opened. Connecting to ESP32 bootloader at 115200 baud...");
-
-        // esptool-js integration or basic serial reset
-        await this.port.open({ baudRate: 115200 });
-
-        // Hardware Reset sequence into bootloader (DTR=0, RTS=1 -> DTR=1, RTS=0)
-        await this.port.setSignals({ dataTerminalReady: false, requestToSend: true });
-        await new Promise(r => setTimeout(r, 100));
-        await this.port.setSignals({ dataTerminalReady: true, requestToSend: false });
-        await new Promise(r => setTimeout(r, 50));
-        await this.port.setSignals({ dataTerminalReady: false, requestToSend: false });
-
-        onLog("[*] ESP32 bootloader reset sequence sent.");
-        onLog("[*] Flashing bootloader (0x1000), partitions (0x8000), and firmware (0x10000)...");
-
-        // Simulate progress for web ui or invoke esptool-js loader
-        for (let p = 10; p <= 100; p += 10) {
-            await new Promise(r => setTimeout(r, 150));
-            if (onProgress) onProgress(p);
+        // Flash & Reset buttons
+        const btnFlash = document.getElementById('flasher-start-btn');
+        if (btnFlash) {
+            btnFlash.addEventListener('click', () => this.startFlash());
         }
 
-        onLog("[+] Firmware flashing complete! Hard resetting ESP32...");
-        await this.port.setSignals({ dataTerminalReady: false, requestToSend: true });
-        await new Promise(r => setTimeout(r, 100));
-        await this.port.setSignals({ dataTerminalReady: false, requestToSend: false });
-        await this.port.close();
-        this.port = null;
+        const btnReset = document.getElementById('flasher-reset-btn');
+        if (btnReset) {
+            btnReset.addEventListener('click', () => this.hardReset());
+        }
+
+        const btnClose = document.getElementById('flasher-close-btn');
+        if (btnClose) {
+            btnClose.addEventListener('click', () => this.close());
+        }
+    }
+
+    _bindFileInput(elemId, callback) {
+        const el = document.getElementById(elemId);
+        if (!el) return;
+        el.addEventListener('change', (ev) => {
+            const file = ev.target.files && ev.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                callback(new Uint8Array(reader.result), file.name);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    _setFileLabel(elemId, text) {
+        const el = document.getElementById(elemId);
+        if (el) el.textContent = text;
+    }
+
+    _formatSize(n) {
+        if (n < 1024) return `${n} B`;
+        if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+        return `${(n / 1048576).toFixed(2)} MB`;
+    }
+
+    open() {
+        if (!this.dialog) this.init();
+        if (this.dialog) {
+            this.dialog.showModal();
+            this.log('info', 'Web Serial 固件烧录器已打开。请选择固件来源并连接 ESP32 开发板。');
+            if (!('serial' in navigator)) {
+                this.log('error', '⚠️ 当前浏览器不支持 Web Serial API。请使用 Google Chrome、Microsoft Edge 或 Opera 浏览器。');
+            }
+        }
+    }
+
+    close() {
+        if (this.isFlashing) {
+            if (!confirm('固件正在烧写中，确定要中断并关闭吗？')) return;
+        }
+        if (this.dialog) this.dialog.close();
+    }
+
+    log(type, msg) {
+        const term = document.getElementById('flasher-terminal');
+        if (!term) return;
+        const line = document.createElement('div');
+        line.className = `term-line ${type || 'info'}`;
+        const time = new Date().toTimeString().slice(0, 8);
+        line.textContent = `[${time}] ${msg}`;
+        term.appendChild(line);
+        term.scrollTop = term.scrollHeight;
+    }
+
+    setProgress(pct, text) {
+        const fill = document.getElementById('flasher-progress-fill');
+        const label = document.getElementById('flasher-progress-text');
+        if (fill) fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+        if (label) label.textContent = text || `${Math.round(pct)}%`;
+    }
+
+    async fetchGithubAssets() {
+        const statusEl = document.getElementById('flasher-gh-status');
+        const btn = document.getElementById('flasher-fetch-gh-btn');
+        if (btn) btn.disabled = true;
+        if (statusEl) statusEl.textContent = '正在从 GitHub Release 下载固件包...';
+        this.log('info', '正在从 GitHub 官方 Release (v1.0.0) 下载固件文件...');
+
+        try {
+            const files = [
+                { name: 'bootloader.bin', key: 'bootloader', offset: 0x1000 },
+                { name: 'partition-table.bin', key: 'partition', offset: 0x8000 },
+                { name: 'minischeme_esp32.bin', key: 'firmware', offset: 0x10000 }
+            ];
+
+            for (const item of files) {
+                const url = `${GITHUB_ESP32_RELEASE_BASE}${item.name}`;
+                this.log('info', `正在拉取: ${item.name} ...`);
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) throw new Error(`下载 ${item.name} 失败: HTTP ${res.status}`);
+                const buf = await res.arrayBuffer();
+                this.githubFirmware[item.key] = new Uint8Array(buf);
+                this.log('ok', `✔ 已下载 ${item.name} (${this._formatSize(buf.byteLength)})`);
+            }
+
+            this.githubFirmware.status = 'ready';
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 固件下载完毕: Bootloader (0x1000), 分区表 (0x8000), 主固件 (0x10000)</span>`;
+            }
+        } catch (e) {
+            this.log('error', `固件拉取失败: ${e.message}`);
+            if (statusEl) statusEl.textContent = `拉取失败: ${e.message}`;
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async startFlash() {
+        if (this.isFlashing) return;
+        if (!('serial' in navigator)) {
+            alert('当前浏览器不支持 Web Serial API，请使用 Chrome、Edge 或 Opera 浏览器。');
+            return;
+        }
+
+        const isGhMode = document.getElementById('flasher-mode-gh').checked;
+        const src = isGhMode ? this.githubFirmware : this.manualFirmware;
+
+        if (!src.bootloader || !src.partition || !src.firmware) {
+            alert('请先准备好全部 3 个固件文件：引导程序 (bootloader)、分区表 (partition-table) 与主固件 (minischeme_esp32)！');
+            return;
+        }
+
+        const baudSelect = document.getElementById('flasher-baud-select');
+        const baudrate = parseInt((baudSelect && baudSelect.value) || '460800', 10);
+
+        const eraseAllCheck = document.getElementById('flasher-erase-all');
+        const eraseAll = eraseAllCheck && eraseAllCheck.checked;
+
+        this.isFlashing = true;
+        const btnFlash = document.getElementById('flasher-start-btn');
+        if (btnFlash) btnFlash.disabled = true;
+
+        try {
+            this.log('info', '正在加载 Espressif 烧录驱动模块 (esptool-js)...');
+            const esptool = await loadEsptoolBundle();
+            const { ESPLoader, Transport } = esptool;
+
+            this.log('info', '请在弹出窗口中选择 ESP32 开发板的 USB 串口...');
+            const port = await navigator.serial.requestPort({
+                filters: [
+                    { usbVendorId: 0x10c4 }, // CP2102
+                    { usbVendorId: 0x1a86 }, // CH340
+                    { usbVendorId: 0x0403 }, // FTDI
+                    { usbVendorId: 0x303a }  // Espressif USB
+                ]
+            });
+            this.port = port;
+
+            const transport = new Transport(port);
+            this.transport = transport;
+
+            const self = this;
+            const term = {
+                clean() {},
+                write(str) {
+                    if (str && str.trim()) self.log('info', str.trim());
+                },
+                writeLine(str) {
+                    if (str && str.trim()) self.log('info', str.trim());
+                }
+            };
+
+            const esploader = new ESPLoader({
+                transport: transport,
+                baudrate: 115200,
+                terminal: term
+            });
+            this.esploader = esploader;
+
+            this.log('info', '正在连接 ESP32 ROM Bootloader (发送硬件 DTR/RTS 复位时序)...');
+            this.setProgress(5, '正在握手连接...');
+            const chipName = await esploader.main();
+            this.log('ok', `✔ 成功连接芯片: ${chipName || 'ESP32'}`);
+
+            if (baudrate !== 115200) {
+                this.log('info', `提升烧录波特率至 ${baudrate} baud...`);
+            }
+
+            // Build files array
+            const filesToFlash = [
+                { data: src.bootloader, address: 0x1000 },
+                { data: src.partition, address: 0x8000 },
+                { data: src.firmware, address: 0x10000 }
+            ];
+
+            const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);
+            this.log('info', `准备写入 Flash：共 ${filesToFlash.length} 个分区，总计 ${this._formatSize(totalBytes)}`);
+
+            let writtenBytes = 0;
+            const flashOptions = {
+                fileArray: filesToFlash,
+                flashSize: 'keep',
+                flashMode: 'dio',
+                flashFreq: '40m',
+                compress: true,
+                eraseAll: eraseAll,
+                reportProgress: (fileIndex, written, total) => {
+                    const filePct = total > 0 ? (written / total) : 0;
+                    const overallPct = Math.round(((fileIndex + filePct) / filesToFlash.length) * 100);
+                    self.setProgress(overallPct, `${overallPct}% (${self._formatSize(written)} / ${self._formatSize(total)})`);
+                }
+            };
+
+            this.log('info', '开始写入 Flash (SLIP 压缩传输)...');
+            await esploader.writeFlash(flashOptions);
+
+            this.setProgress(100, '烧录成功 100%');
+            this.log('ok', '🎉 固件烧写完成！正在通过 RTS 引脚硬复位芯片重启进入 MiniScheme 系统...');
+
+            try {
+                await esploader.after('hard_reset');
+            } catch (e) {
+                this.log('info', '执行硬复位完成');
+            }
+
+            await transport.disconnect();
+            this.port = null;
+            this.transport = null;
+            this.esploader = null;
+
+            this.log('ok', '✔ 串口已关闭。MiniScheme 固件正在启动，你可以在 WebREPL 中连接 WiFi HTTP 或串口终端进行控制！');
+            alert('🎉 固件烧录成功！设备已自动重启，欢迎使用 MiniScheme！');
+        } catch (err) {
+            this.log('error', `❌ 烧录失败: ${err.message}`);
+            alert(`烧录失败: ${err.message}`);
+        } finally {
+            this.isFlashing = false;
+            if (btnFlash) btnFlash.disabled = false;
+        }
+    }
+
+    async hardReset() {
+        if (!('serial' in navigator)) return;
+        try {
+            const port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 115200 });
+            await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+            await new Promise(r => setTimeout(r, 100));
+            await port.setSignals({ dataTerminalReady: true, requestToSend: false });
+            await new Promise(r => setTimeout(r, 50));
+            await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+            await port.close();
+            this.log('ok', '✔ 已发送硬件复位信号 (RTS/DTR Reset)');
+        } catch (e) {
+            this.log('error', `复位失败: ${e.message}`);
+        }
     }
 }
 
-window.MiniSchemeFlasher = new WebSerialFlasher();
+// ---------------------------------------------------------------------------
+// 4. Scheme In-Browser IDE & Online Compiler
+// ---------------------------------------------------------------------------
+const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
+;;; id = my_app
+;;; name = 我的自定义应用
+;;; description = 使用 MiniScheme Web IDE 开发的轻量桌面应用
+;;; version = 1.0.0
+;;; pages = 1
+;;; api = 1.5
+;;;
+;;; [config]
+;;; proxy_url = http://proxy.local:8087
+;;; converter_url = http://converter.local:8087
+
+;; 简单的信息看板页面
+(gui-frame "MiniScheme IDE"
+  (gui-vbox
+    (gui-text "Hello, MiniScheme!" 24 'bold)
+    (gui-text "毫秒级 WASM 预编译，零显存条带渲染" 16 'normal)
+    (gui-text (string-append "开机运行时间: " (number->string (millis)) " ms") 14 'dim)))
+`;
+
+class SchemeIdeModal {
+    constructor() {
+        this.dialog = null;
+        this.codeArea = null;
+        this.lastCompiled = null;
+        this.bundledApps = [];
+    }
+
+    init() {
+        this.dialog = document.getElementById('editor-dialog');
+        this.codeArea = document.getElementById('editor-code');
+        if (!this.dialog) return;
+
+        // Sync metadata buttons
+        const btnSyncFromCode = document.getElementById('editor-sync-from-code-btn');
+        if (btnSyncFromCode) {
+            btnSyncFromCode.addEventListener('click', () => this.syncMetaFromCode());
+        }
+
+        const btnSyncToCode = document.getElementById('editor-sync-to-code-btn');
+        if (btnSyncToCode) {
+            btnSyncToCode.addEventListener('click', () => this.syncMetaToCode());
+        }
+
+        // Compile & Deploy buttons
+        const btnCompile = document.getElementById('editor-compile-btn');
+        if (btnCompile) {
+            btnCompile.addEventListener('click', () => this.compile());
+        }
+
+        const btnRunLocal = document.getElementById('editor-run-local-btn');
+        if (btnRunLocal) {
+            btnRunLocal.addEventListener('click', () => this.runLocal());
+        }
+
+        const btnUploadHw = document.getElementById('editor-upload-hw-btn');
+        if (btnUploadHw) {
+            btnUploadHw.addEventListener('click', () => this.uploadToHardware());
+        }
+
+        const btnSaveDraft = document.getElementById('editor-save-draft-btn');
+        if (btnSaveDraft) {
+            btnSaveDraft.addEventListener('click', () => this.saveDraft());
+        }
+
+        const btnDownloadMsbc = document.getElementById('editor-download-msbc-btn');
+        if (btnDownloadMsbc) {
+            btnDownloadMsbc.addEventListener('click', () => this.downloadMsbc());
+        }
+
+        const btnDownloadScm = document.getElementById('editor-download-scm-btn');
+        if (btnDownloadScm) {
+            btnDownloadScm.addEventListener('click', () => this.downloadScm());
+        }
+
+        // File inputs for manual import
+        const inputScm = document.getElementById('editor-input-scm');
+        if (inputScm) {
+            inputScm.addEventListener('change', (ev) => {
+                const file = ev.target.files && ev.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    this.codeArea.value = reader.result;
+                    this.syncMetaFromCode();
+                    this.compile();
+                };
+                reader.readAsText(file, 'utf-8');
+            });
+        }
+
+        const inputMsbc = document.getElementById('editor-input-msbc');
+        if (inputMsbc) {
+            inputMsbc.addEventListener('change', (ev) => {
+                const file = ev.target.files && ev.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    this.loadMsbcBinary(new Uint8Array(reader.result), file.name);
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // Template selector
+        const appSelect = document.getElementById('editor-app-select');
+        if (appSelect) {
+            appSelect.addEventListener('change', () => {
+                const val = appSelect.value;
+                if (val) this.loadAppFromMarketOrTemplate(val);
+            });
+        }
+
+        // Close button
+        const btnClose = document.getElementById('editor-close-btn');
+        if (btnClose) {
+            btnClose.addEventListener('click', () => this.close());
+        }
+
+        // Tab key support in textarea
+        if (this.codeArea) {
+            this.codeArea.addEventListener('keydown', (e) => {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const start = this.codeArea.selectionStart;
+                    const end = this.codeArea.selectionEnd;
+                    this.codeArea.value = this.codeArea.value.substring(0, start) + '  ' + this.codeArea.value.substring(end);
+                    this.codeArea.selectionStart = this.codeArea.selectionEnd = start + 2;
+                }
+            });
+            this.codeArea.addEventListener('input', () => {
+                this._updateStatusLine();
+            });
+        }
+    }
+
+    _updateStatusLine() {
+        const statusEl = document.getElementById('editor-status-line');
+        if (!statusEl || !this.codeArea) return;
+        const text = this.codeArea.value;
+        const lines = text.split('\n').length;
+        const chars = text.length;
+        statusEl.textContent = `共 ${lines} 行，${chars} 字符`;
+    }
+
+    open(initialCode = null) {
+        if (!this.dialog) this.init();
+        if (this.dialog) {
+            this.dialog.showModal();
+            if (initialCode) {
+                this.codeArea.value = initialCode;
+            } else if (!this.codeArea.value.trim()) {
+                const draft = localStorage.getItem('minischeme_editor_draft_my_app');
+                this.codeArea.value = draft || DEFAULT_SCHEME_TEMPLATE;
+            }
+            this.syncMetaFromCode();
+            this._updateStatusLine();
+            this._populateAppSelector();
+        }
+    }
+
+    openWithApp(app) {
+        this.open();
+        if (app && app.id) {
+            this.loadAppFromMarketOrTemplate(app.id);
+        }
+    }
+
+    close() {
+        if (this.dialog) this.dialog.close();
+    }
+
+    async _populateAppSelector() {
+        const select = document.getElementById('editor-app-select');
+        if (!select || select.options.length > 2) return;
+
+        try {
+            // Load bundled index
+            const res = await fetch('apps/index.json', { cache: 'no-store' });
+            if (res.ok) {
+                const list = await res.json();
+                this.bundledApps = list;
+                for (const app of list) {
+                    const opt = document.createElement('option');
+                    opt.value = app.id;
+                    opt.textContent = `📦 ${app.name} (${app.id}.scm)`;
+                    select.appendChild(opt);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load apps/index.json', e);
+        }
+    }
+
+    async loadAppFromMarketOrTemplate(appId) {
+        if (appId === '__blank__') {
+            this.codeArea.value = DEFAULT_SCHEME_TEMPLATE;
+            this.syncMetaFromCode();
+            return;
+        }
+
+        const statusEl = document.getElementById('editor-build-status');
+        if (statusEl) statusEl.textContent = `正在从 GitHub/本地加载 ${appId}.scm 源码...`;
+
+        try {
+            let scmText = null;
+
+            // 1. Try local bundled apps/<id>.allinone.scm
+            try {
+                const localAllinone = await fetch(`apps/${appId}.allinone.scm`);
+                if (localAllinone.ok) scmText = await localAllinone.text();
+            } catch (e) { /* ignore */ }
+
+            // 2. Try raw GitHub apps/<id>/<id>.allinone.scm
+            if (!scmText) {
+                try {
+                    const ghAllinone = await fetch(`https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.allinone.scm`);
+                    if (ghAllinone.ok) scmText = await ghAllinone.text();
+                } catch (e) { /* ignore */ }
+            }
+
+            // 3. Try GitHub Release v1.0.0/<id>.allinone.scm
+            if (!scmText) {
+                try {
+                    const ghRelAllinone = await fetch(`https://github.com/chk-jxcn/minischeme-apps/releases/download/v1.0.0/${appId}.allinone.scm`);
+                    if (ghRelAllinone.ok) scmText = await ghRelAllinone.text();
+                } catch (e) { /* ignore */ }
+            }
+
+            // 4. Fallback to basic .scm
+            if (!scmText) {
+                try {
+                    const ghUrl = `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.scm`;
+                    const ghRes = await fetch(ghUrl);
+                    if (ghRes.ok) scmText = await ghRes.text();
+                } catch (e) { /* ignore */ }
+            }
+
+            if (!scmText) {
+                try {
+                    const localRes = await fetch(`apps/${appId}.scm`);
+                    if (localRes.ok) scmText = await localRes.text();
+                } catch (e) { /* ignore */ }
+            }
+
+            if (!scmText) {
+                throw new Error(`未能获取 ${appId}.allinone.scm 源码 (请确认网络或手动打开本地文件)`);
+            }
+
+            this.codeArea.value = scmText;
+            this.syncMetaFromCode();
+            this.compile();
+            if (statusEl) statusEl.textContent = `✔ 成功载入 ${appId} (全包含 All-in-One 源码)`;
+        } catch (e) {
+            alert(`加载源码失败: ${e.message}`);
+            if (statusEl) statusEl.textContent = `加载失败: ${e.message}`;
+        }
+    }
+
+    loadMsbcBinary(bytes, filename) {
+        const parsed = parseMsbcTrailer(bytes);
+        const statusEl = document.getElementById('editor-build-status');
+        if (parsed) {
+            this.lastCompiled = {
+                combinedBytes: bytes,
+                metaBytes: new TextEncoder().encode(parsed.iniText),
+                metaLen: parsed.metaLen,
+                hash: parsed.hash,
+                compileTimeMs: 0
+            };
+            this._fillMetaInputs(parsed.meta);
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 成功载入已编译 MSBC: ${filename} (${bytes.length} 字节, 包含有效 MSMD 元数据)</span>`;
+            }
+            alert(`已载入已编译文件 ${filename}！元数据已提取，可直接点击“安装到 ESP32”或“本地仿真测试”。`);
+        } else {
+            this.lastCompiled = {
+                combinedBytes: bytes,
+                compileTimeMs: 0
+            };
+            if (statusEl) {
+                statusEl.innerHTML = `<span style="color:#fbbf24;">⚠️ 载入 MSBC (${bytes.length} 字节)，未检测到 MSMD 元数据 trailer。</span>`;
+            }
+        }
+    }
+
+    _getMetaFromInputs() {
+        return {
+            id: (document.getElementById('editor-meta-id').value || 'custom_app').trim(),
+            name: (document.getElementById('editor-meta-name').value || '自定义应用').trim(),
+            description: (document.getElementById('editor-meta-desc').value || '').trim(),
+            version: (document.getElementById('editor-meta-version').value || '1.0.0').trim(),
+            pages: parseInt(document.getElementById('editor-meta-pages').value || '1', 10),
+            api_version: (document.getElementById('editor-meta-api').value || '1.5').trim(),
+            proxy_url: (document.getElementById('editor-meta-proxy').value || '').trim(),
+            converter_url: (document.getElementById('editor-meta-converter').value || '').trim()
+        };
+    }
+
+    _fillMetaInputs(meta) {
+        if (!meta) return;
+        const setVal = (id, v) => {
+            const el = document.getElementById(id);
+            if (el) el.value = v != null ? v : '';
+        };
+        setVal('editor-meta-id', meta.id);
+        setVal('editor-meta-name', meta.name);
+        setVal('editor-meta-desc', meta.description);
+        setVal('editor-meta-version', meta.version);
+        setVal('editor-meta-pages', meta.pages);
+        setVal('editor-meta-api', meta.api_version);
+        setVal('editor-meta-proxy', meta.proxy_url);
+        setVal('editor-meta-converter', meta.converter_url);
+    }
+
+    syncMetaFromCode() {
+        const code = this.codeArea.value;
+        const meta = extractSchemeMetadata(code);
+        this._fillMetaInputs(meta);
+    }
+
+    syncMetaToCode() {
+        const meta = this._getMetaFromInputs();
+        let code = this.codeArea.value;
+        // Strip existing header comment
+        code = code.replace(/^;;;.*?\n\n/s, '');
+        const header = generateSchemeHeaderComment(meta);
+        this.codeArea.value = header + code;
+        this._updateStatusLine();
+    }
+
+    compile() {
+        const source = this.codeArea.value;
+        const statusEl = document.getElementById('editor-build-status');
+        const metricTime = document.getElementById('editor-metric-time');
+        const metricBytecode = document.getElementById('editor-metric-bytes');
+        const metricTrailer = document.getElementById('editor-metric-trailer');
+        const metricTotal = document.getElementById('editor-metric-total');
+
+        if (typeof compileWithWasm !== 'function') {
+            if (statusEl) statusEl.textContent = '❌ WASM 编译器未就绪';
+            return null;
+        }
+
+        const res = compileWithWasm(source);
+        if (!res || !res.success) {
+            const err = (res && res.error) || '编译失败';
+            if (statusEl) statusEl.innerHTML = `<span style="color:#f87171;">❌ 编译错误: ${err}</span>`;
+            return null;
+        }
+
+        const meta = this._getMetaFromInputs();
+        const packaged = attachMetaTrailerToMsbc(res.bytes, meta);
+
+        this.lastCompiled = {
+            ...packaged,
+            compileTimeMs: res.compileTimeMs,
+            bytecode_hex: res.bytecode_hex,
+            disasm: res.disasm
+        };
+
+        if (metricTime) metricTime.textContent = `${res.compileTimeMs} ms`;
+        if (metricBytecode) metricBytecode.textContent = `${res.bytes.length} B`;
+        if (metricTrailer) metricTrailer.textContent = `${packaged.combinedBytes.length - res.bytes.length} B`;
+        if (metricTotal) metricTotal.textContent = `${packaged.combinedBytes.length} B`;
+
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:#4ade80;">✔ 编译成功！字节码: ${res.bytes.length} B, 元数据: ${packaged.metaLen} B, 总包: ${packaged.combinedBytes.length} B</span>`;
+        }
+
+        // Update hex viewer & disasm
+        const disasmPre = document.getElementById('editor-disasm-pre');
+        if (disasmPre && res.disasm) disasmPre.textContent = res.disasm;
+
+        const hexDiv = document.getElementById('editor-hex-div');
+        if (hexDiv && res.bytecode_hex) {
+            let formatted = '';
+            for (let i = 0; i < res.bytecode_hex.length; i += 2) {
+                formatted += res.bytecode_hex.slice(i, i + 2) + ' ';
+                if ((i + 2) % 32 === 0) formatted += '\n';
+            }
+            hexDiv.textContent = formatted;
+        }
+
+        return this.lastCompiled;
+    }
+
+    runLocal() {
+        if (!this.lastCompiled) {
+            if (!this.compile()) return;
+        }
+        const bytes = this.lastCompiled.combinedBytes;
+        if (typeof bootAppOnWasmDevice === 'function') {
+            bootAppOnWasmDevice(bytes);
+        } else if (typeof execBytesOnWasmDevice === 'function') {
+            execBytesOnWasmDevice(bytes);
+        } else {
+            alert('WASM 虚拟机执行器未就绪');
+            return;
+        }
+        this.close();
+        if (typeof appendTerminalLine === 'function') {
+            appendTerminalLine('info', `💻 本地 WASM 仿真器正在运行: ${this._getMetaFromInputs().name}`);
+        }
+    }
+
+    async uploadToHardware() {
+        if (!this.lastCompiled) {
+            if (!this.compile()) return;
+        }
+
+        const meta = this._getMetaFromInputs();
+        const targetPath = `/spiffs/apps/${meta.id}/app.msbc`;
+        const bytes = this.lastCompiled.combinedBytes;
+
+        if (!window.activeLink) {
+            alert('未连接 ESP32 硬件设备！请先在 WebREPL 顶部栏切换到 “📡 ESP32 硬件 (WiFi HTTP)” 或 “🔌 ESP32 硬件 (USB 串口)” 并连接设备。');
+            return;
+        }
+
+        const statusEl = document.getElementById('editor-build-status');
+        if (statusEl) statusEl.textContent = `正在上传 ${meta.name} (${bytes.length} 字节) 到硬件 ${targetPath}...`;
+
+        try {
+            await window.activeLink.fsWrite(targetPath, bytes);
+            if (statusEl) statusEl.innerHTML = `<span style="color:#4ade80;">✔ 已成功写入硬件: ${targetPath}</span>`;
+            
+            const doBoot = confirm(`✔ 应用 ${meta.name} 已成功安装到设备！\n\n是否将它设置为开机自启并立即重启设备？`);
+            if (doBoot) {
+                await window.activeLink.evalSource(`(config-set! "system" "boot_app" "apps/${meta.id}/app.msbc")`);
+                await window.activeLink.reset();
+                if (typeof appendTerminalLine === 'function') {
+                    appendTerminalLine('ok', `🚀 已设为开机启动应用并重启: apps/${meta.id}/app.msbc`);
+                }
+                this.close();
+            }
+        } catch (e) {
+            alert(`上传硬件失败: ${e.message}`);
+            if (statusEl) statusEl.textContent = `上传硬件失败: ${e.message}`;
+        }
+    }
+
+    saveDraft() {
+        const meta = this._getMetaFromInputs();
+        localStorage.setItem(`minischeme_editor_draft_${meta.id}`, this.codeArea.value);
+        localStorage.setItem('minischeme_editor_last_id', meta.id);
+        const statusEl = document.getElementById('editor-build-status');
+        if (statusEl) statusEl.innerHTML = `<span style="color:#4ade80;">✔ 草稿已保存到浏览器 LocalStorage (${meta.id})</span>`;
+    }
+
+    downloadMsbc() {
+        if (!this.lastCompiled) {
+            if (!this.compile()) return;
+        }
+        const meta = this._getMetaFromInputs();
+        const filename = `${meta.id}.msbc`;
+        const blob = new Blob([this.lastCompiled.combinedBytes], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    downloadScm() {
+        const meta = this._getMetaFromInputs();
+        const filename = `${meta.id}.scm`;
+        const blob = new Blob([this.codeArea.value], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Global Instances & UI Bindings
+// ---------------------------------------------------------------------------
+window.MiniSchemeFlasher = new WebSerialFirmwareFlasher();
+window.SchemeEditor = new SchemeIdeModal();
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.MiniSchemeFlasher.init();
+    window.SchemeEditor.init();
+
+    const btnFlasherOpen = document.getElementById('btn-firmware-flasher');
+    if (btnFlasherOpen) {
+        btnFlasherOpen.addEventListener('click', () => window.MiniSchemeFlasher.open());
+    }
+
+    const btnEditorOpen = document.getElementById('btn-scheme-editor');
+    if (btnEditorOpen) {
+        btnEditorOpen.addEventListener('click', () => window.SchemeEditor.open());
+    }
+});

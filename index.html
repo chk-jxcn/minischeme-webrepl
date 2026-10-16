@@ -38,6 +38,8 @@
             <div class="device-link-bar" id="device-link-bar" style="display:none;">
                 <label for="device-host" id="device-host-label">设备地址:</label>
                 <input type="text" id="device-host" class="device-host-input" placeholder="192.168.x.x" spellcheck="false" autocomplete="off">
+                <label for="device-http-pwd" id="device-pwd-label" style="display:none; margin-left:8px;">访问密码:</label>
+                <input type="password" id="device-http-pwd" class="device-host-input" style="width:110px; display:none;" placeholder="硬件密码" autocomplete="off">
                 <button id="device-connect-btn" class="pill-btn highlight">连接设备</button>
                 <label class="device-opt" title="固件内置编译器时，直接发送源码由设备编译">
                     <input type="checkbox" id="device-src-mode" disabled> 设备端编译
@@ -92,9 +94,11 @@
 
             <!-- On-board management: apps, files and the system font ROM of the target -->
             <div class="quick-toolbar">
-                <span class="tb-label">板载管理:</span>
+                <span class="tb-label">开发与固件:</span>
+                <button class="pill-btn highlight" id="btn-scheme-editor" title="打开内置 Scheme IDE：在线编辑、提取元数据、WASM 编译、调试与安装应用">📝 Scheme 编辑器</button>
+                <button class="pill-btn highlight" id="btn-firmware-flasher" title="通过 Web Serial 串口为 ESP32 烧录固件：从 GitHub Release 拉取或手动上传固件与分区表">⚡ 串口刷写固件</button>
                 <button class="pill-btn highlight" id="btn-device-setup" title="初始状态下连接串口或网络，配置 WiFi、外部服务器与硬件密码并重启设备">⚙️ 初始设备配置</button>
-                <button class="pill-btn highlight" id="btn-app-manager" title="当前目标 (ESP32 或 WASM 设备) 上的应用：查看信息、按表单修改配置、设置启动应用、从 GitHub 或本地安装">📦 App 管理</button>
+                <button class="pill-btn highlight" id="btn-app-manager" title="当前目标 (ESP32 或 WASM 设备) 上的应用：查看信息、按表单修改配置、设置启动应用、从 GitHub 或本地安装">📦 App 市场与管理</button>
                 <button class="pill-btn highlight" id="btn-file-manager" title="管理设备文件系统 (/spiffs) 中的文件：上传、下载、重命名、删除、编辑文本 (含 config.ini)">🗂️ 文件管理</button>
                 <button class="pill-btn highlight" id="btn-app-web" title="运行中应用自带的网页 (apps/&lt;id&gt;/web.html)：板子网页的第一个选项卡。WASM 设备仿真在这里打开，调用由模拟设备回答；ESP32 硬件打开板子的网页">🌐 应用网页</button>
                 <button class="pill-btn highlight" id="btn-font-manager" title="管理 Flash 字库分区 (Font ROM)：添加、删除字库，应用用 (use-font id &quot;face&quot; size) 引用">🔤 系统字库</button>
@@ -302,6 +306,215 @@
         </aside>
     </div>
 
+    <!-- 固件烧录弹窗 (Web Serial Bootloader Flasher) -->
+    <dialog id="flasher-dialog" class="am-dialog flasher-modal">
+        <div class="am-head">
+            <span class="am-title">⚡ ESP32 串口固件烧录 (Web Serial Flasher)</span>
+            <button class="am-close" id="flasher-close-btn">&times;</button>
+        </div>
+        <div class="flasher-body">
+            <div class="flasher-source-tabs">
+                <label class="flasher-tab-label">
+                    <input type="radio" name="flasher-mode" id="flasher-mode-gh" checked> 官方 Release 固件 (推荐: v1.0.0)
+                </label>
+                <label class="flasher-tab-label">
+                    <input type="radio" name="flasher-mode" id="flasher-mode-manual"> 手动上传本地文件 (.bin)
+                </label>
+            </div>
+
+            <!-- GitHub Release 模式 -->
+            <div id="flasher-gh-section" class="flasher-section">
+                <div class="flasher-card">
+                    <div class="flasher-desc">从 GitHub 官方仓库 (chk-jxcn/minischeme-esp32) 拉取经过测试验证的完整固件包，包含引导程序、分区表与 MiniScheme 系统固件。</div>
+                    <div class="flasher-gh-files">
+                        <span class="flasher-file-badge">📦 bootloader.bin (0x1000)</span>
+                        <span class="flasher-file-badge">📋 partition-table.bin (0x8000)</span>
+                        <span class="flasher-file-badge">🚀 minischeme_esp32.bin (0x10000)</span>
+                    </div>
+                    <div class="flasher-actions-bar">
+                        <button class="pill-btn highlight" id="flasher-fetch-gh-btn">📥 从 GitHub Release 获取固件包</button>
+                        <span id="flasher-gh-status" class="flasher-status-text">未下载</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 手动上传模式 -->
+            <div id="flasher-manual-section" class="flasher-section" style="display:none;">
+                <div class="flasher-card">
+                    <div class="flasher-desc">请选择或拖拽本地编译生成的二进制文件（必须同时提供 Bootloader、分区表与主固件）：</div>
+                    <div class="flasher-upload-grid">
+                        <div class="flasher-upload-item">
+                            <span class="flasher-item-title">1. 引导程序 Bootloader (0x1000)</span>
+                            <label class="flasher-dropzone">
+                                <input type="file" id="flasher-file-boot" accept=".bin">
+                                <span id="flasher-label-boot">📁 选择 bootloader.bin</span>
+                            </label>
+                        </div>
+                        <div class="flasher-upload-item">
+                            <span class="flasher-item-title">2. 分区表 Partition Table (0x8000)</span>
+                            <label class="flasher-dropzone">
+                                <input type="file" id="flasher-file-part" accept=".bin">
+                                <span id="flasher-label-part">📁 选择 partition-table.bin</span>
+                            </label>
+                        </div>
+                        <div class="flasher-upload-item">
+                            <span class="flasher-item-title">3. 主固件 Firmware (0x10000)</span>
+                            <label class="flasher-dropzone">
+                                <input type="file" id="flasher-file-app" accept=".bin">
+                                <span id="flasher-label-app">📁 选择 minischeme_esp32.bin</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 烧录配置与选项 -->
+            <div class="flasher-opts-bar">
+                <div class="flasher-opt-group">
+                    <label for="flasher-baud-select">烧录波特率:</label>
+                    <select id="flasher-baud-select" class="compact-select">
+                        <option value="115200">115200 (稳定兼容)</option>
+                        <option value="460800" selected>460800 (推荐高速)</option>
+                        <option value="921600">921600 (极速)</option>
+                    </select>
+                </div>
+                <div class="flasher-opt-group">
+                    <label>
+                        <input type="checkbox" id="flasher-erase-all"> 烧录前全片擦除 (Erase All Flash)
+                    </label>
+                </div>
+            </div>
+
+            <!-- 进度条 -->
+            <div class="flasher-progress-wrap">
+                <div class="flasher-progress-track">
+                    <div class="flasher-progress-fill" id="flasher-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="flasher-progress-labels">
+                    <span id="flasher-progress-text">准备就绪</span>
+                </div>
+            </div>
+
+            <!-- 烧录终端日志 -->
+            <div class="flasher-terminal" id="flasher-terminal"></div>
+
+            <!-- 底部按钮 -->
+            <div class="flasher-footer">
+                <button class="action-btn highlight" id="flasher-start-btn">⚡ 连接串口并开始烧写</button>
+                <button class="pill-btn" id="flasher-reset-btn" title="向 ESP32 发送 DTR/RTS 硬件复位信号">🔄 硬件复位重启</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Scheme 在线 IDE & 编辑器弹窗 -->
+    <dialog id="editor-dialog" class="am-dialog editor-modal">
+        <div class="am-head">
+            <span class="am-title">📝 MiniScheme Web IDE & Scheme 在线编译器</span>
+            <button class="am-close" id="editor-close-btn">&times;</button>
+        </div>
+        <div class="editor-body">
+            <!-- 顶部模板与导入导出工具栏 -->
+            <div class="editor-top-toolbar">
+                <div class="editor-tool-group">
+                    <label for="editor-app-select">应用模板 / 市场源码:</label>
+                    <select id="editor-app-select" class="compact-select">
+                        <option value="__blank__">🌟 新建应用 (空白模板)</option>
+                    </select>
+                </div>
+                <div class="editor-tool-group">
+                    <label class="pill-btn file-label" title="选择本地 .scm 源码并在编辑器中打开">
+                        📂 打开本地 .scm
+                        <input type="file" id="editor-input-scm" accept=".scm" style="display:none;">
+                    </label>
+                    <label class="pill-btn file-label" title="选择已编译的 .msbc 文件提取元数据与部署">
+                        📦 打开已编译 .msbc
+                        <input type="file" id="editor-input-msbc" accept=".msbc,.fasl" style="display:none;">
+                    </label>
+                    <button class="pill-btn" id="editor-save-draft-btn" title="保存当前编辑的代码到浏览器 LocalStorage">💾 保存本地草稿</button>
+                    <button class="pill-btn" id="editor-download-scm-btn" title="将当前编辑器源码保存为 .scm 文件">💾 导出 .scm</button>
+                    <button class="pill-btn highlight" id="editor-download-msbc-btn" title="编译并下载带 MSMD 元数据 trailer 的 .msbc 文件">💾 导出 .msbc</button>
+                </div>
+            </div>
+
+            <!-- 主工作区：左侧代码编辑器，右侧元数据与编译部署 -->
+            <div class="editor-main-layout">
+                <!-- 左侧代码编辑区 -->
+                <div class="editor-code-pane">
+                    <div class="editor-code-header">
+                        <span class="editor-code-title">Scheme 源代码 (compiler.scm 语法兼容)</span>
+                        <span id="editor-status-line" class="editor-status-line">共 0 行，0 字符</span>
+                    </div>
+                    <textarea id="editor-code" class="editor-code-area" spellcheck="false" autocomplete="off" placeholder="在此编写 MiniScheme 代码..."></textarea>
+                </div>
+
+                <!-- 右侧元数据与编译控制面板 -->
+                <div class="editor-side-pane">
+                    <!-- 元数据编辑卡片 -->
+                    <div class="editor-card">
+                        <div class="editor-card-title">
+                            <span>📋 应用元数据 (MSMD Header)</span>
+                            <div class="editor-sync-btns">
+                                <button class="pill-btn compact" id="editor-sync-from-code-btn" title="从代码注释提取元数据">🔄 提取</button>
+                                <button class="pill-btn compact" id="editor-sync-to-code-btn" title="将填写的元数据写回代码顶层注释">✍️ 写回代码</button>
+                            </div>
+                        </div>
+                        <div class="editor-form-grid">
+                            <label>应用 ID: <input type="text" id="editor-meta-id" placeholder="my_app"></label>
+                            <label>应用名称: <input type="text" id="editor-meta-name" placeholder="我的应用"></label>
+                            <label>应用描述: <input type="text" id="editor-meta-desc" placeholder="轻量桌面应用"></label>
+                            <div class="editor-form-row">
+                                <label>版本: <input type="text" id="editor-meta-version" value="1.0.0" style="width:70px;"></label>
+                                <label>页数: <input type="number" id="editor-meta-pages" value="1" min="1" max="99" style="width:50px;"></label>
+                                <label>API: <input type="text" id="editor-meta-api" value="1.5" style="width:60px;" title="需要的最低固件 API 版本"></label>
+                            </div>
+                            <label>应用代理地址: <input type="text" id="editor-meta-proxy" placeholder="http://proxy.local:8087"></label>
+                            <label>协议转换器地址: <input type="text" id="editor-meta-converter" placeholder="http://converter.local:8087"></label>
+                        </div>
+                    </div>
+
+                    <!-- 编译与部署卡片 -->
+                    <div class="editor-card">
+                        <div class="editor-card-title">⚡ 浏览器 WASM 预编译</div>
+                        <div class="editor-build-metrics">
+                            <div class="eb-metric">
+                                <span class="eb-v" id="editor-metric-time">0.0 ms</span>
+                                <span class="eb-k">编译耗时</span>
+                            </div>
+                            <div class="eb-metric">
+                                <span class="eb-v" id="editor-metric-bytes">0 B</span>
+                                <span class="eb-k">字节码</span>
+                            </div>
+                            <div class="eb-metric">
+                                <span class="eb-v" id="editor-metric-trailer">0 B</span>
+                                <span class="eb-k">元数据</span>
+                            </div>
+                            <div class="eb-metric">
+                                <span class="eb-v highlight" id="editor-metric-total">0 B</span>
+                                <span class="eb-k">总尺寸</span>
+                            </div>
+                        </div>
+                        <div id="editor-build-status" class="editor-build-status">就绪，点击编译生成 MSBC 二进制</div>
+                        <div class="editor-actions-grid">
+                            <button class="action-btn highlight" id="editor-compile-btn">⚡ WASM 编译</button>
+                            <button class="pill-btn highlight" id="editor-run-local-btn" title="在本地 3.5寸 WASM 模拟屏幕上立即运行测试">💻 本地仿真测试</button>
+                            <button class="pill-btn highlight" id="editor-upload-hw-btn" title="通过 HTTP/Serial 写入硬件 /spiffs/apps/<id>/app.msbc 并设为启动项">🚀 安装到 ESP32</button>
+                        </div>
+                    </div>
+
+                    <!-- 汇编与 Hex 预览折叠面板 -->
+                    <details class="editor-details">
+                        <summary>📜 查看反汇编指令 (Disassembly)</summary>
+                        <pre id="editor-disasm-pre" class="editor-inspect-pre">等待编译中...</pre>
+                    </details>
+                    <details class="editor-details">
+                        <summary>🔍 查看 MSBC 二进制字节流 (Hex)</summary>
+                        <div id="editor-hex-div" class="editor-inspect-hex">等待编译中...</div>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
     <script src="device_link.js"></script>
     <script src="sim_storage.js"></script>
     <script src="hw_mirror.js"></script>
@@ -311,6 +524,7 @@
     <script src="app_manager.js"></script>
     <script src="app_web.js"></script>
     <script src="device_setup.js"></script>
+    <script src="editor_flasher.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

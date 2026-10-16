@@ -1768,6 +1768,8 @@ function stopHardwareMirror() {
 const deviceLinkBar = document.getElementById('device-link-bar');
 const deviceHostInput = document.getElementById('device-host');
 const deviceHostLabel = document.getElementById('device-host-label');
+const deviceHttpPwd = document.getElementById('device-http-pwd');
+const devicePwdLabel = document.getElementById('device-pwd-label');
 const deviceConnectBtn = document.getElementById('device-connect-btn');
 const deviceLinkStatus = document.getElementById('device-link-status');
 const deviceSrcMode = document.getElementById('device-src-mode');
@@ -1775,6 +1777,8 @@ const deviceSrcMode = document.getElementById('device-src-mode');
 try {
     const savedHost = localStorage.getItem('minischeme.deviceHost');
     if (savedHost && deviceHostInput) deviceHostInput.value = savedHost;
+    const savedPwd = localStorage.getItem('minischeme_http_password');
+    if (savedPwd && deviceHttpPwd) deviceHttpPwd.value = savedPwd;
 } catch (e) { /* storage unavailable */ }
 
 // Top of the panel: what the REPL talks to (WASM emulator / ESP32: <ip> / serial)
@@ -1839,7 +1843,11 @@ async function connectDevice() {
             return;
         }
         try { localStorage.setItem('minischeme.deviceHost', host); } catch (e) { /* ignore */ }
-        link = new HttpDeviceLink(host);
+        const pwd = (deviceHttpPwd ? deviceHttpPwd.value.trim() : '') || (localStorage.getItem('minischeme_http_password') || '');
+        if (pwd) {
+            try { localStorage.setItem('minischeme_http_password', pwd); } catch (e) { /* ignore */ }
+        }
+        link = new HttpDeviceLink(host, pwd);
     } else if (mode === 'serial') {
         link = new SerialDeviceLink(115200);
     } else {
@@ -1945,6 +1953,8 @@ function refreshTargetUi() {
     if (deviceLinkBar) deviceLinkBar.style.display = needsLink ? 'flex' : 'none';
     if (deviceHostInput) deviceHostInput.style.display = mode === 'http' ? '' : 'none';
     if (deviceHostLabel) deviceHostLabel.style.display = mode === 'http' ? '' : 'none';
+    if (deviceHttpPwd) deviceHttpPwd.style.display = mode === 'http' ? '' : 'none';
+    if (devicePwdLabel) devicePwdLabel.style.display = mode === 'http' ? '' : 'none';
     if (mode === 'wasm') {
         targetDesc.textContent = "WASM 编译 ➔ MSBC 字节码 ➔ 浏览器内设备 VM (堆/原语/条带渲染与固件一致)";
     } else if (mode === 'http') {

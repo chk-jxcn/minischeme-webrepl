@@ -11,6 +11,7 @@
   "web": true,
   "file": "album.msbc",
   "size": 55345,
+  "scm": "album.allinone.scm",
   "hash": "4cae1303"
  },
  {
@@ -25,6 +26,7 @@
   "web": false,
   "file": "calendar.msbc",
   "size": 49706,
+  "scm": "calendar.allinone.scm",
   "hash": "8e2a84ef"
  },
  {
@@ -39,6 +41,7 @@
   "web": false,
   "file": "crypto.msbc",
   "size": 40022,
+  "scm": "crypto.allinone.scm",
   "hash": "034e9542"
  },
  {
@@ -53,6 +56,7 @@
   "web": false,
   "file": "futures.msbc",
   "size": 40055,
+  "scm": "futures.allinone.scm",
   "hash": "48922790"
  },
  {
@@ -67,6 +71,7 @@
   "web": true,
   "file": "memo.msbc",
   "size": 49980,
+  "scm": "memo.allinone.scm",
   "hash": "5afd2dc8"
  },
  {
@@ -81,6 +86,7 @@
   "web": false,
   "file": "news.msbc",
   "size": 38217,
+  "scm": "news.allinone.scm",
   "hash": "6aef9e0f"
  },
  {
@@ -95,6 +101,7 @@
   "web": true,
   "file": "notifier.msbc",
   "size": 51971,
+  "scm": "notifier.allinone.scm",
   "hash": "8a9ba8bf"
  },
  {
@@ -109,6 +116,7 @@
   "web": false,
   "file": "pcmonitor.msbc",
   "size": 33556,
+  "scm": "pcmonitor.allinone.scm",
   "hash": "fbe5b702"
  },
  {
@@ -123,6 +131,7 @@
   "web": false,
   "file": "settings.msbc",
   "size": 30275,
+  "scm": "settings.allinone.scm",
   "hash": "7c769ccd"
  },
  {
@@ -137,6 +146,7 @@
   "web": false,
   "file": "stocks.msbc",
   "size": 42662,
+  "scm": "stocks.allinone.scm",
   "hash": "1833b05d"
  },
  {
@@ -151,6 +161,7 @@
   "web": false,
   "file": "usage.msbc",
   "size": 43443,
+  "scm": "usage.allinone.scm",
   "hash": "3f00f268"
  },
  {
@@ -165,6 +176,7 @@
   "web": false,
   "file": "weather.msbc",
   "size": 50021,
+  "scm": "weather.allinone.scm",
   "hash": "b023a0e4"
  },
  {
@@ -179,6 +191,7 @@
   "web": true,
   "file": "wxpusher.msbc",
   "size": 55305,
+  "scm": "wxpusher.allinone.scm",
   "hash": "0f2d1afc"
  }
 ]
