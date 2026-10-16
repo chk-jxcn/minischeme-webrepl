@@ -386,7 +386,16 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
 
         # Fallback to categorized subdirectories if requested without folder prefix
         rel = os.path.relpath(clean_path, BASE_DIR).replace("\\", "/")
-        for sub in ("js", "css", "wasm", "data", "tests"):
+        if rel in ("app.msbc", "apps/app.msbc"):
+            for cand_cal in (
+                os.path.join(BASE_DIR, "apps", "calendar.msbc"),
+                os.path.join(BASE_DIR, "apps", "app.msbc"),
+                os.path.join(BASE_DIR, "app.msbc"),
+            ):
+                if os.path.exists(cand_cal):
+                    return cand_cal
+
+        for sub in ("js", "css", "wasm", "data", "tests", "apps"):
             candidate = os.path.join(BASE_DIR, sub, rel)
             if os.path.exists(candidate):
                 return candidate
@@ -427,6 +436,16 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 "frozen": bool(getattr(sys, "frozen", False)),
             })
             return
+
+        if req_path == "/api/preset_fonts":
+            idx_path = os.path.join(BASE_DIR, "fonts", "index.json")
+            if os.path.exists(idx_path):
+                try:
+                    with open(idx_path, "r", encoding="utf-8") as f:
+                        return self._json_reply(json.load(f))
+                except Exception:
+                    pass
+            return self._json_reply([])
 
         # 1b. Dynamic GitHub Latest Release Discovery & Asset Proxy
         if req_path == "/api/latest_release":

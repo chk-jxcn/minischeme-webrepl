@@ -64,8 +64,8 @@ class WebReplServerFixture:
         self.proc = subprocess.Popen(
             cmd,
             cwd=ROOT_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True
         )
         # Wait until server accepts connections
@@ -123,6 +123,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertNotIn("editor-disasm-pre", body, "Disassembly should not be shown in Editor UI")
         self.assertNotIn("editor-hex-div", body, "Hex stream should not be shown in Editor UI")
         self.assertNotIn("editor-meta-pages", body, "Fixed pages field should not be in Editor UI")
+        conn.close()
 
     def test_02_wasm_mime_types(self):
         """Verify compiler.wasm is served with correct application/wasm MIME type"""
@@ -134,6 +135,7 @@ class TestWebReplFeatures(unittest.TestCase):
         data = res.read()
         self.assertTrue(len(data) > 1000)
         self.assertEqual(data[:4], b"\x00asm", "WASM magic header mismatch")
+        conn.close()
 
     def test_03_esptool_bundle_availability(self):
         """Verify esptool-bundle.js is accessible and contains ESPLoader export"""
@@ -144,6 +146,7 @@ class TestWebReplFeatures(unittest.TestCase):
         content = res.read().decode("utf-8")
         self.assertIn("ESPLoader", content)
         self.assertIn("Transport", content)
+        conn.close()
 
     def test_04_app_market_index_and_allinone_scm(self):
         """Verify apps/index.json lists all apps with .allinone.scm mappings"""
@@ -168,6 +171,7 @@ class TestWebReplFeatures(unittest.TestCase):
             scm_content = res_scm.read().decode("utf-8")
             self.assertIn("[app]", scm_content, f"Missing [app] header in {app['scm']}")
             self.assertIn(f"id = {app['id']}", scm_content)
+        conn.close()
 
     def test_05_in_browser_headless_test_suite(self):
         """Run the comprehensive HTML test suite in headless browser and verify 100% pass"""
@@ -235,6 +239,7 @@ class TestWebReplFeatures(unittest.TestCase):
                     c1.request("GET", "/")
                     if c1.getresponse().status == 200:
                         up_webrepl = True
+                    c1.close()
                 except Exception:
                     pass
 
@@ -243,6 +248,7 @@ class TestWebReplFeatures(unittest.TestCase):
                     c2.request("GET", "/health")
                     if c2.getresponse().status == 200:
                         up_proxy = True
+                    c2.close()
                 except Exception:
                     pass
 
@@ -265,13 +271,14 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertTrue(info["success"])
         self.assertEqual(info["port"], self.port)
         self.assertTrue(len(info["ip"]) >= 7)
+        conn.close()
 
         # Verify automatic fallback when self.port is already bound
         proc2 = subprocess.Popen(
             [sys.executable, "server.py", "--no-tray", "--port", str(self.port)],
             cwd=ROOT_DIR,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             text=True
         )
         try:
@@ -287,7 +294,9 @@ class TestWebReplFeatures(unittest.TestCase):
                         data = json.loads(r.read().decode("utf-8"))
                         if data.get("port") == fallback_port:
                             up_fallback = True
+                            c.close()
                             break
+                    c.close()
                 except Exception:
                     pass
                 time.sleep(0.1)
@@ -318,6 +327,7 @@ class TestWebReplFeatures(unittest.TestCase):
             with open(fpath, "r", encoding="utf-8") as f:
                 content = f.read()
             self.assertNotIn("/releases/download/v1.0.0/", content, f"Hardcoded release v1.0.0 found in {fname}")
+        conn.close()
 
     def test_09_weather_endpoint_with_token(self):
         """Verify /app/weather accepts per-hardware token and key parameter without persistence"""
@@ -333,6 +343,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("day", types)
         self.assertIn("hours", types)
         self.assertIn("idx", types)
+        conn.close()
 
     def test_10_device_web_and_wifi_controller(self):
         """Verify AppWebPanel multi-tab device web page and WASM simulator WiFi controller"""
@@ -369,11 +380,12 @@ class TestWebReplFeatures(unittest.TestCase):
             self.assertEqual(res_ds.status, 200, f"Failed to get {url}")
             content_ds = res_ds.read().decode("utf-8")
             self.assertIn("ds-wifi-enable", content_ds)
+        conn.close()
 
     def test_11_directory_structure_categorization(self):
         """Verify repository root is clean and assets are organized into js, css, wasm, data, tests"""
         # 1. Check categorized directories exist
-        for dname in ("js", "css", "wasm", "data", "tests", "apps", "firmware", "proxy", "tools"):
+        for dname in ("js", "css", "wasm", "data", "tests", "apps", "firmware", "proxy", "tools", "fonts"):
             dpath = os.path.join(ROOT_DIR, dname)
             self.assertTrue(os.path.isdir(dpath), f"Expected directory {dname} to exist")
 
@@ -396,6 +408,26 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "data", "font_charsets.json")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "tests", "test_webrepl_features.html")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "js", "app.js")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "fonts", "simsun-16.mfnt")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "fonts", "index.json")))
+
+    def test_12_preset_fonts(self):
+        """Verify bundled preset fonts (SimSun, SimHei) and /api/preset_fonts endpoint"""
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/preset_fonts", timeout=3) as res:
+            self.assertEqual(res.status, 200)
+            fonts = json.loads(res.read().decode("utf-8"))
+            self.assertIsInstance(fonts, list)
+            self.assertTrue(any(f.get("name") == "simsun-16" for f in fonts))
+            self.assertTrue(any(f.get("name") == "simsun-12" for f in fonts))
+            self.assertTrue(any(f.get("name") == "simhei-16" for f in fonts))
+
+        # Verify simsun-16.mfnt binary endpoint and valid MFNT magic
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/fonts/simsun-16.mfnt", timeout=3) as res_font:
+            self.assertEqual(res_font.status, 200)
+            data = res_font.read()
+            self.assertTrue(len(data) > 100000)
+            self.assertEqual(data[:4], b"MFNT")
 
 
 if __name__ == "__main__":

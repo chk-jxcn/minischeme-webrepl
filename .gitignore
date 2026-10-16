@@ -16,4 +16,7 @@ Thumbs.db
 *.db-wal
 config.ini
 .pytest_cache/
-
+# Build outputs
+dist/
+build/
+*.spec

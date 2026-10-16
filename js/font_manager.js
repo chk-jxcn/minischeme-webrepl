@@ -21,6 +21,39 @@ const FONT_SECTOR = 4096;
 const SYSTEM_FONT = 'system_16';   /* the built-in font a default font replaces */
 const SYSTEM_FONT_HEIGHT = 16;
 
+const PRESET_FONTS = [
+    {
+        id: "simsun-16",
+        name: "simsun-16",
+        label: "宋体 16px (经典正文)",
+        size: 16,
+        glyphs: 4536,
+        bytes: 178832,
+        file: "fonts/simsun-16.mfnt",
+        desc: "标准 16px 点阵宋体，包含常用一级汉字全集 (GB2312) + ASCII + 数字符号"
+    },
+    {
+        id: "simsun-12",
+        name: "simsun-12",
+        label: "宋体 12px (紧凑小字)",
+        size: 12,
+        glyphs: 4536,
+        bytes: 143112,
+        file: "fonts/simsun-12.mfnt",
+        desc: "紧凑 12px 点阵宋体，适合高信息密度展示与小屏幕排版"
+    },
+    {
+        id: "simhei-16",
+        name: "simhei-16",
+        label: "黑体 16px (清晰标题)",
+        size: 16,
+        glyphs: 4536,
+        bytes: 178064,
+        file: "fonts/simhei-16.mfnt",
+        desc: "清晰 16px 点阵黑体，笔画加粗，适合标题与高对比度显示"
+    }
+];
+
 /* Name stored in an MFNT header (bytes 16..31), cleaned like the device does */
 function fontStoredName(bytes) {
     let name = '';
@@ -113,6 +146,14 @@ class FontManager {
                             应用自带字库时优先使用自带的。用 <code>tools/make_font.py</code> 生成 .mfnt，也可以把文件拖到这里。
                         </div>
                     </div>
+                    <div class="fm-presets-box" style="margin-top:14px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                            <span style="font-weight:600; font-size:13px; color:var(--text-accent, #61afef);">📦 内置推荐字库 (EXE / 服务端自带)</span>
+                            <span style="font-size:11px; opacity:0.7;">常用一级汉字全集 (GB2312) · 一键安装并设为默认</span>
+                        </div>
+                        <div class="fm-presets-list" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px;">
+                        </div>
+                    </div>
                 </div>
                 <div class="fg-view" hidden></div>
                 <div class="fm-status" role="status" aria-live="polite"></div>
@@ -131,6 +172,7 @@ class FontManager {
             tbody: q('tbody'),
             empty: q('.fm-empty'),
             tableWrap: q('.fm-table-wrap'),
+            presetsList: q('.fm-presets-list'),
             fileInput: q('.fm-file-input'),
             status: q('.fm-status'),
         };
@@ -138,7 +180,7 @@ class FontManager {
         root.addEventListener('click', (e) => {
             if (e.target === root) { this.close(); return; }
             const btn = e.target.closest('[data-act]');
-            if (btn && !btn.disabled) this._action(btn.dataset.act, btn.dataset.name);
+            if (btn && !btn.disabled) this._action(btn.dataset.act, btn.dataset.name, btn.dataset.file);
         });
         root.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
@@ -254,7 +296,66 @@ class FontManager {
         this.fontConfig = parseFontConfig(await this.backend.run('(font-config)'));
         this._renderUsage();
         this._renderList();
+        this._renderPresets();
         this._status(`${this.fonts.length} 个字库，剩余 ${fmFormatSize(this.capacity - this.used)}`);
+    }
+
+    async _renderPresets() {
+        if (!this.el.presetsList) return;
+        let presets = PRESET_FONTS;
+        try {
+            const res = await fetch('fonts/index.json', { cache: 'no-store' });
+            if (res.ok) {
+                const list = await res.json();
+                if (Array.isArray(list) && list.length) presets = list;
+            }
+        } catch (e) { /* use default PRESET_FONTS */ }
+
+        this.el.presetsList.innerHTML = '';
+        for (const f of presets) {
+            const isInstalled = this.fonts.some((installed) => installed.name === f.name);
+            const isDefault = this._defaultFont() === f.name;
+            const card = document.createElement('div');
+            card.style.cssText = 'background:rgba(0,0,0,0.22); border:1px solid rgba(255,255,255,0.07); border-radius:6px; padding:10px; display:flex; flex-direction:column; justify-content:space-between;';
+            card.innerHTML = `
+                <div>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <span style="font-weight:bold; font-size:13px; color:#abb2bf;">${f.label || f.name}</span>
+                        <span style="font-size:11px; color:#98c379;">${fmFormatSize(f.bytes || f.size)}</span>
+                    </div>
+                    <div style="font-size:11px; opacity:0.75; margin:6px 0 10px 0; line-height:1.4;">${f.desc || ''}</div>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:4px;">
+                    <button class="pill-btn highlight" style="flex:1; padding:4px 8px; font-size:11px;" data-act="install-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}">
+                        ${isInstalled ? '⚡ 重新安装' : '⚡ 安装到字库'}
+                    </button>
+                    <button class="pill-btn" style="flex:1; padding:4px 8px; font-size:11px; ${isDefault ? 'color:#e5c07b; font-weight:bold;' : ''}" data-act="default-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}">
+                        ${isDefault ? '⭐ 已为默认' : '⭐ 安装并设默认'}
+                    </button>
+                </div>
+            `;
+            this.el.presetsList.appendChild(card);
+        }
+    }
+
+    async _installPreset(name, file, setDefault = false) {
+        const fontName = name || 'simsun-16';
+        await this._run(`正在下载预置字库 ${fontName}…`, async () => {
+            const targetFile = file || `fonts/${fontName}.mfnt`;
+            const fontUrl = targetFile.startsWith('http') || targetFile.startsWith('/') ? targetFile : ('/' + targetFile);
+            let res = await fetch(fontUrl, { cache: 'no-store' });
+            if (!res.ok) {
+                res = await fetch('fonts/' + fontName + '.mfnt', { cache: 'no-store' });
+            }
+            if (!res.ok) throw new Error(`下载字库 ${fontName} 失败: HTTP ${res.status}`);
+            const bytes = new Uint8Array(await res.arrayBuffer());
+            await this._installRom(bytes, fontName);
+            if (setDefault) {
+                await this._setDefault(fontName);
+            }
+        });
+        await this.refresh();
+        this._status(`字库 ${fontName} 安装成功！${setDefault ? '已设为系统默认字体。' : ''}`, 'ok');
     }
 
     /* Writes bytes to the file system, copies them into the font ROM, removes the copy */
@@ -338,12 +439,14 @@ class FontManager {
         return b;
     }
 
-    async _action(act, name) {
+    async _action(act, name, file) {
         switch (act) {
             case 'close': this.close(); break;
             case 'refresh': await this.refresh(); break;
             case 'add': this.el.fileInput.click(); break;
             case 'generate': await this._showGenerator(); break;
+            case 'install-preset': await this._installPreset(name, file, false); break;
+            case 'default-preset': await this._installPreset(name, file, true); break;
             case 'remove': await this._remove(name); break;
             case 'default': await this._setDefault(name); break;
             case 'undefault': await this._setDefault(null); break;

@@ -1125,7 +1125,13 @@ if (simLightRemote) {
 async function bootBundledApp(prefix = '') {
     stopPcMonitor();
     try {
-        const res = await fetch('app.msbc', { cache: 'no-store' });
+        let res = await fetch('apps/calendar.msbc', { cache: 'no-store' });
+        if (!res.ok) {
+            res = await fetch('app.msbc', { cache: 'no-store' });
+        }
+        if (!res.ok) {
+            res = await fetch('apps/app.msbc', { cache: 'no-store' });
+        }
         if (!res.ok) throw new Error(`app.msbc: HTTP ${res.status}`);
         const bytes = new Uint8Array(await res.arrayBuffer());
         if (activeLink) {
