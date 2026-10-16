@@ -1129,18 +1129,27 @@ async function pcmonPump() {
 async function feedFetch(ex, url) {
     let bytes = null;
     let problem = '';
-    try {
-        const base = window.LOCAL_SERVER_BASE || '';
-        const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
-        if (res.ok) {
-            bytes = new Uint8Array(await res.arrayBuffer());
-        } else if (res.status === 404) {
-            problem = 'proxy';
-        } else {
-            problem = (await res.text()) || `HTTP ${res.status}`;
+    const base = window.LOCAL_SERVER_BASE || '';
+    let effectiveUrl = String(url || '').trim();
+    if (/^https?:\/\/(proxy|converter)\.local(:\d+)?\//i.test(effectiveUrl)) {
+        const localBase = base || 'http://127.0.0.1:8087';
+        effectiveUrl = effectiveUrl.replace(/^https?:\/\/(proxy|converter)\.local(:\d+)?/i, localBase);
+    }
+    if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(effectiveUrl)) {
+        problem = '本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力';
+    } else {
+        try {
+            const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl), { cache: 'no-store' });
+            if (res.ok) {
+                bytes = new Uint8Array(await res.arrayBuffer());
+            } else if (res.status === 404) {
+                problem = 'proxy';
+            } else {
+                problem = (await res.text()) || `HTTP ${res.status}`;
+            }
+        } catch (e) {
+            problem = e.message;
         }
-    } catch (e) {
-        problem = e.message;
     }
     if (bytes) {
         const ptr = ex.wasm_alloc_buffer(bytes.length);
@@ -1157,7 +1166,7 @@ async function feedFetch(ex, url) {
         } else if (problem) {
             appendTerminalLine('error', `⚠️ 读取 ${url} 失败: ${problem}`);
         } else {
-            appendTerminalLine('output', `=> 已收到 ${url.replace(/[?#].*$/, '')} 的数据`);
+            appendTerminalLine('output', `=> 已收到 ${effectiveUrl.replace(/[?#].*$/, '')} 的数据`);
         }
     }
     return !!bytes;
@@ -1413,8 +1422,11 @@ const deviceSetupWizard = new DeviceSetupWizard({
     getBackend: () => appManager.getBackend(),
     log: (kind, text) => appendTerminalLine(kind, text),
 });
+window.MiniSchemeDeviceSetup = deviceSetupWizard;
 const btnDeviceSetup = document.getElementById('btn-device-setup');
 if (btnDeviceSetup) btnDeviceSetup.addEventListener('click', () => deviceSetupWizard.open());
+const btnLinkDeviceSetup = document.getElementById('btn-link-device-setup');
+if (btnLinkDeviceSetup) btnLinkDeviceSetup.addEventListener('click', () => deviceSetupWizard.open());
 
 // =========================================================================
 // The running app's own web page (apps/<id>/web.html): the simulated
@@ -1831,7 +1843,9 @@ async function disconnectDevice() {
     }
     if (deviceSrcMode) { deviceSrcMode.checked = false; deviceSrcMode.disabled = true; }
     if (deviceConnectBtn) deviceConnectBtn.textContent = '连接设备';
+    if (btnLinkDeviceSetup) btnLinkDeviceSetup.style.display = 'none';
     setLinkStatus('未连接', false);
+    refreshTargetUi();
 }
 
 async function connectDevice() {
@@ -1866,7 +1880,11 @@ async function connectDevice() {
             deviceSrcMode.checked = false;
         }
         if (deviceConnectBtn) deviceConnectBtn.textContent = '断开';
+        if (btnLinkDeviceSetup && (link.kind === 'http' || link.kind === 'serial')) {
+            btnLinkDeviceSetup.style.display = '';
+        }
         setLinkStatus(`已连接 ${link.label}`, true);
+        refreshTargetUi();
         appendTerminalLine('info', `🔗 已连接 ${link.label}: ${describeDeviceInfo(info)}`);
         if (link.kind === 'http') {
             hwMirror.start(link);
@@ -1875,10 +1893,14 @@ async function connectDevice() {
                 adoptDeviceDisplay(await link.stats()); // the selects show the board's settings
             } catch (e) { /* older firmware: no /api/stats */ }
             if (simLightRemote && simLightRemote.checked) sendLightToDevice(lightSliderValue());
+        } else if (link.kind === 'serial') {
+            // Auto-trigger initial setup wizard ONLY on serial connection if unconfigured (no WiFi SSID yet)
+            await deviceSetupWizard.checkSerialAndOpenIfUnconfigured(link);
         }
     } catch (err) {
         try { await link.disconnect(); } catch (e) { /* ignore */ }
         setLinkStatus('连接失败', false);
+        refreshTargetUi();
         appendTerminalLine('error', `连接设备失败: ${err.message}`);
     }
 }
@@ -1952,11 +1974,14 @@ function refreshTargetUi() {
     const mode = targetMode.value;
     updateTargetLabel();
     const needsLink = mode === 'http' || mode === 'serial';
+    const isLinkedHw = !!(activeLink && (activeLink.kind === 'http' || activeLink.kind === 'serial') && activeLink.kind === mode);
     if (deviceLinkBar) deviceLinkBar.style.display = needsLink ? 'flex' : 'none';
     if (deviceHostInput) deviceHostInput.style.display = mode === 'http' ? '' : 'none';
     if (deviceHostLabel) deviceHostLabel.style.display = mode === 'http' ? '' : 'none';
     if (deviceHttpPwd) deviceHttpPwd.style.display = mode === 'http' ? '' : 'none';
     if (devicePwdLabel) devicePwdLabel.style.display = mode === 'http' ? '' : 'none';
+    if (btnLinkDeviceSetup) btnLinkDeviceSetup.style.display = isLinkedHw ? '' : 'none';
+    if (btnDeviceSetup) btnDeviceSetup.style.display = (mode === 'wasm' || isLinkedHw) ? '' : 'none';
     if (mode === 'wasm') {
         targetDesc.textContent = "WASM 编译 ➔ MSBC 字节码 ➔ 浏览器内设备 VM (堆/原语/条带渲染与固件一致)";
     } else if (mode === 'http') {

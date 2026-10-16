@@ -113,6 +113,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn('id="editor-dialog" class="ws-view editor-workspace-view" hidden', body, "Editor must be hidden by default")
         self.assertIn("flasher-dialog", body, "Firmware Flasher dialog missing")
         self.assertIn("btn-device-setup", body, "Device Setup button missing")
+        self.assertIn("btn-link-device-setup", body, "Link bar Device Setup button next to Connect button missing")
         self.assertIn("btn-scheme-editor", body, "Editor button missing")
         self.assertIn("btn-firmware-flasher", body, "Flasher button missing")
         self.assertIn("editor_flasher.js", body, "editor_flasher.js script missing")

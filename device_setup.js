@@ -2,9 +2,16 @@
  * @file device_setup.js
  * @brief Initial Device Setup Wizard for MiniScheme WebREPL.
  *
- * Allows users connecting over Web Serial or HTTP to view/edit the initial
- * hardware configuration (/spiffs/config.ini): WiFi credentials, proxy URL,
- * hardware security password, and the default boot application (万年历/Calendar).
+ * Rules:
+ * 1. Auto-triggers ONLY when connecting via Web Serial and the device is detected
+ *    as unconfigured (missing config.ini or empty WiFi SSID), or when writing to
+ *    the local WASM simulated device.
+ * 2. Local simulated device (WASM) does NOT require a password and is restricted
+ *    exclusively to local proxy connections (127.0.0.1 / localhost / private LAN IP)
+ *    to prevent load on external servers.
+ * 3. When connected to a Serial or WiFi hardware device, users can configure WiFi,
+ *    App Proxy URL, and Hardware Password. If the hardware password is already set
+ *    on the device, it is displayed in plaintext and locked against modification.
  */
 
 class DeviceSetupWizard {
@@ -18,7 +25,70 @@ class DeviceSetupWizard {
         this.log = (opts && opts.log) || (() => {});
         this.backend = null;
         this.busy = false;
+        this.lockedHwPassword = '';
         this._build();
+    }
+
+    /**
+     * Validate whether a proxy/converter URL points strictly to a local or private LAN address.
+     * Empty string is allowed (falls back to local default).
+     */
+    static isLocalProxyUrl(urlStr) {
+        const s = String(urlStr || '').trim();
+        if (!s) return true;
+        let parsed;
+        try {
+            parsed = new URL(s);
+        } catch (e) {
+            return false;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+        const host = (parsed.hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+        if (!host) return false;
+        if (host === 'localhost' || host === '::1' || host === '0.0.0.0') return true;
+        if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+        if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+        if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+        const m172 = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+        if (m172) {
+            const second = parseInt(m172[1], 10);
+            if (second >= 16 && second <= 31) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Parse INI text into section.key map.
+     */
+    static parseIniMap(iniText) {
+        const lines = String(iniText || '').split('\n');
+        let sec = '';
+        const kv = {};
+        for (let line of lines) {
+            line = line.trim();
+            if (!line || line.startsWith(';') || line.startsWith('#')) continue;
+            const m = line.match(/^\[(.*)\]$/);
+            if (m) { sec = m[1].trim().toLowerCase(); continue; }
+            const eq = line.indexOf('=');
+            if (eq > 0) {
+                const k = line.substring(0, eq).trim();
+                let v = line.substring(eq + 1).trim();
+                const cIdx = v.search(/[;#]/);
+                if (cIdx >= 0) v = v.substring(0, cIdx).trim();
+                kv[`${sec}.${k}`] = v;
+            }
+        }
+        return kv;
+    }
+
+    /**
+     * Check if a config.ini text represents an unconfigured device (no WiFi SSID set).
+     */
+    static isConfigUnconfigured(iniText) {
+        if (!iniText || !String(iniText).trim()) return true;
+        const kv = DeviceSetupWizard.parseIniMap(iniText);
+        const ssid = (kv['wifi.ssid'] || kv['wifi.wifi_ssid'] || '').trim();
+        return ssid.length === 0;
     }
 
     _build() {
@@ -28,17 +98,22 @@ class DeviceSetupWizard {
         root.innerHTML = `
             <div class="fm-dialog ds-dialog" role="dialog" aria-modal="true" aria-labelledby="ds-title" style="max-width: 680px;">
                 <div class="fm-head">
-                    <span class="fm-title" id="ds-title">⚙️ ESP32 初始设备配置向导</span>
+                    <span class="fm-title" id="ds-title">⚙️ 初始设备配置向导</span>
                     <span class="fm-target ds-target"></span>
                     <button class="fm-close" data-act="close" title="关闭 (Esc)">&times;</button>
                 </div>
                 <div class="am-body ds-body" style="padding: 16px 24px; max-height: 70vh; overflow-y: auto;">
-                    <div style="margin-bottom: 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-                        在初次开机或恢复出厂后，在此设置网络与服务器凭据。点击<b>“保存并重启”</b>将配置写入硬件并自动启动默认应用。
+                    <div id="ds-intro-banner" style="margin-bottom: 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                        在此设置 WiFi 网络、应用代理服务器地址以及硬件密码。点击<b>“保存并重启”</b>将配置写入目标设备。
+                    </div>
+
+                    <!-- Simulator Notice Banner -->
+                    <div id="ds-sim-notice" hidden style="margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #7dd3fc; font-size: 12.5px; line-height: 1.5;">
+                        💻 <b>本地模拟设备模式</b>：模拟设备无需设置 WiFi 与硬件密码，并且<b>只能使用本地代理连接</b>（<code>127.0.0.1</code> / <code>localhost</code> / 局域网 IP），避免对外部服务器造成压力。
                     </div>
 
                     <!-- WiFi Section -->
-                    <div class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
+                    <div id="ds-wifi-section" class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
                         <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-cyan);">📶 1. WiFi 无线网络设置 [wifi]</h4>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-wifi-ssid" style="font-size: 13px;">WiFi 名称:</label>
@@ -55,18 +130,18 @@ class DeviceSetupWizard {
                         <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-blue);">🛡️ 2. 应用代理与安全密码 [server]</h4>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-proxy-url" style="font-size: 13px;">应用代理地址:</label>
-                            <input type="text" id="ds-proxy-url" placeholder="http://192.168.1.100:8087" value="http://192.168.1.100:8087" class="device-host-input" style="width: 100%;">
+                            <input type="text" id="ds-proxy-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
                         </div>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-converter-url" style="font-size: 13px;">协议转换器:</label>
-                            <input type="text" id="ds-converter-url" placeholder="http://192.168.1.100:8087" value="http://192.168.1.100:8087" class="device-host-input" style="width: 100%;">
+                            <input type="text" id="ds-converter-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
                         </div>
-                        <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 6px;">
+                        <div id="ds-hw-password-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 6px;">
                             <label for="ds-hw-password" style="font-size: 13px;">硬件安全密码:</label>
-                            <input type="password" id="ds-hw-password" placeholder="设置硬件密码 (丢失将无法出厂恢复)" class="device-host-input" style="width: 100%;">
+                            <input type="text" id="ds-hw-password" placeholder="设置硬件密码 (已设置后将明文显示且不可修改)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
                         </div>
-                        <div style="font-size: 11px; color: #eab308; margin-left: 130px;">
-                            ⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与出厂重置身份验证，请妥善保存。
+                        <div id="ds-hw-password-hint" style="font-size: 11px; color: #eab308; margin-left: 130px;">
+                            ⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与身份验证；一旦设置将以明文显示且禁止修改。
                         </div>
                     </div>
 
@@ -111,13 +186,19 @@ class DeviceSetupWizard {
         const q = (sel) => root.querySelector(sel);
         this.el = {
             root,
+            title: q('#ds-title'),
             target: q('.ds-target'),
             status: q('.ds-status'),
+            introBanner: q('#ds-intro-banner'),
+            simNotice: q('#ds-sim-notice'),
+            wifiSection: q('#ds-wifi-section'),
             wifiSsid: q('#ds-wifi-ssid'),
             wifiPass: q('#ds-wifi-password'),
             proxyUrl: q('#ds-proxy-url'),
             converterUrl: q('#ds-converter-url'),
+            hwPassRow: q('#ds-hw-password-row'),
             hwPass: q('#ds-hw-password'),
+            hwPassHint: q('#ds-hw-password-hint'),
             bootApp: q('#ds-boot-app'),
         };
 
@@ -137,16 +218,109 @@ class DeviceSetupWizard {
         this.el.status.className = 'fm-status ds-status' + (kind ? ` fm-status-${kind}` : '');
     }
 
-    async open() {
+    _isSimulator() {
+        return !!(this.backend && this.backend.kind === 'wasm');
+    }
+
+    _applyHwPasswordLockState(existingPassword) {
+        const pwd = String(existingPassword || '').trim();
+        this.el.hwPass.type = 'text'; // Always plaintext when shown
+        if (this._isSimulator()) {
+            this.lockedHwPassword = '';
+            this.el.hwPass.value = '';
+            this.el.hwPass.readOnly = true;
+            this.el.hwPass.disabled = true;
+            return;
+        }
+        if (pwd.length > 0) {
+            this.lockedHwPassword = pwd;
+            this.el.hwPass.value = pwd;
+            this.el.hwPass.readOnly = true;
+            this.el.hwPass.disabled = true;
+            this.el.hwPass.style.opacity = '0.85';
+            this.el.hwPass.style.cursor = 'not-allowed';
+            if (this.el.hwPassHint) {
+                this.el.hwPassHint.style.color = '#4ade80';
+                this.el.hwPassHint.textContent = '🔒 硬件密码已设置（明文显示），已设置的硬件密码禁止修改。';
+            }
+        } else {
+            this.lockedHwPassword = '';
+            this.el.hwPass.value = '';
+            this.el.hwPass.readOnly = false;
+            this.el.hwPass.disabled = false;
+            this.el.hwPass.style.opacity = '1';
+            this.el.hwPass.style.cursor = '';
+            if (this.el.hwPassHint) {
+                this.el.hwPassHint.style.color = '#eab308';
+                this.el.hwPassHint.textContent = '⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与身份验证；一旦设置将以明文显示且禁止修改。';
+            }
+        }
+    }
+
+    _updateModeUi() {
+        const isSim = this._isSimulator();
+        if (this.el.simNotice) this.el.simNotice.hidden = !isSim;
+        if (this.el.wifiSection) this.el.wifiSection.hidden = isSim;
+        if (this.el.hwPassRow) this.el.hwPassRow.style.display = isSim ? 'none' : 'grid';
+        if (this.el.hwPassHint) this.el.hwPassHint.hidden = isSim;
+        if (this.el.title) {
+            this.el.title.textContent = isSim ? '⚙️ 本地模拟设备初始化配置' : '⚙️ ESP32 设备初始化配置';
+        }
+        const defaultLocalProxy = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+        if (isSim) {
+            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理)`;
+            this.el.converterUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理)`;
+            this._applyHwPasswordLockState('');
+        } else {
+            this.el.proxyUrl.placeholder = 'http://192.168.1.100:8087';
+            this.el.converterUrl.placeholder = 'http://192.168.1.100:8087';
+        }
+    }
+
+    /**
+     * Called automatically ONLY after connecting via Web Serial.
+     * Checks if the device is unconfigured (no WiFi SSID in /spiffs/config.ini),
+     * and if so, opens the Initial Device Setup Wizard automatically.
+     */
+    async checkSerialAndOpenIfUnconfigured(serialLink) {
+        if (!serialLink || serialLink.kind !== 'serial') return false;
+        try {
+            let iniText = '';
+            try {
+                const bytes = await serialLink.fsRead('/spiffs/config.ini');
+                if (bytes && bytes.length) iniText = new TextDecoder().decode(bytes);
+            } catch (e) {
+                try {
+                    const bytes = await serialLink.fsRead('config.ini');
+                    if (bytes && bytes.length) iniText = new TextDecoder().decode(bytes);
+                } catch (err) { /* no config.ini yet */ }
+            }
+            if (DeviceSetupWizard.isConfigUnconfigured(iniText)) {
+                this.log('info', '⚙️ 检测到串口设备尚未配置 WiFi 网络，已自动弹出初始化配置界面。');
+                await this.open({ autoTriggered: true });
+                return true;
+            }
+        } catch (e) {
+            /* ignore probe errors */
+        }
+        return false;
+    }
+
+    async open(opts = {}) {
         try {
             this.backend = this.getBackend();
         } catch (e) {
             this.log('error', `⚙️ 设备配置: ${e.message || e}`);
             return;
         }
+        if (!this.backend) {
+            this.log('error', '⚙️ 设备配置: 请先连接串口/WiFi 设备，或切换到本地 WASM 模拟设备');
+            return;
+        }
         this.el.target.textContent = this.backend.label || '';
+        this._updateModeUi();
         this.el.root.hidden = false;
-        await this._readFromDevice();
+        await this._readFromDevice(opts && opts.autoTriggered);
     }
 
     close() {
@@ -155,23 +329,29 @@ class DeviceSetupWizard {
 
     async _action(act) {
         if (act === 'close') this.close();
-        else if (act === 'read') await this._readFromDevice();
+        else if (act === 'read') await this._readFromDevice(false);
         else if (act === 'default') this._setDefault();
         else if (act === 'save') await this._saveAndReboot();
     }
 
     _setDefault() {
+        const defaultProxy = this._isSimulator()
+            ? (window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087')
+            : (window.LOCAL_SERVER_BASE || 'http://192.168.1.100:8087');
         this.el.wifiSsid.value = '';
         this.el.wifiPass.value = '';
-        this.el.proxyUrl.value = 'http://192.168.1.100:8087';
-        this.el.converterUrl.value = 'http://192.168.1.100:8087';
-        this.el.hwPass.value = '';
+        this.el.proxyUrl.value = defaultProxy;
+        this.el.converterUrl.value = defaultProxy;
+        if (!this._isSimulator() && !this.lockedHwPassword) {
+            this.el.hwPass.value = '';
+        }
         this.el.bootApp.value = 'apps/calendar/app.msbc';
         this._status('已填入推荐默认设置', 'ok');
     }
 
-    async _readFromDevice() {
+    async _readFromDevice(autoTriggered = false) {
         this._status('正在读取设备 /spiffs/config.ini…');
+        this._applyHwPasswordLockState('');
         try {
             let bytes = null;
             try {
@@ -181,36 +361,29 @@ class DeviceSetupWizard {
             }
 
             if (!bytes || !bytes.length) {
-                this._status('设备尚无配置文件，已填入初始默认值', 'ok');
+                this._setDefault();
+                if (autoTriggered) {
+                    this._status('⚠️ 检测到串口设备尚未配置 WiFi，请填写下方初始配置并保存重启', 'ok');
+                } else {
+                    this._status('设备尚无配置文件，已填入初始默认值', 'ok');
+                }
                 return;
             }
 
             const text = new TextDecoder().decode(bytes);
             this._parseToForm(text);
-            this._status('成功读取设备当前配置', 'ok');
+            if (autoTriggered) {
+                this._status('⚠️ 检测到串口设备尚未配置 WiFi 网络，请完成初始配置并保存重启', 'ok');
+            } else {
+                this._status('成功读取设备当前配置', 'ok');
+            }
         } catch (e) {
             this._status(`读取配置失败: ${e.message || e}`, 'error');
         }
     }
 
     _parseToForm(iniText) {
-        const lines = iniText.split('\n');
-        let sec = '';
-        const kv = {};
-        for (let line of lines) {
-            line = line.trim();
-            if (!line || line.startsWith(';') || line.startsWith('#')) continue;
-            const m = line.match(/^\[(.*)\]$/);
-            if (m) { sec = m[1].trim().toLowerCase(); continue; }
-            const eq = line.indexOf('=');
-            if (eq > 0) {
-                const k = line.substring(0, eq).trim();
-                let v = line.substring(eq + 1).trim();
-                const cIdx = v.search(/[;#]/);
-                if (cIdx >= 0) v = v.substring(0, cIdx).trim();
-                kv[`${sec}.${k}`] = v;
-            }
-        }
+        const kv = DeviceSetupWizard.parseIniMap(iniText);
 
         if (kv['wifi.ssid'] !== undefined) this.el.wifiSsid.value = kv['wifi.ssid'];
         else if (kv['wifi.wifi_ssid'] !== undefined) this.el.wifiSsid.value = kv['wifi.wifi_ssid'];
@@ -218,9 +391,23 @@ class DeviceSetupWizard {
         if (kv['wifi.password'] !== undefined) this.el.wifiPass.value = kv['wifi.password'];
         else if (kv['wifi.wifi_password'] !== undefined) this.el.wifiPass.value = kv['wifi.wifi_password'];
 
-        if (kv['server.proxy_url'] !== undefined) this.el.proxyUrl.value = kv['server.proxy_url'];
-        if (kv['server.converter_url'] !== undefined) this.el.converterUrl.value = kv['server.converter_url'];
-        if (kv['server.hardware_password'] !== undefined) this.el.hwPass.value = kv['server.hardware_password'];
+        if (kv['server.proxy_url'] !== undefined) {
+            let pUrl = kv['server.proxy_url'];
+            if (this._isSimulator() && (pUrl === 'http://proxy.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(pUrl))) {
+                pUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            }
+            this.el.proxyUrl.value = pUrl;
+        }
+        if (kv['server.converter_url'] !== undefined) {
+            let cUrl = kv['server.converter_url'];
+            if (this._isSimulator() && (cUrl === 'http://converter.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(cUrl))) {
+                cUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            }
+            this.el.converterUrl.value = cUrl;
+        }
+
+        const existingHwPass = kv['server.hardware_password'] || '';
+        this._applyHwPasswordLockState(existingHwPass);
 
         if (kv['system.boot_app']) {
             let b = kv['system.boot_app'].replace(/^\/spiffs\//, '');
@@ -234,12 +421,22 @@ class DeviceSetupWizard {
     }
 
     async _saveAndReboot() {
-        const ssid = this.el.wifiSsid.value.trim();
-        const pass = this.el.wifiPass.value.trim();
+        const isSim = this._isSimulator();
+        const ssid = isSim ? '' : this.el.wifiSsid.value.trim();
+        const pass = isSim ? '' : this.el.wifiPass.value.trim();
         const proxy = this.el.proxyUrl.value.trim();
         const conv = this.el.converterUrl.value.trim() || proxy;
-        const hwPass = this.el.hwPass.value.trim();
+        const hwPass = isSim ? '' : (this.lockedHwPassword || this.el.hwPass.value.trim());
         const bootApp = this.el.bootApp.value.trim();
+
+        if (isSim) {
+            if (!DeviceSetupWizard.isLocalProxyUrl(proxy) || !DeviceSetupWizard.isLocalProxyUrl(conv)) {
+                const msg = '本地模拟设备仅允许连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)，避免对远程服务器造成压力';
+                this._status(msg, 'error');
+                this.log('error', `⚙️ ${msg}`);
+                return;
+            }
+        }
 
         this._status('正在写入配置并上传基础应用…');
         try {
@@ -270,17 +467,22 @@ class DeviceSetupWizard {
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
-                bootApp: bootApp
+                bootApp: bootApp,
+                isSimulator: isSim,
             });
 
             const configBytes = new TextEncoder().encode(configContent);
             await this.backend.fsWrite('/spiffs/config.ini', configBytes);
             this.log('info', '⚙️ 已保存新配置到 /spiffs/config.ini');
 
+            if (!isSim && hwPass) {
+                this._applyHwPasswordLockState(hwPass);
+            }
+
             // 3. Reboot device
             if (typeof this.backend.reset === 'function') {
-                this._status('配置保存成功！设备正在重启并连网…', 'ok');
-                this.log('info', '⏻ 正在重启 ESP32 设备以应用新设置…');
+                this._status('配置保存成功！设备正在重启…', 'ok');
+                this.log('info', '⏻ 正在重启设备以应用新设置…');
                 await this.backend.reset();
             } else {
                 this._status('配置保存成功！请手动重启设备', 'ok');
@@ -294,25 +496,32 @@ class DeviceSetupWizard {
     }
 
     static buildConfigIni(opts = {}) {
+        const isSim = !!opts.isSimulator;
+        const defaultProxy = isSim ? 'http://127.0.0.1:8087' : 'http://proxy.local:8087';
+        const defaultConv = isSim ? 'http://127.0.0.1:8087' : 'http://converter.local:8087';
         const {
             wifiSsid = '',
             wifiPassword = '',
-            proxyUrl = 'http://proxy.local:8087',
-            converterUrl = 'http://converter.local:8087',
+            proxyUrl = defaultProxy,
+            converterUrl = defaultConv,
             hwPassword = '',
             bootApp = 'apps/calendar/app.msbc'
         } = opts;
 
+        if (isSim && (!DeviceSetupWizard.isLocalProxyUrl(proxyUrl) || !DeviceSetupWizard.isLocalProxyUrl(converterUrl))) {
+            throw new Error('本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)');
+        }
+
         return [
             '; MiniScheme Hardware Initial Configuration',
             '[wifi]',
-            `ssid = ${wifiSsid}`,
-            `password = ${wifiPassword}`,
+            `ssid = ${isSim ? '' : wifiSsid}`,
+            `password = ${isSim ? '' : wifiPassword}`,
             '',
             '[server]',
             `proxy_url = ${proxyUrl}`,
             `converter_url = ${converterUrl}`,
-            `hardware_password = ${hwPassword}`,
+            `hardware_password = ${isSim ? '' : hwPassword}`,
             '',
             '[system]',
             `boot_app = ${bootApp}`,
@@ -330,4 +539,5 @@ class DeviceSetupWizard {
 
 window.DeviceSetupWizard = DeviceSetupWizard;
 window.MiniSchemeDeviceSetup = new DeviceSetupWizard();
+
 

@@ -339,6 +339,70 @@
         assert(ini.includes("boot_app = apps/calendar/app.msbc"), "Missing default boot app");
     });
 
+    addTest("5.2 Simulator Local-Proxy-Only & No-Password Enforcement", () => {
+        const setup = window.MiniSchemeDeviceSetup;
+        assert(DeviceSetupWizard.isLocalProxyUrl("http://127.0.0.1:8087"), "127.0.0.1 must be allowed");
+        assert(DeviceSetupWizard.isLocalProxyUrl("http://localhost:8087"), "localhost must be allowed");
+        assert(DeviceSetupWizard.isLocalProxyUrl("http://192.168.1.50:8087"), "LAN 192.168.x.x must be allowed");
+        assert(DeviceSetupWizard.isLocalProxyUrl("http://10.0.0.8:8087"), "LAN 10.x.x.x must be allowed");
+        assert(!DeviceSetupWizard.isLocalProxyUrl("https://api.example.com:8087"), "External domain must be rejected for simulator");
+        assert(!DeviceSetupWizard.isLocalProxyUrl("http://8.8.8.8:8087"), "Public IP must be rejected for simulator");
+
+        // Simulator config must strip passwords and allow local proxy
+        const simIni = setup.buildConfigIni({
+            isSimulator: true,
+            wifiSsid: "ShouldBeStripped",
+            wifiPassword: "ShouldBeStripped",
+            proxyUrl: "http://127.0.0.1:8087",
+            converterUrl: "http://127.0.0.1:8087",
+            hwPassword: "ShouldBeStripped"
+        });
+        assert(simIni.includes("ssid = \n"), "Simulator config must not write WiFi SSID");
+        assert(simIni.includes("hardware_password = \n"), "Simulator config must not write hardware password");
+
+        // Simulator config must throw on non-local proxy URL
+        let threw = false;
+        try {
+            setup.buildConfigIni({
+                isSimulator: true,
+                proxyUrl: "https://remote-server.example.com:8087"
+            });
+        } catch (e) {
+            threw = true;
+        }
+        assert(threw, "Simulator buildConfigIni must reject non-local proxy URLs");
+    });
+
+    addTest("5.3 Serial-Only Auto-Trigger & Plaintext Locked Hardware Password", async () => {
+        const setup = new DeviceSetupWizard();
+        // Verify unconfigured detection
+        assert(DeviceSetupWizard.isConfigUnconfigured(""), "Empty config must be detected as unconfigured");
+        assert(DeviceSetupWizard.isConfigUnconfigured("[wifi]\nssid = \n"), "Blank SSID must be detected as unconfigured");
+        assert(!DeviceSetupWizard.isConfigUnconfigured("[wifi]\nssid = MyWiFi\n"), "Configured SSID must not be detected as unconfigured");
+
+        // Verify HTTP link does NOT auto-trigger even if unconfigured
+        const triggeredHttp = await setup.checkSerialAndOpenIfUnconfigured({
+            kind: "http",
+            async fsRead() { return new Uint8Array(0); }
+        });
+        assertEqual(triggeredHttp, false, "HTTP connection must never auto-trigger initial setup");
+
+        // Verify hardware password plaintext display & immutability when already set
+        setup.backend = { kind: "device", label: "ESP32 Serial" };
+        setup._parseToForm("[wifi]\nssid = OfficeNet\n[server]\nproxy_url = http://192.168.1.10:8087\nhardware_password = PlainTextFixed999\n");
+        assertEqual(setup.el.hwPass.type, "text", "Hardware password must be displayed in plaintext (type=text)");
+        assertEqual(setup.el.hwPass.value, "PlainTextFixed999", "Hardware password value mismatch");
+        assertEqual(setup.el.hwPass.readOnly, true, "Already-set hardware password must be readOnly");
+        assertEqual(setup.el.hwPass.disabled, true, "Already-set hardware password must be disabled");
+        assertEqual(setup.lockedHwPassword, "PlainTextFixed999", "lockedHwPassword must preserve existing password");
+
+        // Verify unset hardware password remains editable
+        setup._parseToForm("[wifi]\nssid = OfficeNet\n[server]\nhardware_password = \n");
+        assertEqual(setup.el.hwPass.readOnly, false, "Unset hardware password must be editable");
+        assertEqual(setup.el.hwPass.disabled, false, "Unset hardware password must not be disabled");
+        assertEqual(setup.lockedHwPassword, "", "lockedHwPassword must be empty when unset");
+    });
+
     // 6. App Market & INI Parser Tests (app_manager.js)
     addTest("6.1 App Market Index JSON Loading & All-in-One SCM Mapping", async () => {
         const res = await fetch("apps/index.json", { cache: "no-store" });
