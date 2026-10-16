@@ -163,9 +163,9 @@
   "kind": "app",
   "web": false,
   "file": "weather.msbc",
-  "size": 50157,
+  "size": 50223,
   "scm": "weather.allinone.scm",
-  "hash": "114fa80c"
+  "hash": "2e49ffcd"
  },
  {
   "id": "wxpusher",

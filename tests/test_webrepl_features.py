@@ -311,7 +311,23 @@ class TestWebReplFeatures(unittest.TestCase):
                 content = f.read()
             self.assertNotIn("/releases/download/v1.0.0/", content, f"Hardcoded release v1.0.0 found in {fname}")
 
+    def test_09_weather_endpoint_with_token(self):
+        """Verify /app/weather accepts per-hardware token and key parameter without persistence"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/app/weather?loc=Shanghai&token=hardware_token_abc_123&key=hardware_token_abc_123")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        self.assertIn("items", data)
+        types = {it["t"] for it in data["items"]}
+        self.assertIn("loc", types)
+        self.assertIn("now", types)
+        self.assertIn("day", types)
+        self.assertIn("hours", types)
+        self.assertIn("idx", types)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 

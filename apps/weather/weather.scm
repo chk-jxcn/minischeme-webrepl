@@ -10,9 +10,12 @@
 ;; 1. Settings (apps/weather.ini, defaults in apps/weather/meta.ini) -----------
 
 (define (weather-url)
-  (app-url (string-append "/app/weather?loc=" (url-encode (app-config "location" "auto"))
-                          "&key=" (url-encode (app-config "qweather_key" ""))
-                          "&host=" (url-encode (app-config "qweather_host" "")))))
+  (let ((token (let ((t (app-config "qweather_token" "")))
+                 (if (string=? t "") (app-config "qweather_key" "") t))))
+    (app-url (string-append "/app/weather?loc=" (url-encode (app-config "location" "auto"))
+                            "&token=" (url-encode token)
+                            "&key=" (url-encode token)
+                            "&host=" (url-encode (app-config "qweather_host" ""))))))
 
 (define WEATHER-INTERVAL 600000)        ; the proxy caches 10 minutes too
 
