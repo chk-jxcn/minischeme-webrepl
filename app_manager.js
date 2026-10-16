@@ -87,18 +87,30 @@ function amIniSet(text, section, key, value) {
 /* [config] keys in order, described by [fields] ("type | label | help") */
 function amAppFields(meta) {
     const ini = amParseIni(meta);
-    const desc = {};
+    const desc = {
+        proxy_url: { type: 'text', label: '应用代理地址', help: '留空默认使用系统配置 (config.ini)' },
+        converter_url: { type: 'text', label: '协议转换器地址', help: '留空默认使用系统配置 (config.ini)' },
+    };
     for (const f of ini.fields || []) {
         const [type, label, help] = `${f.value}||`.split('|').map((x) => x.trim());
         desc[f.key] = { type: type || 'text', label, help };
     }
-    return (ini.config || []).map((c) => Object.assign(
-        { key: c.key, def: c.value, type: 'text', label: c.key, help: c.comment }, desc[c.key] || {}));
+    return (ini.config || []).map((c) => {
+        let defVal = c.value;
+        if ((c.key === 'proxy_url' && defVal === 'http://proxy.local:8087') ||
+            (c.key === 'converter_url' && defVal === 'http://converter.local:8087')) {
+            defVal = '';
+        }
+        return Object.assign(
+            { key: c.key, def: defVal, type: 'text', label: c.key, help: c.comment }, desc[c.key] || {});
+    });
 }
 
 /* The ini the app's first start writes from its metadata */
 function amDefaultIni(app) {
-    const meta = app.meta || '';
+    let meta = app.meta || '';
+    meta = meta.replace(/^(\s*proxy_url\s*=\s*)http:\/\/proxy\.local:8087/gm, '$1')
+               .replace(/^(\s*converter_url\s*=\s*)http:\/\/converter\.local:8087/gm, '$1');
     const at = meta.search(/^[ \t]*\[config\]/m);
     return '; settings of this app; they override config.ini\n' + (at >= 0 ? meta.slice(at) : '[config]\n');
 }
@@ -304,6 +316,10 @@ class AppManager {
     }
 
     _fieldHtml(i, f, value) {
+        if ((f.key === 'proxy_url' && value === 'http://proxy.local:8087') ||
+            (f.key === 'converter_url' && value === 'http://converter.local:8087')) {
+            value = '';
+        }
         const id = `am-f${i}-${f.key}`;
         const help = f.help ? `<div class="am-help">${amEsc(f.help)}</div>` : '';
         if (f.type === 'bool') {
@@ -320,7 +336,8 @@ class AppManager {
             const [lo, hi] = (f.type.split(':')[1] || '').split('-');
             input = `<input type="number" id="${id}" value="${amEsc(value)}"${lo ? ` min="${lo}"` : ''}${hi ? ` max="${hi}"` : ''}>`;
         } else {
-            input = `<input type="text" id="${id}" value="${amEsc(value)}">`;
+            const ph = (f.key === 'proxy_url' || f.key === 'converter_url' || f.def === '') ? ' placeholder="留空默认使用系统配置"' : '';
+            input = `<input type="text" id="${id}" value="${amEsc(value)}"${ph}>`;
         }
         return `<label class="am-label" for="${id}">${amEsc(f.label)}</label>${input}${help}`;
     }

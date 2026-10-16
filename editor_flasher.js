@@ -62,8 +62,8 @@ function extractSchemeMetadata(code) {
         description: "在 MiniScheme Web IDE 中创建",
         version: "1.0.0",
         api_version: detectApiRequirement(code),
-        proxy_url: "http://proxy.local:8087",
-        converter_url: "http://converter.local:8087"
+        proxy_url: "",
+        converter_url: ""
     };
 
     const idMatch = code.match(/(?:;;;|\b|^)\s*id\s*=\s*([a-zA-Z0-9_-]+)/im) ||
@@ -86,10 +86,10 @@ function extractSchemeMetadata(code) {
     const apiMatch = code.match(/(?:;;;|\b|^)\s*api(?:_version)?\s*=\s*([0-9.]+)/im);
     if (apiMatch) meta.api_version = apiMatch[1].trim();
 
-    const proxyMatch = code.match(/(?:;;;|\b|^)\s*proxy_url\s*=\s*([^\r\n;]+)/im);
+    const proxyMatch = code.match(/^(?:;;;\s*)?proxy_url\s*=\s*([^\r\n;#]*)/im);
     if (proxyMatch) meta.proxy_url = proxyMatch[1].trim();
 
-    const convMatch = code.match(/(?:;;;|\b|^)\s*converter_url\s*=\s*([^\r\n;]+)/im);
+    const convMatch = code.match(/^(?:;;;\s*)?converter_url\s*=\s*([^\r\n;#]*)/im);
     if (convMatch) meta.converter_url = convMatch[1].trim();
 
     return meta;
@@ -100,7 +100,7 @@ function generateMetaIniText(meta) {
 }
 
 function generateSchemeHeaderComment(meta) {
-    return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || 'http://proxy.local:8087'}\n;;; converter_url = ${meta.converter_url || 'http://converter.local:8087'}\n\n`;
+    return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || ''}\n;;; converter_url = ${meta.converter_url || ''}\n\n`;
 }
 
 function attachMetaTrailerToMsbc(msbcBytes, meta) {
@@ -527,8 +527,8 @@ const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
 ;;; api = 1.5
 ;;;
 ;;; [config]
-;;; proxy_url = http://proxy.local:8087
-;;; converter_url = http://converter.local:8087
+;;; proxy_url = 
+;;; converter_url = 
 
 ;; 简单的信息看板页面 (页数由应用在运行时自主决定)
 (gui-frame "MiniScheme IDE"

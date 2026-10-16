@@ -17,8 +17,8 @@
 ;;; 
 ;;; [config]
 ;;; pcmon_url = ; LibreHardwareMonitor web server (Options > Remote Web Server); empty: port 8085 of the proxy's PC
-;;; proxy_url = http://proxy.local:8087
-;;; converter_url = http://converter.local:8087
+;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
+;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
 ;;; =========================================================================
 ;;; Section: apps/lib/gui.scm
@@ -479,7 +479,8 @@
             (loop (+ i 1)))))))
 
 (define (info-proxy)
-  (let ((p (config-get "proxy")))
+  (let* ((p1 (config-get "proxy_url"))
+         (p (if (and (string? p1) (> (string-length p1) 0)) p1 (config-get "proxy"))))
     (cond ((not (and (string? p) (> (string-length p) 0))) "-")
           ((info-starts? p "http://") (substring p 7 (string-length p)))
           (else p))))
@@ -582,7 +583,9 @@
 ;; config.ini: [app] pcmon_url = http://<pc>:8085/data.json; unset: LibreHardwareMonitor
 ;; on the PC of the app proxy ([app] proxy = http://<pc>:8087), port 8085
 (define (pcmon-default-url)
-  (let* ((p (or (config-get "proxy") "")) (n (string-length p))
+  (let* ((p1 (config-get "proxy_url"))
+         (p (if (and (string? p1) (> (string-length p1) 0)) p1 (or (config-get "proxy") "")))
+         (n (string-length p))
          (start (if (and (> n 7) (string=? (substring p 0 7) "http://")) 7 0)))
     (let loop ((i start))           ; the host: up to ":" or "/"
       (cond ((or (= i n) (char=? (string-ref p i) #\:) (char=? (string-ref p i) #\/))

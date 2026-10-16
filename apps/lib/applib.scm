@@ -262,9 +262,9 @@
   (let ((v (config-get key)))
     (if (and (string? v) (> (string-length v) 0)) v default)))
 
-;; config.ini [app] proxy = http://<pc>:8087 (tools/app_proxy.py); "" when unset
+;; config.ini [server] proxy_url / [app] proxy = http://<pc>:8087 (tools/app_proxy.py); "" when unset
 (define (app-proxy)
-  (let* ((p (app-config "proxy" "")) (n (string-length p)))
+  (let* ((p (app-config "proxy_url" (app-config "proxy" ""))) (n (string-length p)))
     (if (and (> n 0) (char=? (string-ref p (- n 1)) #\/)) (substring p 0 (- n 1)) p)))
 
 (define (app-url path) (string-append (app-proxy) path))

@@ -15,8 +15,8 @@
 ;;; ; (no ASCII ; or # in these lines: they start a comment)
 ;;; 
 ;;; [config]
-;;; proxy_url = http://proxy.local:8087
-;;; converter_url = http://converter.local:8087
+;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
+;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
 ;;; =========================================================================
 ;;; Section: apps/lib/gui.scm
@@ -477,7 +477,8 @@
             (loop (+ i 1)))))))
 
 (define (info-proxy)
-  (let ((p (config-get "proxy")))
+  (let* ((p1 (config-get "proxy_url"))
+         (p (if (and (string? p1) (> (string-length p1) 0)) p1 (config-get "proxy"))))
     (cond ((not (and (string? p) (> (string-length p) 0))) "-")
           ((info-starts? p "http://") (substring p 7 (string-length p)))
           (else p))))
@@ -826,9 +827,9 @@
   (let ((v (config-get key)))
     (if (and (string? v) (> (string-length v) 0)) v default)))
 
-;; config.ini [app] proxy = http://<pc>:8087 (tools/app_proxy.py); "" when unset
+;; config.ini [server] proxy_url / [app] proxy = http://<pc>:8087 (tools/app_proxy.py); "" when unset
 (define (app-proxy)
-  (let* ((p (app-config "proxy" "")) (n (string-length p)))
+  (let* ((p (app-config "proxy_url" (app-config "proxy" ""))) (n (string-length p)))
     (if (and (> n 0) (char=? (string-ref p (- n 1)) #\/)) (substring p 0 (- n 1)) p)))
 
 (define (app-url path) (string-append (app-proxy) path))

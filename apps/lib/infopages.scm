@@ -222,7 +222,8 @@
             (loop (+ i 1)))))))
 
 (define (info-proxy)
-  (let ((p (config-get "proxy")))
+  (let* ((p1 (config-get "proxy_url"))
+         (p (if (and (string? p1) (> (string-length p1) 0)) p1 (config-get "proxy"))))
     (cond ((not (and (string? p) (> (string-length p) 0))) "-")
           ((info-starts? p "http://") (substring p 7 (string-length p)))
           (else p))))

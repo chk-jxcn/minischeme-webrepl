@@ -12,8 +12,8 @@
 ;;; 
 ;;; [config]
 ;;; ; the system settings keep their values in config.ini
-;;; proxy_url = http://proxy.local:8087
-;;; converter_url = http://converter.local:8087
+;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
+;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
 ;;; =========================================================================
 ;;; Section: apps/lib/gui.scm

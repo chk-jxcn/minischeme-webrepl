@@ -777,14 +777,14 @@ static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
     mock_fs_seed();
     char val[160];
     const char *key = mini_string_data(argv[0]);
-    if (mock_ini_value(g_app_ini, key, val, sizeof(val)) ||
+    if ((mock_ini_value(g_app_ini, key, val, sizeof(val)) && val[0]) ||
         (mini_app_config_key_ok(key) && mock_ini_value("/spiffs/config.ini", key, val, sizeof(val)))) {
         /* the simulator's requests go through server.py on the PC that runs
          * the app proxy: an unset proxy is that PC's */
-        if (!val[0] && strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
+        if (!val[0] && (strcmp(key, "proxy") == 0 || strcmp(key, "proxy_url") == 0)) return mini_make_string(vm, "http://127.0.0.1:8087");
         return mini_make_string(vm, val);
     }
-    if (strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
+    if (strcmp(key, "proxy") == 0 || strcmp(key, "proxy_url") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
     return mini_false();
 }
 

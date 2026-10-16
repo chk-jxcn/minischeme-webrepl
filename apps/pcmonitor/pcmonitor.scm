@@ -16,7 +16,9 @@
 ;; config.ini: [app] pcmon_url = http://<pc>:8085/data.json; unset: LibreHardwareMonitor
 ;; on the PC of the app proxy ([app] proxy = http://<pc>:8087), port 8085
 (define (pcmon-default-url)
-  (let* ((p (or (config-get "proxy") "")) (n (string-length p))
+  (let* ((p1 (config-get "proxy_url"))
+         (p (if (and (string? p1) (> (string-length p1) 0)) p1 (or (config-get "proxy") "")))
+         (n (string-length p))
          (start (if (and (> n 7) (string=? (substring p 0 7) "http://")) 7 0)))
     (let loop ((i start))           ; the host: up to ":" or "/"
       (cond ((or (= i n) (char=? (string-ref p i) #\:) (char=? (string-ref p i) #\/))

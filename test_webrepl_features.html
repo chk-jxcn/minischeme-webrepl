@@ -264,6 +264,8 @@
         const extracted = extractSchemeMetadata(header);
         assertEqual(extracted.id, "my_clock", "Extracted ID failed");
         assertEqual(extracted.name, "桌面时钟", "Extracted name failed");
+        assertEqual(extracted.proxy_url, "", "Default proxy_url must be empty to use system config");
+        assertEqual(extracted.converter_url, "", "Default converter_url must be empty to use system config");
     });
 
     addTest("2.7 Editor LocalStorage Draft Persistence", () => {
@@ -343,11 +345,22 @@
         const list = await res.json();
         assert(Array.isArray(list) && list.length >= 13, "Expected at least 13 apps, got " + list.length);
         
-        // Verify Calendar app properties
+        // Verify Calendar app properties and empty default proxy_url / converter_url in MSMD trailer
         const calendar = list.find(a => a.id === "calendar");
         assert(calendar !== undefined, "Calendar app missing from index");
         assertEqual(calendar.scm, "calendar.allinone.scm", "Missing allinone SCM field");
         assertEqual(calendar.file, "calendar.msbc", "Missing MSBC file field");
+        const msbcRes = await fetch("apps/" + calendar.file, { cache: "no-store" });
+        assert(msbcRes.ok, "Failed to fetch apps/calendar.msbc");
+        const parsed = parseMsbcTrailer(new Uint8Array(await msbcRes.arrayBuffer()));
+        assert(parsed !== null, "Failed to parse MSMD trailer of calendar.msbc");
+        assertEqual(parsed.meta.proxy_url, "", "MSMD meta proxy_url default must be empty");
+        assertEqual(parsed.meta.converter_url, "", "MSMD meta converter_url default must be empty");
+        const calFields = amAppFields(parsed.iniText);
+        const proxyField = calFields.find(f => f.key === "proxy_url");
+        const convField = calFields.find(f => f.key === "converter_url");
+        assert(proxyField && proxyField.def === "", "Installed app proxy_url default must be empty");
+        assert(convField && convField.def === "", "Installed app converter_url default must be empty");
     });
 
     addTest("6.2 INI Parser and Serializer (amParseIni, amIniSet)", () => {
