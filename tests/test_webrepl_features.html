@@ -48,6 +48,7 @@
     <script src="js/app_web.js"></script>
     <script src="js/device_setup.js"></script>
     <script src="js/local_server.js"></script>
+    <script src="js/proxy_admin.js"></script>
     <script src="js/editor_flasher.js"></script>
 
     <script>
@@ -604,6 +605,14 @@ theme = dark # Slate theme`;
         panel.loadSystemTab();
         assertEqual(panel.el.sysHwPass.value, "LockHwPassword123", "Hardware password must be shown in plaintext");
         assertEqual(panel.el.sysHwPass.disabled, true, "Hardware password must be locked/disabled");
+    });
+
+    addTest("Test 31: Proxy Admin Portal Manager and URL resolution", async () => {
+        assert(window.ProxyAdminManager, "ProxyAdminManager class must be defined");
+        assert(window.proxyAdminManager, "Global proxyAdminManager instance must be defined");
+        const mgr = new window.ProxyAdminManager();
+        const url = mgr.getAdminUrl();
+        assert(url.endsWith("/admin"), "Admin URL must end with /admin");
     });
 
     // -----------------------------------------------------------------------

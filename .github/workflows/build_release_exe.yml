@@ -76,8 +76,9 @@ jobs:
             ## MiniScheme WebREPL Local Server (Windows Standalone Tray Executable)
             - **`MiniScheme-WebREPL.exe`**: Single-file standalone Windows application packaged from `server.py` (includes WebREPL static assets, WASM compiler/simulator, App Proxy, Protocol Converter, and Font Generator).
             - **Bundled Fonts**: Built-in 16px/12px SimSun (宋体) and 16px SimHei (黑体) GB2312 dot-matrix fonts for instant one-click installation to hardware Font ROM.
+            - **Integrated Proxy Admin & User Portals**: Right-click tray menu options or WebREPL header/toolbar buttons to launch the Proxy Admin Portal (`/admin`) and Device Owner Portal (`/user`) for audit, tenant inspection, and pre-configuration.
             - **Default Port & Auto-Fallback**: Listens on port `8087` by default; automatically switches to the next available port (`8088`, `8089`, ...) if `8087` is already in use.
-            - **System Tray Integration**: Displays the local LAN IP and listening port in the Windows system tray; left-click to open the WebREPL page in your browser, right-click to copy the LAN proxy URL or exit.
+            - **System Tray Integration**: Displays the local LAN IP and listening port in the Windows system tray; left-click to open WebREPL, right-click to launch Proxy Admin, copy LAN proxy URL, or exit.
           files: |
             dist/MiniScheme-WebREPL.exe
         env:

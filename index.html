@@ -25,6 +25,7 @@
             </div>
             <span class="status-indicator online" id="status-dot"></span>
             <span id="device-status-text">WASM 编译器准备就绪</span>
+            <button class="pill-btn highlight" id="btn-proxy-admin" title="打开 MiniScheme 代理服务管理后台 (/admin)：设备全量审计、租户数据明文审阅与设备上线预设">🛡️ 代理管理后台</button>
             <button class="pill-btn highlight" id="btn-local-server" title="一键下载安装并运行本地服务端 (MiniScheme-WebREPL.exe)">🖥️ 本地服务端 (Exe)</button>
         </div>
     </header>
@@ -110,6 +111,7 @@
                     <button class="pill-btn highlight" id="btn-file-manager" title="管理设备文件系统 (/spiffs) 中的文件：上传、下载、重命名、删除、编辑文本 (含 config.ini)">🗂️ 文件管理</button>
                     <button class="pill-btn highlight" id="btn-app-web" title="打开设备网页：包含应用自带网页、系统配置、应用配置、应用管理与系统信息">🌐 设备网页</button>
                     <button class="pill-btn highlight" id="btn-font-manager" title="管理 Flash 字库分区 (Font ROM)">🔤 系统字库</button>
+                    <button class="pill-btn highlight" id="btn-quick-proxy-admin" title="打开 MiniScheme 代理服务管理后台 (/admin)：设备全量审计、租户数据明文审阅与设备上线预设">🛡️ 代理服务后台</button>
                 </div>
             </div>
 
@@ -558,6 +560,26 @@
         </div>
     </dialog>
 
+    <!-- =================================================================== -->
+    <!-- 模态弹窗：代理服务管理后台 (/admin)                                -->
+    <!-- =================================================================== -->
+    <dialog id="proxy-admin-dialog" class="modal-dialog flasher-modal" style="max-width:1160px; width:95vw; height:85vh; max-height:85vh; padding:0; display:none; flex-direction:column;" hidden>
+        <div class="modal-header" style="padding:12px 18px; border-bottom:1px solid rgba(255,255,255,0.08);">
+            <div class="modal-title-group">
+                <span class="modal-icon">🛡️</span>
+                <h2>MiniScheme 代理服务管理后台</h2>
+                <span class="arch-badge">全量设备审计 · 租户数据明文审阅 · 设备上线前预设</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <a id="proxy-admin-external-btn" class="pill-btn" href="/admin" target="_blank" rel="noopener" style="text-decoration:none;" title="在新浏览器标签页中打开">↗️ 新窗口打开</a>
+                <button class="modal-close-btn" id="proxy-admin-close-btn" title="关闭">&times;</button>
+            </div>
+        </div>
+        <div class="modal-body" style="flex:1; padding:0; overflow:hidden; display:flex;">
+            <iframe id="proxy-admin-iframe" src="" style="width:100%; height:100%; border:none; background:#f8fafc;" title="Proxy Admin Portal"></iframe>
+        </div>
+    </dialog>
+
     <script src="js/device_link.js"></script>
     <script src="js/sim_storage.js"></script>
     <script src="js/hw_mirror.js"></script>
@@ -568,6 +590,7 @@
     <script src="js/app_web.js"></script>
     <script src="js/device_setup.js"></script>
     <script src="js/local_server.js"></script>
+    <script src="js/proxy_admin.js"></script>
     <script src="js/editor_flasher.js"></script>
     <script src="js/app.js"></script>
 </body>

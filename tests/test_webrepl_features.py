@@ -61,11 +61,14 @@ class WebReplServerFixture:
         cmd = [sys.executable, "server.py", "--port", str(self.port)]
         if self.with_proxy:
             cmd.extend(["--with-proxy", "--proxy-port", str(self.port + 1)])
+        env = dict(os.environ)
+        env["MINISCHEME_ADMIN_PASSWORD"] = "admin"
         self.proc = subprocess.Popen(
             cmd,
             cwd=ROOT_DIR,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
             text=True
         )
         # Wait until server accepts connections
@@ -429,8 +432,94 @@ class TestWebReplFeatures(unittest.TestCase):
             self.assertTrue(len(data) > 100000)
             self.assertEqual(data[:4], b"MFNT")
 
+    def test_13_proxy_admin_portal_and_api(self):
+        """Verify Proxy Admin Portal (/admin), User Portal (/user), APIs, and tray integration"""
+        import urllib.request
+        # 1. Verify /admin and /user HTML pages
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/admin", timeout=3) as res_admin:
+            self.assertEqual(res_admin.status, 200)
+            admin_html = res_admin.read().decode("utf-8")
+            self.assertIn("MiniScheme 代理服务管理后台", admin_html)
+            self.assertIn("doAdminLogin", admin_html)
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/user", timeout=3) as res_user:
+            self.assertEqual(res_user.status, 200)
+            user_html = res_user.read().decode("utf-8")
+            self.assertIn("MiniScheme 设备用户控制台", user_html)
+            self.assertIn("doLogin", user_html)
+
+        # 2. Test Admin Login API (invalid and default admin password)
+        req_bad = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/login",
+            data=json.dumps({"password": "wrongpassword"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req_bad, timeout=3) as res_bad:
+                self.assertEqual(res_bad.status, 403)
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 403)
+
+        req_ok = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/login",
+            data=json.dumps({"password": "admin"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_ok, timeout=3) as res_ok:
+            self.assertEqual(res_ok.status, 200)
+            login_data = json.loads(res_ok.read().decode("utf-8"))
+            self.assertTrue(login_data.get("success"))
+            admin_token = login_data.get("token")
+            self.assertTrue(bool(admin_token))
+
+        # 3. Test Admin Devices & Preset APIs
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/admin/devices?token={admin_token}", timeout=3) as res_devs:
+            self.assertEqual(res_devs.status, 200)
+            dev_data = json.loads(res_devs.read().decode("utf-8"))
+            self.assertTrue(dev_data.get("success"))
+            self.assertIsInstance(dev_data.get("devices"), list)
+
+        # Save preset config for test MAC
+        test_mac = "C8F09EAA1122"
+        req_preset = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/preset",
+            data=json.dumps({
+                "token": admin_token,
+                "mac": test_mac,
+                "app_id": "weather",
+                "key": "api_key",
+                "value": "preset_secret_val_xyz"
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_preset, timeout=3) as res_pre:
+            self.assertEqual(res_pre.status, 200)
+            self.assertTrue(json.loads(res_pre.read().decode("utf-8")).get("success"))
+
+        # Verify admin gets plaintext data
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/admin/device/data?mac={test_mac}&token={admin_token}", timeout=3) as res_data:
+            self.assertEqual(res_data.status, 200)
+            data_resp = json.loads(res_data.read().decode("utf-8"))
+            self.assertTrue(data_resp.get("success"))
+            items = data_resp.get("items", [])
+            self.assertTrue(any(it.get("key") == "api_key" and it.get("value") == "preset_secret_val_xyz" for it in items))
+
+        # 4. Verify WebREPL UI triggers and Tray Menu Option exist
+        with open(os.path.join(ROOT_DIR, "index.html"), "r", encoding="utf-8") as f:
+            index_content = f.read()
+        self.assertIn('id="btn-proxy-admin"', index_content)
+        self.assertIn('id="btn-quick-proxy-admin"', index_content)
+        self.assertIn('id="proxy-admin-dialog"', index_content)
+        self.assertIn('js/proxy_admin.js', index_content)
+
+        with open(os.path.join(ROOT_DIR, "server.py"), "r", encoding="utf-8") as f:
+            server_content = f.read()
+        self.assertIn("ID_OPEN_ADMIN", server_content)
+        self.assertIn("打开代理服务管理后台", server_content)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
 

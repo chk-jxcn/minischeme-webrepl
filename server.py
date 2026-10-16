@@ -575,6 +575,18 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 if not verify_admin_session(token):
                     return self._json_reply({"success": False, "error": "unauthorized"}, 401)
                 return self._json_reply({"success": True, "devices": proxy_ctx.db.admin_list_devices()})
+            if req_path == "/api/admin/device/data":
+                token = qs.get("token", [""])[0]
+                mac = qs.get("mac", [""])[0]
+                if not verify_admin_session(token):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                return self._json_reply({"success": True, "items": proxy_ctx.db.get_app_data(mac, masked=False)})
+            if req_path == "/api/user/logs":
+                mac = qs.get("mac", [""])[0]
+                token = qs.get("token", [""])[0]
+                if not check_user_session(token, mac):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                return self._json_reply({"success": True, "items": proxy_ctx.db.get_device_logs(mac)})
 
         super().do_GET()
 
@@ -624,7 +636,45 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
             self._json_reply(res)
             return
 
-        if req_path.startswith("/channel") or req_path.startswith(("/api/user/", "/api/admin/")):
+        if req_path.startswith(("/api/user/", "/api/admin/")):
+            proxy_ctx.ensure_initialized()
+            from proxy.user_portal import verify_user_login
+            from proxy.admin_portal import create_admin_session, verify_admin_session
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length > 0 else b""
+            try:
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except Exception as e:
+                return self._json_reply({"success": False, "error": f"invalid json: {e}"}, 400)
+
+            if req_path == "/api/admin/login":
+                pwd = payload.get("password", "")
+                if pwd == proxy_ctx.admin_password:
+                    token = create_admin_session()
+                    return self._json_reply({"success": True, "token": token})
+                return self._json_reply({"success": False, "error": "password incorrect"}, 403)
+
+            if req_path == "/api/admin/preset":
+                token = payload.get("token", "")
+                if not verify_admin_session(token):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                mac = payload.get("mac", "")
+                app_id = payload.get("app_id", "")
+                key = payload.get("key", "")
+                val = payload.get("value", "")
+                proxy_ctx.db.set_app_data(mac, app_id, key, val)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/user/login":
+                mac = payload.get("mac", "")
+                client_hash = payload.get("hash", "")
+                nonce = payload.get("nonce", "")
+                ok, res = verify_user_login(mac, client_hash, nonce, proxy_ctx.db)
+                if ok:
+                    return self._json_reply({"success": True, "token": res})
+                return self._json_reply({"success": False, "error": res}, 403)
+
+        if req_path.startswith("/channel"):
             proxy_ctx.ensure_initialized()
             from proxy.crypto import (
                 derive_master_key_2,
@@ -824,8 +874,10 @@ class Win32SystemTray:
         ID_OPEN_LOCAL = 1001
         ID_OPEN_LAN = 1002
         ID_COPY_PROXY = 1003
-        ID_CHECK_RELEASE = 1005
         ID_EXIT = 1004
+        ID_CHECK_RELEASE = 1005
+        ID_OPEN_ADMIN = 1006
+        ID_OPEN_USER = 1007
 
         LRESULT = ctypes.c_ssize_t
         WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
@@ -866,10 +918,15 @@ class Win32SystemTray:
 
         local_url = f"http://127.0.0.1:{self.port}"
         lan_url = f"http://{self.ip}:{self.port}"
+        admin_url = f"{local_url}/admin"
+        user_url = f"{local_url}/user"
 
         def show_context_menu(hwnd):
             hmenu = user32.CreatePopupMenu()
             user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_LOCAL, f"🌐 打开 WebREPL 页面 ({local_url})")
+            user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_ADMIN, f"🛡️ 打开代理服务管理后台 ({admin_url})")
+            user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_USER, f"👤 打开设备用户门户 ({user_url})")
+            user32.AppendMenuW(hmenu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_LAN, f"📡 本机 IP: {self.ip}  |  监听端口: {self.port}")
             user32.AppendMenuW(hmenu, MF_STRING, ID_COPY_PROXY, f"📋 复制局域网代理地址 ({lan_url})")
             user32.AppendMenuW(hmenu, MF_STRING, ID_CHECK_RELEASE, "🔄 检查并下载最新 Release 版本")
@@ -885,6 +942,10 @@ class Win32SystemTray:
 
             if cmd == ID_OPEN_LOCAL:
                 webbrowser.open(local_url)
+            elif cmd == ID_OPEN_ADMIN:
+                webbrowser.open(admin_url)
+            elif cmd == ID_OPEN_USER:
+                webbrowser.open(user_url)
             elif cmd == ID_OPEN_LAN:
                 webbrowser.open(lan_url)
             elif cmd == ID_COPY_PROXY:
