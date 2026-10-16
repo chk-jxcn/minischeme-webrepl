@@ -199,6 +199,10 @@ class TestWebReplFeatures(unittest.TestCase):
 
         status, total, passed, failed = match.groups()
         print(f"\n[Browser Suite] Total: {total}, Passed: {passed}, Failed: {failed}, Status: {status}")
+        if int(failed) > 0:
+            failures = re.findall(r'<div class="test-item fail">.*?<span class="test-name">(.*?)</span>.*?<div class="test-err">(.*?)</div>', dom, re.DOTALL)
+            for fname, ferr in failures:
+                print(f"  [FAILED]: {fname}\n     ERROR: {ferr}")
         self.assertEqual(status, "PASSED", f"Browser test suite reported failures: {failed} failed")
         self.assertEqual(int(failed), 0)
         self.assertGreaterEqual(int(passed), 20)
@@ -325,6 +329,40 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("day", types)
         self.assertIn("hours", types)
         self.assertIn("idx", types)
+
+    def test_10_device_web_and_wifi_controller(self):
+        """Verify AppWebPanel multi-tab device web page and WASM simulator WiFi controller"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        body = res.read().decode("utf-8")
+        self.assertIn('id="sim-wifi-toggle"', body, "WASM WiFi toggle switch missing in index.html")
+        self.assertIn('id="btn-app-web"', body, "Device Web button missing in index.html")
+
+        # Verify app_web.js contains all 5 tabs and config handlers
+        conn.request("GET", "/app_web.js")
+        res_aw = conn.getresponse()
+        self.assertEqual(res_aw.status, 200)
+        content_aw = res_aw.read().decode("utf-8")
+        self.assertIn("AppWebPanel", content_aw)
+        self.assertIn('data-tab="app"', content_aw)
+        self.assertIn('data-tab="system"', content_aw)
+        self.assertIn('data-tab="config"', content_aw)
+        self.assertIn('data-tab="manage"', content_aw)
+        self.assertIn('data-tab="info"', content_aw)
+        self.assertIn("aw-sys-wifi-online", content_aw)
+        self.assertIn("saveSystemConfig", content_aw)
+        self.assertIn("saveRawConfigIni", content_aw)
+        self.assertIn("isSimWifiOnline", content_aw)
+        self.assertIn("setSimWifiOnline", content_aw)
+
+        # Verify device_setup.js contains ds-wifi-enable
+        conn.request("GET", "/device_setup.js")
+        res_ds = conn.getresponse()
+        self.assertEqual(res_ds.status, 200)
+        content_ds = res_ds.read().decode("utf-8")
+        self.assertIn("ds-wifi-enable", content_ds)
 
 
 if __name__ == "__main__":

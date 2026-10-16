@@ -517,6 +517,57 @@ if (simFbSelect) {
 if (simBppSelect) simBppSelect.addEventListener('change', () => { applySimDisplay(true); syncDisplayToDevice(); });
 if (simPaletteSelect) simPaletteSelect.addEventListener('change', () => { applySimDisplay(true); syncDisplayToDevice(); });
 
+// WiFi Online / Offline simulator switch (default enabled/open)
+window.SIM_WIFI_ENABLED = true;
+
+window.isSimWifiOnline = function() {
+    return window.SIM_WIFI_ENABLED !== false;
+};
+
+window.setSimWifiOnline = function(online, sourceEl) {
+    window.SIM_WIFI_ENABLED = !!online;
+    const isOnline = window.SIM_WIFI_ENABLED;
+
+    const toggle = document.getElementById('sim-wifi-toggle');
+    if (toggle && toggle !== sourceEl) toggle.checked = isOnline;
+
+    const toggleText = document.getElementById('sim-wifi-toggle-text');
+    if (toggleText) {
+        toggleText.textContent = isOnline ? '已联网' : '已断开';
+        toggleText.className = isOnline ? 'online' : 'offline';
+    }
+
+    const ledWifi = document.getElementById('led-wifi');
+    if (ledWifi) {
+        if (isOnline) ledWifi.classList.add('active');
+        else ledWifi.classList.remove('active');
+    }
+
+    const awOnline = document.getElementById('aw-sys-wifi-online');
+    if (awOnline && awOnline !== sourceEl) awOnline.checked = isOnline;
+
+    const dsOnline = document.getElementById('ds-wifi-enable');
+    if (dsOnline && dsOnline !== sourceEl) dsOnline.checked = isOnline;
+
+    appendTerminalLine(isOnline ? 'info' : 'warn',
+        isOnline ? '📶 [WASM 模拟器] WiFi 已连接 (网络在线)' : '📶 [WASM 模拟器] WiFi 已断开 (网络离线)');
+};
+
+const simWifiToggle = document.getElementById('sim-wifi-toggle');
+if (simWifiToggle) {
+    simWifiToggle.addEventListener('change', (e) => {
+        window.setSimWifiOnline(e.target.checked, e.target);
+    });
+}
+
+const ledWifiEl = document.getElementById('led-wifi');
+if (ledWifiEl) {
+    ledWifiEl.style.cursor = 'pointer';
+    ledWifiEl.addEventListener('click', () => {
+        window.setSimWifiOnline(!window.isSimWifiOnline());
+    });
+}
+
 /** The board when linked over HTTP (display, button and light go to it), else null */
 function httpDevice() {
     return activeLink && activeLink.kind === 'http' && typeof activeLink.input === 'function' ? activeLink : null;
@@ -815,6 +866,10 @@ async function marketService(ex) {
     if (!ex.wasm_market_request || marketFetching) return;
     const url = readStringFromWasm(ex.wasm_market_request());
     if (!url) return;
+    if (window.isSimWifiOnline && !window.isSimWifiOnline()) {
+        ex.wasm_market_response(0, 0, 0);
+        return;
+    }
     marketFetching = true;
     let bytes = null, status = 0;
     try {
@@ -998,7 +1053,7 @@ if (btnHwK18) {
     btnHwK18.addEventListener('contextmenu', (e) => e.preventDefault()); // long touch
 }
 
-// Photoresistor Light Sensor Slider (IO35 / ADC1_CH7). With "模拟光敏数据"
+// Photoresistor Light Sensor Slider (IO35 / ADC1_CH7). With "Simulate Light Sensor"
 // checked and the board linked over HTTP, the slider replaces the board's
 // sensor reading (POST /api/input?light=); unchecked, the board reads its own.
 const simLightRemote = document.getElementById('sim-light-remote');
@@ -1135,7 +1190,9 @@ async function feedFetch(ex, url) {
         const localBase = base || 'http://127.0.0.1:8087';
         effectiveUrl = effectiveUrl.replace(/^https?:\/\/(proxy|converter)\.local(:\d+)?/i, localBase);
     }
-    if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(effectiveUrl)) {
+    if (window.isSimWifiOnline && !window.isSimWifiOnline()) {
+        problem = 'WiFi已断开 (WASM 模拟器网络开关已关闭)';
+    } else if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(effectiveUrl)) {
         problem = '本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力';
     } else {
         try {

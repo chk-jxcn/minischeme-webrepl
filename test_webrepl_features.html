@@ -508,6 +508,102 @@ theme = dark # Slate theme`;
         assert(typeof info.port === "number" && info.port > 0, "Invalid port in server_info");
     });
 
+    addTest("8.2 WASM Simulator WiFi Network State Controller (Online by default & Toggle)", () => {
+        assert(typeof window.isSimWifiOnline === "function", "Missing isSimWifiOnline helper");
+        assert(typeof window.setSimWifiOnline === "function", "Missing setSimWifiOnline helper");
+        assertEqual(window.isSimWifiOnline(), true, "WiFi must default to online (true)");
+        window.setSimWifiOnline(false);
+        assertEqual(window.isSimWifiOnline(), false, "WiFi must switch to offline (false)");
+        window.setSimWifiOnline(true);
+        assertEqual(window.isSimWifiOnline(), true, "WiFi must switch back to online (true)");
+    });
+
+    addTest("8.3 Device Web Interface (AppWebPanel) 5 Tabs & Interactive Navigation", () => {
+        assert(typeof window.AppWebPanel === "function", "Missing AppWebPanel class");
+        const mockTarget = {
+            kind: "wasm",
+            exports: () => ({}),
+            memory: () => new WebAssembly.Memory({ initial: 1 })
+        };
+        const panel = new window.AppWebPanel({ getTarget: () => mockTarget });
+        assert(panel.el.panes.app !== null, "Missing 'app' pane");
+        assert(panel.el.panes.system !== null, "Missing 'system' pane");
+        assert(panel.el.panes.config !== null, "Missing 'config' pane");
+        assert(panel.el.panes.manage !== null, "Missing 'manage' pane");
+        assert(panel.el.panes.info !== null, "Missing 'info' pane");
+
+        panel.switchTab("system");
+        assertEqual(panel.activeTab, "system");
+        assertEqual(panel.el.panes.system.hidden, false, "System pane should be visible");
+        assertEqual(panel.el.panes.app.hidden, true, "App pane should be hidden");
+
+        panel.switchTab("config");
+        assertEqual(panel.activeTab, "config");
+        assertEqual(panel.el.panes.config.hidden, false);
+
+        panel.switchTab("manage");
+        assertEqual(panel.activeTab, "manage");
+        assertEqual(panel.el.panes.manage.hidden, false);
+
+        panel.switchTab("info");
+        assertEqual(panel.activeTab, "info");
+        assertEqual(panel.el.panes.info.hidden, false);
+
+        panel.switchTab("app");
+        assertEqual(panel.activeTab, "app");
+        assertEqual(panel.el.panes.app.hidden, false);
+    });
+
+    addTest("8.4 System Configuration Subsystem (WiFi, INI Parser, and Plaintext Password Lock)", () => {
+        const mockTarget = {
+            kind: "wasm",
+            exports: () => ({}),
+            memory: () => new WebAssembly.Memory({ initial: 1 })
+        };
+        const panel = new window.AppWebPanel({ getTarget: () => mockTarget });
+
+        const sampleIni = [
+            "[wifi]",
+            "wifi_ssid = Office-WiFi",
+            "wifi_password = secretpass",
+            "",
+            "[server]",
+            "proxy_url = http://127.0.0.1:8087",
+            "converter_url = http://127.0.0.1:8087",
+            "hardware_password = LockHwPassword123",
+            "",
+            "[system]",
+            "boot_app = apps/weather.msbc",
+            "device_name = Test-Sim-Dev"
+        ].join('\n');
+
+        const parsed = panel._parseIni(sampleIni);
+        assertEqual(parsed.wifi.wifi_ssid, "Office-WiFi");
+        assertEqual(parsed.wifi.wifi_password, "secretpass");
+        assertEqual(parsed.server.proxy_url, "http://127.0.0.1:8087");
+        assertEqual(parsed.server.hardware_password, "LockHwPassword123");
+        assertEqual(parsed.system.boot_app, "apps/weather.msbc");
+
+        const updatedIni = panel._updateIni(sampleIni, {
+            "wifi.wifi_ssid": "New-WiFi",
+            "system.boot_app": "apps/stocks.msbc"
+        });
+        assert(updatedIni.includes("wifi_ssid = New-WiFi"), "Failed to update wifi_ssid");
+        assert(updatedIni.includes("boot_app = apps/stocks.msbc"), "Failed to update boot_app");
+
+        // Test local proxy enforcement
+        assert(window.DeviceSetupWizard.isLocalProxyUrl("http://127.0.0.1:8087"), "127.0.0.1 must be local proxy");
+        assert(window.DeviceSetupWizard.isLocalProxyUrl("http://localhost:8087"), "localhost must be local proxy");
+        assert(window.DeviceSetupWizard.isLocalProxyUrl("http://192.168.1.100:8087"), "192.168.x must be local proxy");
+        assert(!window.DeviceSetupWizard.isLocalProxyUrl("http://remote.server.org:8087"), "remote domain must not be allowed for simulator");
+
+        // Test hardware password locking
+        panel.readConfigIni = () => sampleIni;
+        panel.loadSystemTab();
+        assertEqual(panel.el.sysHwPass.value, "LockHwPassword123", "Hardware password must be shown in plaintext");
+        assertEqual(panel.el.sysHwPass.disabled, true, "Hardware password must be locked/disabled");
+    });
+
     // -----------------------------------------------------------------------
     // Test Runner Execution
     // -----------------------------------------------------------------------

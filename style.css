@@ -1175,10 +1175,34 @@ body {
 .am-help { color: #8a9bb0; font-size: 11px; margin-top: 2px; }
 .am-editor { min-height: 160px; width: 100%; }
 
-/* The app's own web page (app_web.js) */
-.aw-dialog { max-width: 780px; }
-.aw-frame { flex: 1; width: 100%; min-height: 60vh; border: 0; border-radius: 6px; background: #0b1118; }
+/* The device's full web page and app web panel (app_web.js) */
+.aw-dialog { max-width: 840px; width: 92vw; max-height: 88vh; display: flex; flex-direction: column; }
+.aw-nav-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); background: rgba(0, 0, 0, 0.2); padding: 0 12px; }
+.aw-tab-btn { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); padding: 9px 14px; font-size: 13px; font-weight: 500; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.aw-tab-btn:hover { color: #fff; }
+.aw-tab-btn.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+.aw-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+.aw-pane { display: flex; flex-direction: column; gap: 12px; }
+.aw-pane[hidden] { display: none !important; }
+.aw-frame { flex: 1; width: 100%; min-height: 55vh; border: 0; border-radius: 6px; background: #0b1118; }
 .aw-note { color: var(--text-secondary); font-size: 12px; }
+.aw-section { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px 14px; }
+.aw-sec-title { margin: 0 0 10px 0; font-size: 14px; font-weight: 600; color: var(--accent-cyan); }
+.aw-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 600px) { .aw-grid-2 { grid-template-columns: 1fr; } }
+.aw-grid-2 label, .aw-section label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.aw-grid-2 input, .aw-grid-2 select, .aw-section input[type="text"], .aw-section input[type="password"] {
+    background: #0b1118; border: 1px solid var(--border-color); border-radius: 5px; color: #fff; padding: 6px 10px; font-size: 13px;
+}
+.aw-kv-grid { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; font-size: 13px; }
+.aw-kv-grid b { color: var(--text-secondary); font-weight: normal; }
+
+/* WiFi Simulator Switch in simulator toolbar */
+.compact-toggle-label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; user-select: none; }
+.compact-toggle-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent-cyan); }
+#sim-wifi-toggle-text.offline { color: #ef4444; font-weight: 500; }
+#sim-wifi-toggle-text.online { color: #10b981; font-weight: 500; }
+
 
 /* --------------------------------------------------------------------------
  * Workspace Tabs (REPL Console vs. Scheme IDE)

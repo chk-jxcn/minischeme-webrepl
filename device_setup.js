@@ -115,6 +115,12 @@ class DeviceSetupWizard {
                     <!-- WiFi Section -->
                     <div id="ds-wifi-section" class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
                         <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-cyan);">📶 1. WiFi 无线网络设置 [wifi]</h4>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                            <label style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="ds-wifi-enable" checked style="width: 16px; height: 16px; accent-color: var(--accent-cyan); cursor: pointer;">
+                                <span style="font-weight: 500;">WiFi 连网状态 (默认开启)</span>
+                            </label>
+                        </div>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-wifi-ssid" style="font-size: 13px;">WiFi 名称:</label>
                             <input type="text" id="ds-wifi-ssid" placeholder="例如: MyHome-WiFi" class="device-host-input" style="width: 100%;">
@@ -192,6 +198,7 @@ class DeviceSetupWizard {
             introBanner: q('#ds-intro-banner'),
             simNotice: q('#ds-sim-notice'),
             wifiSection: q('#ds-wifi-section'),
+            wifiEnable: q('#ds-wifi-enable'),
             wifiSsid: q('#ds-wifi-ssid'),
             wifiPass: q('#ds-wifi-password'),
             proxyUrl: q('#ds-proxy-url'),
@@ -201,6 +208,14 @@ class DeviceSetupWizard {
             hwPassHint: q('#ds-hw-password-hint'),
             bootApp: q('#ds-boot-app'),
         };
+
+        if (this.el.wifiEnable) {
+            this.el.wifiEnable.addEventListener('change', (e) => {
+                if (typeof window.setSimWifiOnline === 'function') {
+                    window.setSimWifiOnline(e.target.checked, e.target);
+                }
+            });
+        }
 
         root.addEventListener('click', (e) => {
             if (e.target === root) { this.close(); return; }
@@ -338,6 +353,9 @@ class DeviceSetupWizard {
         const defaultProxy = this._isSimulator()
             ? (window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087')
             : (window.LOCAL_SERVER_BASE || 'http://192.168.1.100:8087');
+        if (this.el.wifiEnable) {
+            this.el.wifiEnable.checked = true;
+        }
         this.el.wifiSsid.value = '';
         this.el.wifiPass.value = '';
         this.el.proxyUrl.value = defaultProxy;
@@ -352,6 +370,9 @@ class DeviceSetupWizard {
     async _readFromDevice(autoTriggered = false) {
         this._status('正在读取设备 /spiffs/config.ini…');
         this._applyHwPasswordLockState('');
+        if (this.el.wifiEnable) {
+            this.el.wifiEnable.checked = typeof window.isSimWifiOnline === 'function' ? window.isSimWifiOnline() : true;
+        }
         try {
             let bytes = null;
             try {
