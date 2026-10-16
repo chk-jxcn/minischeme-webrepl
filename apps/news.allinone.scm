@@ -7,7 +7,6 @@
 ;;; name = 热点新闻
 ;;; description = 百度热搜、民生、财经、体育榜单，以及知乎或今日头条热榜，每页10条
 ;;; version = 1
-;;; pages = 5
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

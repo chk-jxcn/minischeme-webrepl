@@ -7,7 +7,6 @@
 ;;; name = 期货行情
 ;;; description = 国内期货主力合约报价、单个合约分时、30日走势（新浪行情）
 ;;; version = 1
-;;; pages = 3
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

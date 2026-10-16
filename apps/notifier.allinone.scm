@@ -7,7 +7,6 @@
 ;;; name = 消息提示
 ;;; description = 显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送
 ;;; version = 2
-;;; pages = 2
 ;;; api = 1.1 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 1
 ;;; 
 ;;; [fields]

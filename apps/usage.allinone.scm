@@ -7,7 +7,6 @@
 ;;; name = Token 用量
 ;;; description = Claude Code、Gemini CLI、Codex 在本机的5小时与7天 token 用量、额度、按小时/天趋势和模型分布
 ;;; version = 1
-;;; pages = 4
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

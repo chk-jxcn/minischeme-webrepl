@@ -7,7 +7,6 @@
 ;;; name = PC 性能监控
 ;;; description = LibreHardwareMonitor 的 CPU、温度、GPU、风扇曲线，按键切换链路和硬件页
 ;;; version = 1
-;;; pages = 3
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

@@ -7,7 +7,6 @@
 ;;; name = 万年历
 ;;; description = 时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度
 ;;; version = 2
-;;; pages = 3
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

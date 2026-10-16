@@ -7,7 +7,6 @@
 ;;; name = 备忘录
 ;;; description = 待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理
 ;;; version = 1
-;;; pages = 2
 ;;; api = 1.1 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 1
 ;;; 
 ;;; [fields]

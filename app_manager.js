@@ -237,7 +237,7 @@ class AppManager {
             <div class="am-app">
                 <div class="am-name">${amEsc(a.name)}${a.boot ? '<span class="am-tag">启动</span>' : ''}</div>
                 <div class="am-desc">${amEsc(a.description)}</div>
-                <div class="am-desc">${amEsc(amRel(a.path))} · ${amSize(a.size)} · ${a.pages} 页 · v${amEsc(a.version)} · 配置 ${amEsc(amRel(a.ini))}</div>
+                <div class="am-desc">${amEsc(amRel(a.path))} · ${amSize(a.size)} · v${amEsc(a.version)} · 配置 ${amEsc(amRel(a.ini))}</div>
                 <div class="am-actions">
                     ${a.boot ? '' : `<button class="pill-btn" data-act="boot" data-i="${i}">设为启动应用</button>`}
                     ${this.backend.reset ? `<button class="pill-btn" data-act="run" data-i="${i}">设为启动并重启</button>` : ''}
@@ -255,7 +255,7 @@ class AppManager {
             <div class="am-app">
                 <div class="am-name">${amEsc(b.name)} <span class="am-note">${state}</span></div>
                 <div class="am-desc">${amEsc(b.description)}</div>
-                <div class="am-desc">${amEsc(b.file)} · ${amSize(b.size)} · ${b.pages} 页 · v${amEsc(b.version)}</div>
+                <div class="am-desc">${amEsc(b.file)} · ${amSize(b.size)} · v${amEsc(b.version)}</div>
                 <div class="am-actions">
                     <button class="pill-btn highlight" data-act="edit" data-i="${i}">📝 编辑源码</button>
                     ${state === '已安装' ? '' : `<button class="pill-btn" data-act="install" data-i="${i}">${have ? '更新' : '安装'}</button>`}
@@ -432,20 +432,26 @@ class AppManager {
         const b = this.bundled[i];
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
-            // 1. Try downloading prebuilt binary from GitHub release assets
-            try {
-                const ghUrl = `${AM_GITHUB_RELEASE_BASE}${b.file}`;
-                const ghRes = await fetch(ghUrl, { cache: 'no-store' });
-                if (ghRes.ok) {
-                    bytes = new Uint8Array(await ghRes.arrayBuffer());
-                }
-            } catch (e) { /* ignore and fallback */ }
-
-            // 2. Fallback to local apps/<file>
+            const urls = [
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${b.file}`,
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${b.file}`,
+                `apps/${b.file}`,
+                `${AM_GITHUB_RELEASE_BASE}${b.file}`
+            ];
+            for (const url of urls) {
+                try {
+                    const res = await fetch(url, { cache: 'no-store' });
+                    if (res.ok) {
+                        const buf = await res.arrayBuffer();
+                        if (buf.byteLength > 100) {
+                            bytes = new Uint8Array(buf);
+                            break;
+                        }
+                    }
+                } catch (e) { /* try next */ }
+            }
             if (!bytes) {
-                const res = await fetch(`apps/${b.file}`, { cache: 'no-store' });
-                if (!res.ok) throw new Error(`读取 ${b.file} 失败 (GitHub Release 与本地均未获取到)`);
-                bytes = new Uint8Array(await res.arrayBuffer());
+                throw new Error(`读取 ${b.file} 失败 (GitHub 与本地均未获取到)`);
             }
 
             await this.backend.fsWrite(`/spiffs/apps/${b.id}/app.msbc`, bytes);   /* the app's folder, as the market */

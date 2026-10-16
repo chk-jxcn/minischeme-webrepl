@@ -29,11 +29,14 @@
     </header>
 
     <div class="main-container">
-        <!-- 左侧：终端交互 REPL -->
+        <!-- 左侧：终端交互 REPL 与 Scheme 应用编辑器 (选项卡切换) -->
         <section class="repl-pane">
-            <div class="pane-header">
-                <span class="pane-title">交互式 REPL 终端</span>
-                <span class="pane-subtitle" id="target-desc">原生 C VM 编译为 WASM ➔ Scheme 编译器生成 MSBC 字节码 ➔ ESP32 执行</span>
+            <div class="pane-header ws-header">
+                <div class="ws-tabs" role="tablist">
+                    <button class="ws-tab active" id="tab-btn-repl" data-ws-tab="repl" role="tab" aria-selected="true">💬 交互式终端 (REPL)</button>
+                    <button class="ws-tab" id="tab-btn-editor" data-ws-tab="editor" role="tab" aria-selected="false">📝 Scheme 应用编辑器 (IDE)</button>
+                </div>
+                <span class="pane-subtitle" id="target-desc">WASM ➔ MSBC 字节码 ➔ ESP32 执行</span>
             </div>
             <div class="device-link-bar" id="device-link-bar" style="display:none;">
                 <label for="device-host" id="device-host-label">设备地址:</label>
@@ -46,62 +49,141 @@
                 </label>
                 <span id="device-link-status" class="device-link-status">未连接</span>
             </div>
-            <div id="terminal" class="terminal-body">
-                <div class="term-line banner">============================================================</div>
-                <div class="term-line banner">  MiniScheme 1.0 (WASM Native VM + Pure Scheme Compiler)   </div>
-                <div class="term-line banner">  核心架构: 原生 C VM 运行于 WASM，载入 Scheme 优化编译器 (compiler.scm) </div>
-                <div class="term-line banner">  编译输出: 纯二进制 MSBC 字节码，无缝下发给 ESP32 执行   </div>
-                <div class="term-line banner">============================================================</div>
-                <div class="term-line info">输入任意 Scheme 表达式，例如 (+ 10 (* 3 5)) 或点击下方示例。</div>
-            </div>
-            
-            <div class="input-bar">
-                <!-- 智能自动补全浮窗 (按 Tab 唤出，按 1-9 或 鼠标点击 选择) -->
-                <div id="ac-popup" class="autocomplete-popup" style="display:none;" role="listbox">
-                    <div class="ac-header">
-                        <span class="ac-title">⚡ 自动补全 (按 1-9 或 点击 选择，Esc 取消)</span>
-                        <span class="ac-close" id="ac-close-btn" title="关闭">&times;</span>
-                    </div>
-                    <div id="ac-list" class="ac-list"></div>
+
+            <!-- 选项卡 1：交互式 REPL 终端视图 -->
+            <div id="repl-workspace-view" class="ws-view">
+                <div id="terminal" class="terminal-body">
+                    <div class="term-line banner">============================================================</div>
+                    <div class="term-line banner">  MiniScheme 1.0 (WASM Native VM + Pure Scheme Compiler)   </div>
+                    <div class="term-line banner">  核心架构: 原生 C VM 运行于 WASM，载入 Scheme 优化编译器 (compiler.scm) </div>
+                    <div class="term-line banner">  编译输出: 纯二进制 MSBC 字节码，无缝下发给 ESP32 执行   </div>
+                    <div class="term-line banner">============================================================</div>
+                    <div class="term-line info">输入任意 Scheme 表达式，例如 (+ 10 (* 3 5)) 或点击下方示例。</div>
                 </div>
-                <span class="prompt-symbol">minischeme&gt;</span>
-                <textarea id="cmd-input" rows="1" placeholder="输入 Scheme 代码，回车发送 (Tab 自动补全，Shift+Enter 换行)..." autofocus autocomplete="off" spellcheck="false"></textarea>
-                <button id="send-btn" class="action-btn">编译并执行</button>
-                <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件：WASM 仿真时直接运行 (带元数据的应用按开机应用启动)；连接硬件时安装到设备，应用装到 /spiffs/apps/&lt;id&gt;.msbc 并设为启动应用后重启。也可以把文件拖到页面上">📁 上传字节码</button>
-                <input type="file" id="input-fasl-upload" style="display:none;" accept=".fasl,.msbc,.bin,.scm">
+                
+                <div class="input-bar">
+                    <!-- 智能自动补全浮窗 (按 Tab 唤出，按 1-9 或 鼠标点击 选择) -->
+                    <div id="ac-popup" class="autocomplete-popup" style="display:none;" role="listbox">
+                        <div class="ac-header">
+                            <span class="ac-title">⚡ 自动补全 (按 1-9 或 点击 选择，Esc 取消)</span>
+                            <span class="ac-close" id="ac-close-btn" title="关闭">&times;</span>
+                        </div>
+                        <div id="ac-list" class="ac-list"></div>
+                    </div>
+                    <span class="prompt-symbol">minischeme&gt;</span>
+                    <textarea id="cmd-input" rows="1" placeholder="输入 Scheme 代码，回车发送 (Tab 自动补全，Shift+Enter 换行)..." autofocus autocomplete="off" spellcheck="false"></textarea>
+                    <button id="send-btn" class="action-btn">编译并执行</button>
+                    <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件：WASM 仿真时直接运行 (带元数据的应用按开机应用启动)；连接硬件时安装到设备，应用装到 /spiffs/apps/&lt;id&gt;.msbc 并设为启动应用后重启。也可以把文件拖到页面上">📁 上传字节码</button>
+                    <input type="file" id="input-fasl-upload" style="display:none;" accept=".fasl,.msbc,.bin,.scm">
+                </div>
+
+                <!-- Quick commands: each fills the input box (nothing runs until sent) -->
+                <div class="quick-toolbar">
+                    <span class="tb-label">快捷命令:</span>
+                    <button class="pill-btn" data-code="(system-info)" title="填入 (system-info)：当前目标的全部硬件与系统信息 (内存、存储、网络、显示、字体…)">🧾 系统信息</button>
+                    <button class="pill-btn" data-code="(config-set! &quot;wifi&quot; &quot;wifi_ssid&quot; &quot;YOUR_SSID&quot;)\n(config-set! &quot;wifi&quot; &quot;wifi_password&quot; &quot;YOUR_PASSWORD&quot;)\n(wifi-connect &quot;YOUR_SSID&quot; &quot;YOUR_PASSWORD&quot;)" title="填入 WiFi 设置：把 YOUR_SSID / YOUR_PASSWORD 换成自己的网络；写入 config.ini [wifi] 并立即连接">📶 设置 WiFi</button>
+                    <button class="pill-btn" data-code="(wifi-status)" title="填入 (wifi-status)：WiFi 是否已连接">📡 WiFi 状态</button>
+                    <button class="pill-btn" data-code="(backlight-auto #t)" title="填入 (backlight-auto #t)：亮度跟随光敏电阻自动调节；改成 #f 关闭。设置保存在 config.ini [display] auto_backlight">🌗 光敏开关</button>
+                    <button class="pill-btn" data-code="(backlight-set 180)" title="填入 (backlight-set 180)：固定亮度 0~255，同时关闭自动亮度；保存在 config.ini [display] backlight">💡 设置亮度</button>
+                    <button class="pill-btn" data-code="; one-line text: none / pixel / char / page\n(config-set! &quot;text&quot; &quot;marquee&quot; &quot;pixel&quot;)\n(config-set! &quot;text&quot; &quot;marquee_fps&quot; &quot;20&quot;)\n(config-set! &quot;text&quot; &quot;marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'pixel 20 1 1)\n; wrapped text: none / pixel / line / page\n(config-set! &quot;text&quot; &quot;wrap_marquee&quot; &quot;line&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_fps&quot; &quot;0.5&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'wrap 'line 0.5 1 1)" title="填入跑马灯设置，单行和多行分开。写入 config.ini [text] 并立即生效">📜 跑马灯</button>
+                    <button class="pill-btn" data-code="(list (font-info 0) (font-config) (fontrom-list))" title="填入字体信息：默认字体、字体来源与替换配置、系统字库中的字体">🔤 字体信息</button>
+                    <button class="pill-btn" data-code="(vm-stats)" title="填入 (vm-stats)：GC 次数、累计分配、存活 / 峰值堆、栈峰值">📊 VM 统计</button>
+                    <button class="pill-btn" data-code="(app-list)" title="填入 (app-list)：设备上安装的应用 (/spiffs/apps)">📦 应用列表</button>
+                    <button class="pill-btn" data-code="(config-set! &quot;system&quot; &quot;boot_app&quot; &quot;apps/weather.msbc&quot;)\n(restart)" title="填入：设置开机启动的应用并重启 (把 weather 换成要启动的应用 id)">🚀 设置启动应用</button>
+                    <button class="pill-btn" data-code="(app-carousel-pause)" title="填入 (app-carousel-pause)：暂停自动翻页">⏸ 暂停翻页</button>
+                    <button class="pill-btn" data-code="(app-carousel-resume)" title="填入 (app-carousel-resume)：恢复自动翻页">▶ 恢复翻页</button>
+                    <button class="pill-btn" data-code="(json-feed-status)" title="填入 (json-feed-status)：应用数据源的连接状态、抓取次数、失败次数、耗时">🌐 数据源状态</button>
+                    <button class="pill-btn" data-code="(config-get &quot;palette&quot;)" title="填入 (config-get key)：读取 config.ini 中某个键的值">⚙️ 读取配置</button>
+                    <button class="pill-btn" data-code="(restart)" title="填入 (restart)：立即重启设备">🔄 重启</button>
+                    <button class="pill-btn" data-code="(help)" title="填入 (help)：内置函数参考">❓ 帮助</button>
+                </div>
+
+                <!-- On-board management: apps, files and the system font ROM of the target -->
+                <div class="quick-toolbar">
+                    <span class="tb-label">开发与固件:</span>
+                    <button class="pill-btn highlight" id="btn-scheme-editor" title="切换到内置 Scheme IDE：在线编辑、提取元数据、WASM 编译、模拟与安装应用">📝 Scheme 编辑器</button>
+                    <button class="pill-btn highlight" id="btn-firmware-flasher" title="通过 Web Serial 串口为 ESP32 烧录固件：从 GitHub Release 拉取或手动上传固件与分区表">⚡ 串口刷写固件</button>
+                    <button class="pill-btn highlight" id="btn-device-setup" title="初始状态下连接串口或网络，配置 WiFi、外部服务器与硬件密码并重启设备">⚙️ 初始设备配置</button>
+                    <button class="pill-btn highlight" id="btn-app-manager" title="当前目标 (ESP32 或 WASM 设备) 上的应用：查看信息、按表单修改配置、设置启动应用、从 GitHub 或本地安装">📦 App 市场与管理</button>
+                    <button class="pill-btn highlight" id="btn-file-manager" title="管理设备文件系统 (/spiffs) 中的文件：上传、下载、重命名、删除、编辑文本 (含 config.ini)">🗂️ 文件管理</button>
+                    <button class="pill-btn highlight" id="btn-app-web" title="运行中应用自带的网页 (apps/&lt;id&gt;/web.html)">🌐 应用网页</button>
+                    <button class="pill-btn highlight" id="btn-font-manager" title="管理 Flash 字库分区 (Font ROM)">🔤 系统字库</button>
+                </div>
             </div>
 
-            <!-- Quick commands: each fills the input box (nothing runs until sent) -->
-            <div class="quick-toolbar">
-                <span class="tb-label">快捷命令:</span>
-                <button class="pill-btn" data-code="(system-info)" title="填入 (system-info)：当前目标的全部硬件与系统信息 (内存、存储、网络、显示、字体…)">🧾 系统信息</button>
-                <button class="pill-btn" data-code="(config-set! &quot;wifi&quot; &quot;wifi_ssid&quot; &quot;YOUR_SSID&quot;)\n(config-set! &quot;wifi&quot; &quot;wifi_password&quot; &quot;YOUR_PASSWORD&quot;)\n(wifi-connect &quot;YOUR_SSID&quot; &quot;YOUR_PASSWORD&quot;)" title="填入 WiFi 设置：把 YOUR_SSID / YOUR_PASSWORD 换成自己的网络；写入 config.ini [wifi] 并立即连接">📶 设置 WiFi</button>
-                <button class="pill-btn" data-code="(wifi-status)" title="填入 (wifi-status)：WiFi 是否已连接">📡 WiFi 状态</button>
-                <button class="pill-btn" data-code="(backlight-auto #t)" title="填入 (backlight-auto #t)：亮度跟随光敏电阻自动调节；改成 #f 关闭。设置保存在 config.ini [display] auto_backlight">🌗 光敏开关</button>
-                <button class="pill-btn" data-code="(backlight-set 180)" title="填入 (backlight-set 180)：固定亮度 0~255，同时关闭自动亮度；保存在 config.ini [display] backlight">💡 设置亮度</button>
-                <button class="pill-btn" data-code="; one-line text: none / pixel / char / page\n(config-set! &quot;text&quot; &quot;marquee&quot; &quot;pixel&quot;)\n(config-set! &quot;text&quot; &quot;marquee_fps&quot; &quot;20&quot;)\n(config-set! &quot;text&quot; &quot;marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'pixel 20 1 1)\n; wrapped text: none / pixel / line / page\n(config-set! &quot;text&quot; &quot;wrap_marquee&quot; &quot;line&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_fps&quot; &quot;0.5&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_step&quot; &quot;1&quot;)\n(config-set! &quot;text&quot; &quot;wrap_marquee_hold&quot; &quot;1&quot;)\n(gui-marquee 'wrap 'line 0.5 1 1)" title="填入跑马灯设置，单行和多行分开。单行 marquee: none (截断加“…”) / pixel (按像素) / char (按字) / page (按文本框宽度整段替换)；多行 wrap_marquee: none / pixel (按像素上移) / line (按行上移) / page (整框替换)。fps: 每秒刷新次数 0.1~25；step: 每次移动的像素 / 字 / 行数；hold: 回到开头后停留的秒数 (可小于 1，0 不停)。写入 config.ini [text] 并立即生效">📜 跑马灯</button>
-                <button class="pill-btn" data-code="(list (font-info 0) (font-config) (fontrom-list))" title="填入字体信息：默认字体 (名称 高度 字数 来源 字节)、字体来源与替换配置、系统字库中的字体">🔤 字体信息</button>
-                <button class="pill-btn" data-code="(vm-stats)" title="填入 (vm-stats)：GC 次数、累计分配、存活 / 峰值堆、栈峰值">📊 VM 统计</button>
-                <button class="pill-btn" data-code="(app-list)" title="填入 (app-list)：设备上安装的应用 (/spiffs/apps)">📦 应用列表</button>
-                <button class="pill-btn" data-code="(config-set! &quot;system&quot; &quot;boot_app&quot; &quot;apps/weather.msbc&quot;)\n(restart)" title="填入：设置开机启动的应用并重启 (把 weather 换成要启动的应用 id)">🚀 设置启动应用</button>
-                <button class="pill-btn" data-code="(app-carousel-pause)" title="填入 (app-carousel-pause)：应用 (天气、新闻、股票、用量) 停止自动翻页，停在当前页，页码左侧的倒计时条变为一条暗色；短按仍可手动翻页。返回 paused，没有开启轮播时返回 off。重启后恢复">⏸ 暂停翻页</button>
-                <button class="pill-btn" data-code="(app-carousel-resume)" title="填入 (app-carousel-resume)：恢复自动翻页，当前页重新计时。返回 running">▶ 恢复翻页</button>
-                <button class="pill-btn" data-code="(json-feed-status)" title="填入 (json-feed-status)：应用数据源的连接状态、抓取次数、失败次数、耗时">🌐 数据源状态</button>
-                <button class="pill-btn" data-code="(config-get &quot;palette&quot;)" title="填入 (config-get key)：读取 config.ini 中某个键的值 (只有键名一个参数)">⚙️ 读取配置</button>
-                <button class="pill-btn" data-code="(restart)" title="填入 (restart)：立即重启设备">🔄 重启</button>
-                <button class="pill-btn" data-code="(help)" title="填入 (help)：内置函数参考；(help 'name) 查看单个函数">❓ 帮助</button>
-            </div>
+            <!-- 选项卡 2：Scheme 应用编辑器 (IDE) 视图 (默认隐藏，切换选项卡或点击按钮显示，右侧仿真屏幕始终同屏可见) -->
+            <div id="editor-dialog" class="ws-view editor-workspace-view" hidden>
+                <!-- 顶部模板与文件工具栏 -->
+                <div class="editor-top-toolbar">
+                    <div class="editor-tool-group">
+                        <label for="editor-app-select">应用模板 / 市场源码:</label>
+                        <select id="editor-app-select" class="compact-select">
+                            <option value="__blank__">🌟 新建应用 (空白模板)</option>
+                        </select>
+                        <button class="pill-btn compact" id="editor-toggle-meta-btn" title="展开或收起应用元数据配置面板">📋 应用元数据 ▾</button>
+                    </div>
+                    <div class="editor-tool-group">
+                        <label class="pill-btn compact file-label" title="打开本地 .scm 源码文件">
+                            📂 打开 .scm
+                            <input type="file" id="editor-input-scm" accept=".scm" style="display:none;">
+                        </label>
+                        <label class="pill-btn compact file-label" title="打开已编译的 .msbc 字节码文件">
+                            📦 打开 .msbc
+                            <input type="file" id="editor-input-msbc" accept=".msbc,.fasl" style="display:none;">
+                        </label>
+                        <button class="pill-btn compact" id="editor-save-draft-btn" title="保存当前源码到浏览器草稿">💾 保存草稿</button>
+                        <button class="pill-btn compact" id="editor-close-btn" title="返回交互式 REPL 终端">⬅ 返回终端</button>
+                    </div>
+                </div>
 
-            <!-- On-board management: apps, files and the system font ROM of the target -->
-            <div class="quick-toolbar">
-                <span class="tb-label">开发与固件:</span>
-                <button class="pill-btn highlight" id="btn-scheme-editor" title="打开内置 Scheme IDE：在线编辑、提取元数据、WASM 编译、调试与安装应用">📝 Scheme 编辑器</button>
-                <button class="pill-btn highlight" id="btn-firmware-flasher" title="通过 Web Serial 串口为 ESP32 烧录固件：从 GitHub Release 拉取或手动上传固件与分区表">⚡ 串口刷写固件</button>
-                <button class="pill-btn highlight" id="btn-device-setup" title="初始状态下连接串口或网络，配置 WiFi、外部服务器与硬件密码并重启设备">⚙️ 初始设备配置</button>
-                <button class="pill-btn highlight" id="btn-app-manager" title="当前目标 (ESP32 或 WASM 设备) 上的应用：查看信息、按表单修改配置、设置启动应用、从 GitHub 或本地安装">📦 App 市场与管理</button>
-                <button class="pill-btn highlight" id="btn-file-manager" title="管理设备文件系统 (/spiffs) 中的文件：上传、下载、重命名、删除、编辑文本 (含 config.ini)">🗂️ 文件管理</button>
-                <button class="pill-btn highlight" id="btn-app-web" title="运行中应用自带的网页 (apps/&lt;id&gt;/web.html)：板子网页的第一个选项卡。WASM 设备仿真在这里打开，调用由模拟设备回答；ESP32 硬件打开板子的网页">🌐 应用网页</button>
-                <button class="pill-btn highlight" id="btn-font-manager" title="管理 Flash 字库分区 (Font ROM)：添加、删除字库，应用用 (use-font id &quot;face&quot; size) 引用">🔤 系统字库</button>
+                <!-- 可折叠的应用元数据配置面板 (无固定页数限制，页数由应用运行时自主决定) -->
+                <div class="editor-meta-drawer" id="editor-meta-drawer">
+                    <div class="editor-meta-header">
+                        <span class="editor-card-title">📋 应用元数据 (MSMD Header · 页数由应用动态决定)</span>
+                        <div class="editor-sync-btns">
+                            <button class="pill-btn compact" id="editor-sync-from-code-btn" title="从代码注释提取元数据">🔄 从代码提取</button>
+                            <button class="pill-btn compact" id="editor-sync-to-code-btn" title="将填写的元数据写回代码顶层注释">✍️ 写回代码</button>
+                        </div>
+                    </div>
+                    <div class="editor-meta-grid">
+                        <label>应用 ID <input type="text" id="editor-meta-id" placeholder="my_app"></label>
+                        <label>应用名称 <input type="text" id="editor-meta-name" placeholder="我的应用"></label>
+                        <label>版本号 <input type="text" id="editor-meta-version" value="1.0.0"></label>
+                        <label>最低 API <input type="text" id="editor-meta-api" value="1.5" title="自动检测代码所需的最低固件 API 版本"></label>
+                        <label class="span-2">应用描述 <input type="text" id="editor-meta-desc" placeholder="轻量桌面应用描述"></label>
+                        <label>应用代理地址 <input type="text" id="editor-meta-proxy" placeholder="http://proxy.local:8087"></label>
+                        <label>协议转换器地址 <input type="text" id="editor-meta-converter" placeholder="http://converter.local:8087"></label>
+                    </div>
+                </div>
+
+                <!-- 代码主编辑区 -->
+                <div class="editor-code-pane">
+                    <div class="editor-code-header">
+                        <span class="editor-code-title">Scheme 源代码 (All-in-One 单文件可直接编译)</span>
+                        <span id="editor-status-line" class="editor-status-line">共 0 行，0 字符</span>
+                    </div>
+                    <textarea id="editor-code" class="editor-code-area" spellcheck="false" autocomplete="off" placeholder="在此编写或粘贴 MiniScheme 源代码..."></textarea>
+                </div>
+
+                <!-- 底部编译、下载、本地模拟与安装操作栏 -->
+                <div class="editor-bottom-bar">
+                    <div class="editor-status-group">
+                        <div id="editor-build-status" class="editor-build-status">就绪，可编译、下载、在右侧屏幕模拟运行或安装到 ESP32</div>
+                        <div class="editor-metrics-inline">
+                            <span>耗时: <b id="editor-metric-time">0.0 ms</b></span>
+                            <span>字节码: <b id="editor-metric-bytes">0 B</b></span>
+                            <span>元数据: <b id="editor-metric-trailer">0 B</b></span>
+                            <span>总大小: <b class="highlight" id="editor-metric-total">0 B</b></span>
+                        </div>
+                    </div>
+                    <div class="editor-action-buttons">
+                        <button class="pill-btn highlight" id="editor-compile-btn" title="在浏览器中使用 WASM 编译器编译为 MSBC 字节码">⚡ 编译</button>
+                        <button class="pill-btn" id="editor-download-scm-btn" title="下载单文件 .scm 源码到本地">💾 下载 .scm</button>
+                        <button class="pill-btn highlight" id="editor-download-msbc-btn" title="编译并下载带 MSMD 元数据的 .msbc 二进制文件">💾 下载 .msbc</button>
+                        <button class="action-btn highlight" id="editor-run-local-btn" title="编译并在右侧 3.5寸 WASM 仿真屏幕上立即模拟运行">💻 本地模拟</button>
+                        <button class="action-btn highlight" id="editor-upload-hw-btn" title="编译并通过 HTTP/串口直接安装到 ESP32 硬件并设为启动应用">🚀 安装到 ESP32</button>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -308,9 +390,10 @@
 
     <!-- 固件烧录弹窗 (Web Serial Bootloader Flasher) -->
     <dialog id="flasher-dialog" class="am-dialog flasher-modal">
-        <div class="am-head">
-            <span class="am-title">⚡ ESP32 串口固件烧录 (Web Serial Flasher)</span>
-            <button class="am-close" id="flasher-close-btn">&times;</button>
+        <div class="fm-head">
+            <span class="fm-title">⚡ ESP32 串口固件烧录 (Web Serial Flasher)</span>
+            <span class="fm-target">Web Serial ➔ Bootloader 0x1000 / Partition 0x8000 / Firmware 0x10000</span>
+            <button class="fm-close" id="flasher-close-btn" title="关闭 (Esc)">&times;</button>
         </div>
         <div class="flasher-body">
             <div class="flasher-source-tabs">
@@ -402,115 +485,6 @@
             <div class="flasher-footer">
                 <button class="action-btn highlight" id="flasher-start-btn">⚡ 连接串口并开始烧写</button>
                 <button class="pill-btn" id="flasher-reset-btn" title="向 ESP32 发送 DTR/RTS 硬件复位信号">🔄 硬件复位重启</button>
-            </div>
-        </div>
-    </dialog>
-
-    <!-- Scheme 在线 IDE & 编辑器弹窗 -->
-    <dialog id="editor-dialog" class="am-dialog editor-modal">
-        <div class="am-head">
-            <span class="am-title">📝 MiniScheme Web IDE & Scheme 在线编译器</span>
-            <button class="am-close" id="editor-close-btn">&times;</button>
-        </div>
-        <div class="editor-body">
-            <!-- 顶部模板与导入导出工具栏 -->
-            <div class="editor-top-toolbar">
-                <div class="editor-tool-group">
-                    <label for="editor-app-select">应用模板 / 市场源码:</label>
-                    <select id="editor-app-select" class="compact-select">
-                        <option value="__blank__">🌟 新建应用 (空白模板)</option>
-                    </select>
-                </div>
-                <div class="editor-tool-group">
-                    <label class="pill-btn file-label" title="选择本地 .scm 源码并在编辑器中打开">
-                        📂 打开本地 .scm
-                        <input type="file" id="editor-input-scm" accept=".scm" style="display:none;">
-                    </label>
-                    <label class="pill-btn file-label" title="选择已编译的 .msbc 文件提取元数据与部署">
-                        📦 打开已编译 .msbc
-                        <input type="file" id="editor-input-msbc" accept=".msbc,.fasl" style="display:none;">
-                    </label>
-                    <button class="pill-btn" id="editor-save-draft-btn" title="保存当前编辑的代码到浏览器 LocalStorage">💾 保存本地草稿</button>
-                    <button class="pill-btn" id="editor-download-scm-btn" title="将当前编辑器源码保存为 .scm 文件">💾 导出 .scm</button>
-                    <button class="pill-btn highlight" id="editor-download-msbc-btn" title="编译并下载带 MSMD 元数据 trailer 的 .msbc 文件">💾 导出 .msbc</button>
-                </div>
-            </div>
-
-            <!-- 主工作区：左侧代码编辑器，右侧元数据与编译部署 -->
-            <div class="editor-main-layout">
-                <!-- 左侧代码编辑区 -->
-                <div class="editor-code-pane">
-                    <div class="editor-code-header">
-                        <span class="editor-code-title">Scheme 源代码 (compiler.scm 语法兼容)</span>
-                        <span id="editor-status-line" class="editor-status-line">共 0 行，0 字符</span>
-                    </div>
-                    <textarea id="editor-code" class="editor-code-area" spellcheck="false" autocomplete="off" placeholder="在此编写 MiniScheme 代码..."></textarea>
-                </div>
-
-                <!-- 右侧元数据与编译控制面板 -->
-                <div class="editor-side-pane">
-                    <!-- 元数据编辑卡片 -->
-                    <div class="editor-card">
-                        <div class="editor-card-title">
-                            <span>📋 应用元数据 (MSMD Header)</span>
-                            <div class="editor-sync-btns">
-                                <button class="pill-btn compact" id="editor-sync-from-code-btn" title="从代码注释提取元数据">🔄 提取</button>
-                                <button class="pill-btn compact" id="editor-sync-to-code-btn" title="将填写的元数据写回代码顶层注释">✍️ 写回代码</button>
-                            </div>
-                        </div>
-                        <div class="editor-form-grid">
-                            <label>应用 ID: <input type="text" id="editor-meta-id" placeholder="my_app"></label>
-                            <label>应用名称: <input type="text" id="editor-meta-name" placeholder="我的应用"></label>
-                            <label>应用描述: <input type="text" id="editor-meta-desc" placeholder="轻量桌面应用"></label>
-                            <div class="editor-form-row">
-                                <label>版本: <input type="text" id="editor-meta-version" value="1.0.0" style="width:70px;"></label>
-                                <label>页数: <input type="number" id="editor-meta-pages" value="1" min="1" max="99" style="width:50px;"></label>
-                                <label>API: <input type="text" id="editor-meta-api" value="1.5" style="width:60px;" title="需要的最低固件 API 版本"></label>
-                            </div>
-                            <label>应用代理地址: <input type="text" id="editor-meta-proxy" placeholder="http://proxy.local:8087"></label>
-                            <label>协议转换器地址: <input type="text" id="editor-meta-converter" placeholder="http://converter.local:8087"></label>
-                        </div>
-                    </div>
-
-                    <!-- 编译与部署卡片 -->
-                    <div class="editor-card">
-                        <div class="editor-card-title">⚡ 浏览器 WASM 预编译</div>
-                        <div class="editor-build-metrics">
-                            <div class="eb-metric">
-                                <span class="eb-v" id="editor-metric-time">0.0 ms</span>
-                                <span class="eb-k">编译耗时</span>
-                            </div>
-                            <div class="eb-metric">
-                                <span class="eb-v" id="editor-metric-bytes">0 B</span>
-                                <span class="eb-k">字节码</span>
-                            </div>
-                            <div class="eb-metric">
-                                <span class="eb-v" id="editor-metric-trailer">0 B</span>
-                                <span class="eb-k">元数据</span>
-                            </div>
-                            <div class="eb-metric">
-                                <span class="eb-v highlight" id="editor-metric-total">0 B</span>
-                                <span class="eb-k">总尺寸</span>
-                            </div>
-                        </div>
-                        <div id="editor-build-status" class="editor-build-status">就绪，点击编译生成 MSBC 二进制</div>
-                        <div class="editor-actions-grid">
-                            <button class="action-btn highlight" id="editor-compile-btn">⚡ WASM 编译</button>
-                            <button class="pill-btn highlight" id="editor-run-local-btn" title="在本地 3.5寸 WASM 模拟屏幕上立即运行测试">💻 本地仿真测试</button>
-                            <button class="pill-btn highlight" id="editor-upload-hw-btn" title="通过 HTTP/Serial 写入硬件 /spiffs/apps/<id>/app.msbc 并设为启动项">🚀 安装到 ESP32</button>
-                        </div>
-                    </div>
-
-                    <!-- 汇编与 Hex 预览折叠面板 -->
-                    <details class="editor-details">
-                        <summary>📜 查看反汇编指令 (Disassembly)</summary>
-                        <pre id="editor-disasm-pre" class="editor-inspect-pre">等待编译中...</pre>
-                    </details>
-                    <details class="editor-details">
-                        <summary>🔍 查看 MSBC 二进制字节流 (Hex)</summary>
-                        <div id="editor-hex-div" class="editor-inspect-hex">等待编译中...</div>
-                    </details>
-                </div>
             </div>
         </div>
     </dialog>

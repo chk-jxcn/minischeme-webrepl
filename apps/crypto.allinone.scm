@@ -7,7 +7,6 @@
 ;;; name = 加密货币
 ;;; description = 比特币、以太坊等币种的价格与24小时涨跌、24小时走势、7日走势（OKX 行情）
 ;;; version = 1
-;;; pages = 3
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

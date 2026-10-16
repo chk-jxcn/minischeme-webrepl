@@ -61,50 +61,46 @@ function extractSchemeMetadata(code) {
         name: "自定义应用",
         description: "在 MiniScheme Web IDE 中创建",
         version: "1.0.0",
-        pages: 1,
         api_version: detectApiRequirement(code),
         proxy_url: "http://proxy.local:8087",
         converter_url: "http://converter.local:8087"
     };
 
-    const idMatch = code.match(/;;;\s*(?:\[app\])?\s*id\s*=\s*([a-zA-Z0-9_-]+)/i) ||
+    const idMatch = code.match(/(?:;;;|\b|^)\s*id\s*=\s*([a-zA-Z0-9_-]+)/im) ||
                     code.match(/\(define\s+APP-ID\s+"([^"]+)"\)/i) ||
                     code.match(/;;;\s*ID:\s*([a-zA-Z0-9_-]+)/i);
     if (idMatch) meta.id = idMatch[1].trim();
 
-    const nameMatch = code.match(/;;;\s*(?:\[app\])?\s*name\s*=\s*([^\r\n]+)/i) ||
+    const nameMatch = code.match(/(?:;;;|\b|^)\s*name\s*=\s*([^\r\n;]+)/im) ||
                       code.match(/\(define\s+APP-NAME\s+"([^"]+)"\)/i) ||
                       code.match(/;;;\s*Name:\s*([^\r\n]+)/i);
     if (nameMatch) meta.name = nameMatch[1].trim();
 
-    const descMatch = code.match(/;;;\s*(?:\[app\])?\s*description\s*=\s*([^\r\n]+)/i);
+    const descMatch = code.match(/(?:;;;|\b|^)\s*description\s*=\s*([^\r\n;]+)/im);
     if (descMatch) meta.description = descMatch[1].trim();
 
-    const verMatch = code.match(/;;;\s*(?:\[app\])?\s*version\s*=\s*([^\r\n]+)/i) ||
+    const verMatch = code.match(/(?:;;;|\b|^)\s*version\s*=\s*([^\r\n;]+)/im) ||
                      code.match(/\(define\s+APP-VERSION\s+"([^"]+)"\)/i);
     if (verMatch) meta.version = verMatch[1].trim();
 
-    const pagesMatch = code.match(/;;;\s*(?:\[app\])?\s*pages\s*=\s*(\d+)/i);
-    if (pagesMatch) meta.pages = parseInt(pagesMatch[1], 10);
-
-    const apiMatch = code.match(/;;;\s*(?:\[app\])?\s*api(?:_version)?\s*=\s*([0-9.]+)/i);
+    const apiMatch = code.match(/(?:;;;|\b|^)\s*api(?:_version)?\s*=\s*([0-9.]+)/im);
     if (apiMatch) meta.api_version = apiMatch[1].trim();
 
-    const proxyMatch = code.match(/;;;\s*(?:\[config\])?\s*proxy_url\s*=\s*([^\r\n]+)/i);
+    const proxyMatch = code.match(/(?:;;;|\b|^)\s*proxy_url\s*=\s*([^\r\n;]+)/im);
     if (proxyMatch) meta.proxy_url = proxyMatch[1].trim();
 
-    const convMatch = code.match(/;;;\s*(?:\[config\])?\s*converter_url\s*=\s*([^\r\n]+)/i);
+    const convMatch = code.match(/(?:;;;|\b|^)\s*converter_url\s*=\s*([^\r\n;]+)/im);
     if (convMatch) meta.converter_url = convMatch[1].trim();
 
     return meta;
 }
 
 function generateMetaIniText(meta) {
-    return `[app]\nid = ${meta.id}\nname = ${meta.name}\ndescription = ${meta.description}\nversion = ${meta.version}\npages = ${meta.pages}\napi = ${meta.api_version}\n\n[config]\nproxy_url = ${meta.proxy_url || ''}\nconverter_url = ${meta.converter_url || ''}\n`;
+    return `[app]\nid = ${meta.id}\nname = ${meta.name}\ndescription = ${meta.description}\nversion = ${meta.version}\napi = ${meta.api_version}\n\n[config]\nproxy_url = ${meta.proxy_url || ''}\nconverter_url = ${meta.converter_url || ''}\n`;
 }
 
 function generateSchemeHeaderComment(meta) {
-    return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; pages = ${meta.pages}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || 'http://proxy.local:8087'}\n;;; converter_url = ${meta.converter_url || 'http://converter.local:8087'}\n\n`;
+    return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || 'http://proxy.local:8087'}\n;;; converter_url = ${meta.converter_url || 'http://converter.local:8087'}\n\n`;
 }
 
 function attachMetaTrailerToMsbc(msbcBytes, meta) {
@@ -332,7 +328,7 @@ class WebSerialFirmwareFlasher {
         const btn = document.getElementById('flasher-fetch-gh-btn');
         if (btn) btn.disabled = true;
         if (statusEl) statusEl.textContent = '正在从 GitHub Release 下载固件包...';
-        this.log('info', '正在从 GitHub 官方 Release (v1.0.0) 下载固件文件...');
+        this.log('info', '正在从 GitHub 官方仓库/Release (v1.0.0) 下载固件文件...');
 
         try {
             const files = [
@@ -342,11 +338,26 @@ class WebSerialFirmwareFlasher {
             ];
 
             for (const item of files) {
-                const url = `${GITHUB_ESP32_RELEASE_BASE}${item.name}`;
                 this.log('info', `正在拉取: ${item.name} ...`);
-                const res = await fetch(url, { cache: 'no-store' });
-                if (!res.ok) throw new Error(`下载 ${item.name} 失败: HTTP ${res.status}`);
-                const buf = await res.arrayBuffer();
+                const urls = [
+                    `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${item.name}`,
+                    `firmware/${item.name}`,
+                    `${GITHUB_ESP32_RELEASE_BASE}${item.name}`
+                ];
+                let buf = null;
+                for (const url of urls) {
+                    try {
+                        const res = await fetch(url, { cache: 'no-store' });
+                        if (res.ok) {
+                            const ab = await res.arrayBuffer();
+                            if (ab.byteLength > 256) {
+                                buf = ab;
+                                break;
+                            }
+                        }
+                    } catch (e) { /* try next */ }
+                }
+                if (!buf) throw new Error(`下载 ${item.name} 失败 (请检查网络或切换手动上传)`);
                 this.githubFirmware[item.key] = new Uint8Array(buf);
                 this.log('ok', `✔ 已下载 ${item.name} (${this._formatSize(buf.byteLength)})`);
             }
@@ -513,14 +524,13 @@ const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
 ;;; name = 我的自定义应用
 ;;; description = 使用 MiniScheme Web IDE 开发的轻量桌面应用
 ;;; version = 1.0.0
-;;; pages = 1
 ;;; api = 1.5
 ;;;
 ;;; [config]
 ;;; proxy_url = http://proxy.local:8087
 ;;; converter_url = http://converter.local:8087
 
-;; 简单的信息看板页面
+;; 简单的信息看板页面 (页数由应用在运行时自主决定)
 (gui-frame "MiniScheme IDE"
   (gui-vbox
     (gui-text "Hello, MiniScheme!" 24 'bold)
@@ -540,6 +550,26 @@ class SchemeIdeModal {
         this.dialog = document.getElementById('editor-dialog');
         this.codeArea = document.getElementById('editor-code');
         if (!this.dialog) return;
+
+        // Workspace tab buttons
+        const tabRepl = document.getElementById('tab-btn-repl');
+        const tabEditor = document.getElementById('tab-btn-editor');
+        if (tabRepl) {
+            tabRepl.addEventListener('click', () => this.close());
+        }
+        if (tabEditor) {
+            tabEditor.addEventListener('click', () => this.open());
+        }
+
+        // Toggle metadata drawer
+        const btnToggleMeta = document.getElementById('editor-toggle-meta-btn');
+        const metaDrawer = document.getElementById('editor-meta-drawer');
+        if (btnToggleMeta && metaDrawer) {
+            btnToggleMeta.addEventListener('click', () => {
+                metaDrawer.hidden = !metaDrawer.hidden;
+                btnToggleMeta.textContent = metaDrawer.hidden ? '📋 应用元数据 ▸' : '📋 应用元数据 ▾';
+            });
+        }
 
         // Sync metadata buttons
         const btnSyncFromCode = document.getElementById('editor-sync-from-code-btn');
@@ -593,6 +623,7 @@ class SchemeIdeModal {
                 reader.onload = () => {
                     this.codeArea.value = reader.result;
                     this.syncMetaFromCode();
+                    this._updateStatusLine();
                     this.compile();
                 };
                 reader.readAsText(file, 'utf-8');
@@ -621,7 +652,7 @@ class SchemeIdeModal {
             });
         }
 
-        // Close button
+        // Close / Return to REPL button
         const btnClose = document.getElementById('editor-close-btn');
         if (btnClose) {
             btnClose.addEventListener('click', () => this.close());
@@ -655,17 +686,33 @@ class SchemeIdeModal {
 
     open(initialCode = null) {
         if (!this.dialog) this.init();
+        const replView = document.getElementById('repl-workspace-view');
+        const tabRepl = document.getElementById('tab-btn-repl');
+        const tabEditor = document.getElementById('tab-btn-editor');
+
+        if (replView) replView.hidden = true;
         if (this.dialog) {
-            this.dialog.showModal();
+            this.dialog.hidden = false;
+            if (typeof this.dialog.showModal === 'function') {
+                try { this.dialog.showModal(); } catch (e) {}
+            }
             if (initialCode) {
                 this.codeArea.value = initialCode;
-            } else if (!this.codeArea.value.trim()) {
+            } else if (this.codeArea && !this.codeArea.value.trim()) {
                 const draft = localStorage.getItem('minischeme_editor_draft_my_app');
                 this.codeArea.value = draft || DEFAULT_SCHEME_TEMPLATE;
             }
             this.syncMetaFromCode();
             this._updateStatusLine();
             this._populateAppSelector();
+        }
+        if (tabRepl) {
+            tabRepl.classList.remove('active');
+            tabRepl.setAttribute('aria-selected', 'false');
+        }
+        if (tabEditor) {
+            tabEditor.classList.add('active');
+            tabEditor.setAttribute('aria-selected', 'true');
         }
     }
 
@@ -677,7 +724,25 @@ class SchemeIdeModal {
     }
 
     close() {
-        if (this.dialog) this.dialog.close();
+        const replView = document.getElementById('repl-workspace-view');
+        const tabRepl = document.getElementById('tab-btn-repl');
+        const tabEditor = document.getElementById('tab-btn-editor');
+
+        if (this.dialog) {
+            this.dialog.hidden = true;
+            if (typeof this.dialog.close === 'function') {
+                try { this.dialog.close(); } catch (e) {}
+            }
+        }
+        if (replView) replView.hidden = false;
+        if (tabRepl) {
+            tabRepl.classList.add('active');
+            tabRepl.setAttribute('aria-selected', 'true');
+        }
+        if (tabEditor) {
+            tabEditor.classList.remove('active');
+            tabEditor.setAttribute('aria-selected', 'false');
+        }
     }
 
     async _populateAppSelector() {
@@ -685,15 +750,23 @@ class SchemeIdeModal {
         if (!select || select.options.length > 2) return;
 
         try {
-            // Load bundled index
-            const res = await fetch('apps/index.json', { cache: 'no-store' });
-            if (res.ok) {
-                const list = await res.json();
+            let list = null;
+            try {
+                const ghRes = await fetch('https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json', { cache: 'no-store' });
+                if (ghRes.ok) list = await ghRes.json();
+            } catch (e) { /* fallback to local */ }
+
+            if (!list) {
+                const res = await fetch('apps/index.json', { cache: 'no-store' });
+                if (res.ok) list = await res.json();
+            }
+
+            if (list && Array.isArray(list)) {
                 this.bundledApps = list;
                 for (const app of list) {
                     const opt = document.createElement('option');
                     opt.value = app.id;
-                    opt.textContent = `📦 ${app.name} (${app.id}.scm)`;
+                    opt.textContent = `📦 ${app.name} (${app.id}.allinone.scm)`;
                     select.appendChild(opt);
                 }
             }
@@ -706,51 +779,34 @@ class SchemeIdeModal {
         if (appId === '__blank__') {
             this.codeArea.value = DEFAULT_SCHEME_TEMPLATE;
             this.syncMetaFromCode();
+            this._updateStatusLine();
             return;
         }
 
         const statusEl = document.getElementById('editor-build-status');
-        if (statusEl) statusEl.textContent = `正在从 GitHub/本地加载 ${appId}.scm 源码...`;
+        if (statusEl) statusEl.textContent = `正在从 GitHub/本地加载 ${appId}.allinone.scm 源码...`;
 
         try {
             let scmText = null;
 
-            // 1. Try local bundled apps/<id>.allinone.scm
-            try {
-                const localAllinone = await fetch(`apps/${appId}.allinone.scm`);
-                if (localAllinone.ok) scmText = await localAllinone.text();
-            } catch (e) { /* ignore */ }
+            // 1. Try GitHub repo apps/<id>.allinone.scm
+            const urls = [
+                `apps/${appId}.allinone.scm`,
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}.allinone.scm`,
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${appId}.allinone.scm`,
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.allinone.scm`,
+                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.scm`,
+                `apps/${appId}.scm`
+            ];
 
-            // 2. Try raw GitHub apps/<id>/<id>.allinone.scm
-            if (!scmText) {
+            for (const url of urls) {
                 try {
-                    const ghAllinone = await fetch(`https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.allinone.scm`);
-                    if (ghAllinone.ok) scmText = await ghAllinone.text();
-                } catch (e) { /* ignore */ }
-            }
-
-            // 3. Try GitHub Release v1.0.0/<id>.allinone.scm
-            if (!scmText) {
-                try {
-                    const ghRelAllinone = await fetch(`https://github.com/chk-jxcn/minischeme-apps/releases/download/v1.0.0/${appId}.allinone.scm`);
-                    if (ghRelAllinone.ok) scmText = await ghRelAllinone.text();
-                } catch (e) { /* ignore */ }
-            }
-
-            // 4. Fallback to basic .scm
-            if (!scmText) {
-                try {
-                    const ghUrl = `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.scm`;
-                    const ghRes = await fetch(ghUrl);
-                    if (ghRes.ok) scmText = await ghRes.text();
-                } catch (e) { /* ignore */ }
-            }
-
-            if (!scmText) {
-                try {
-                    const localRes = await fetch(`apps/${appId}.scm`);
-                    if (localRes.ok) scmText = await localRes.text();
-                } catch (e) { /* ignore */ }
+                    const res = await fetch(url);
+                    if (res.ok) {
+                        scmText = await res.text();
+                        if (scmText && scmText.trim().length > 10) break;
+                    }
+                } catch (e) { /* try next */ }
             }
 
             if (!scmText) {
@@ -759,8 +815,9 @@ class SchemeIdeModal {
 
             this.codeArea.value = scmText;
             this.syncMetaFromCode();
+            this._updateStatusLine();
             this.compile();
-            if (statusEl) statusEl.textContent = `✔ 成功载入 ${appId} (全包含 All-in-One 源码)`;
+            if (statusEl) statusEl.textContent = `✔ 已载入并编译 ${appId}.allinone.scm (点击“本地模拟”可在右侧屏幕预览)`;
         } catch (e) {
             alert(`加载源码失败: ${e.message}`);
             if (statusEl) statusEl.textContent = `加载失败: ${e.message}`;
@@ -780,30 +837,32 @@ class SchemeIdeModal {
             };
             this._fillMetaInputs(parsed.meta);
             if (statusEl) {
-                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 成功载入已编译 MSBC: ${filename} (${bytes.length} 字节, 包含有效 MSMD 元数据)</span>`;
+                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 已载入 ${filename} (${bytes.length} B, 含 MSMD 元数据)，可直接本地模拟或安装到 ESP32</span>`;
             }
-            alert(`已载入已编译文件 ${filename}！元数据已提取，可直接点击“安装到 ESP32”或“本地仿真测试”。`);
         } else {
             this.lastCompiled = {
                 combinedBytes: bytes,
                 compileTimeMs: 0
             };
             if (statusEl) {
-                statusEl.innerHTML = `<span style="color:#fbbf24;">⚠️ 载入 MSBC (${bytes.length} 字节)，未检测到 MSMD 元数据 trailer。</span>`;
+                statusEl.innerHTML = `<span style="color:#fbbf24;">⚠️ 已载入 ${filename} (${bytes.length} B, 无 MSMD 元数据)</span>`;
             }
         }
     }
 
     _getMetaFromInputs() {
+        const getVal = (id, def) => {
+            const el = document.getElementById(id);
+            return ((el && el.value) || def).trim();
+        };
         return {
-            id: (document.getElementById('editor-meta-id').value || 'custom_app').trim(),
-            name: (document.getElementById('editor-meta-name').value || '自定义应用').trim(),
-            description: (document.getElementById('editor-meta-desc').value || '').trim(),
-            version: (document.getElementById('editor-meta-version').value || '1.0.0').trim(),
-            pages: parseInt(document.getElementById('editor-meta-pages').value || '1', 10),
-            api_version: (document.getElementById('editor-meta-api').value || '1.5').trim(),
-            proxy_url: (document.getElementById('editor-meta-proxy').value || '').trim(),
-            converter_url: (document.getElementById('editor-meta-converter').value || '').trim()
+            id: getVal('editor-meta-id', 'custom_app'),
+            name: getVal('editor-meta-name', '自定义应用'),
+            description: getVal('editor-meta-desc', ''),
+            version: getVal('editor-meta-version', '1.0.0'),
+            api_version: getVal('editor-meta-api', '1.5'),
+            proxy_url: getVal('editor-meta-proxy', ''),
+            converter_url: getVal('editor-meta-converter', '')
         };
     }
 
@@ -817,22 +876,22 @@ class SchemeIdeModal {
         setVal('editor-meta-name', meta.name);
         setVal('editor-meta-desc', meta.description);
         setVal('editor-meta-version', meta.version);
-        setVal('editor-meta-pages', meta.pages);
         setVal('editor-meta-api', meta.api_version);
         setVal('editor-meta-proxy', meta.proxy_url);
         setVal('editor-meta-converter', meta.converter_url);
     }
 
     syncMetaFromCode() {
+        if (!this.codeArea) return;
         const code = this.codeArea.value;
         const meta = extractSchemeMetadata(code);
         this._fillMetaInputs(meta);
     }
 
     syncMetaToCode() {
+        if (!this.codeArea) return;
         const meta = this._getMetaFromInputs();
         let code = this.codeArea.value;
-        // Strip existing header comment
         code = code.replace(/^;;;.*?\n\n/s, '');
         const header = generateSchemeHeaderComment(meta);
         this.codeArea.value = header + code;
@@ -840,6 +899,7 @@ class SchemeIdeModal {
     }
 
     compile() {
+        if (!this.codeArea) return null;
         const source = this.codeArea.value;
         const statusEl = document.getElementById('editor-build-status');
         const metricTime = document.getElementById('editor-metric-time');
@@ -864,9 +924,7 @@ class SchemeIdeModal {
 
         this.lastCompiled = {
             ...packaged,
-            compileTimeMs: res.compileTimeMs,
-            bytecode_hex: res.bytecode_hex,
-            disasm: res.disasm
+            compileTimeMs: res.compileTimeMs
         };
 
         if (metricTime) metricTime.textContent = `${res.compileTimeMs} ms`;
@@ -875,30 +933,14 @@ class SchemeIdeModal {
         if (metricTotal) metricTotal.textContent = `${packaged.combinedBytes.length} B`;
 
         if (statusEl) {
-            statusEl.innerHTML = `<span style="color:#4ade80;">✔ 编译成功！字节码: ${res.bytes.length} B, 元数据: ${packaged.metaLen} B, 总包: ${packaged.combinedBytes.length} B</span>`;
-        }
-
-        // Update hex viewer & disasm
-        const disasmPre = document.getElementById('editor-disasm-pre');
-        if (disasmPre && res.disasm) disasmPre.textContent = res.disasm;
-
-        const hexDiv = document.getElementById('editor-hex-div');
-        if (hexDiv && res.bytecode_hex) {
-            let formatted = '';
-            for (let i = 0; i < res.bytecode_hex.length; i += 2) {
-                formatted += res.bytecode_hex.slice(i, i + 2) + ' ';
-                if ((i + 2) % 32 === 0) formatted += '\n';
-            }
-            hexDiv.textContent = formatted;
+            statusEl.innerHTML = `<span style="color:#4ade80;">✔ 编译成功！字节码: ${res.bytes.length} B, 元数据: ${packaged.metaLen} B, 总大小: ${packaged.combinedBytes.length} B</span>`;
         }
 
         return this.lastCompiled;
     }
 
     runLocal() {
-        if (!this.lastCompiled) {
-            if (!this.compile()) return;
-        }
+        if (!this.compile()) return;
         const bytes = this.lastCompiled.combinedBytes;
         if (typeof bootAppOnWasmDevice === 'function') {
             bootAppOnWasmDevice(bytes);
@@ -908,23 +950,24 @@ class SchemeIdeModal {
             alert('WASM 虚拟机执行器未就绪');
             return;
         }
-        this.close();
+        const statusEl = document.getElementById('editor-build-status');
+        if (statusEl) {
+            statusEl.innerHTML = `<span style="color:#38bdf8;">💻 正在右侧 3.5寸 仿真屏幕上运行: ${this._getMetaFromInputs().name}</span>`;
+        }
         if (typeof appendTerminalLine === 'function') {
             appendTerminalLine('info', `💻 本地 WASM 仿真器正在运行: ${this._getMetaFromInputs().name}`);
         }
     }
 
     async uploadToHardware() {
-        if (!this.lastCompiled) {
-            if (!this.compile()) return;
-        }
+        if (!this.compile()) return;
 
         const meta = this._getMetaFromInputs();
         const targetPath = `/spiffs/apps/${meta.id}/app.msbc`;
         const bytes = this.lastCompiled.combinedBytes;
 
         if (!window.activeLink) {
-            alert('未连接 ESP32 硬件设备！请先在 WebREPL 顶部栏切换到 “📡 ESP32 硬件 (WiFi HTTP)” 或 “🔌 ESP32 硬件 (USB 串口)” 并连接设备。');
+            alert('未连接 ESP32 硬件设备！请先在顶部栏选择 “📡 ESP32 硬件 (WiFi HTTP)” 或 “🔌 ESP32 硬件 (USB 串口)” 并连接设备。');
             return;
         }
 
@@ -942,7 +985,6 @@ class SchemeIdeModal {
                 if (typeof appendTerminalLine === 'function') {
                     appendTerminalLine('ok', `🚀 已设为开机启动应用并重启: apps/${meta.id}/app.msbc`);
                 }
-                this.close();
             }
         } catch (e) {
             alert(`上传硬件失败: ${e.message}`);
@@ -951,6 +993,7 @@ class SchemeIdeModal {
     }
 
     saveDraft() {
+        if (!this.codeArea) return;
         const meta = this._getMetaFromInputs();
         localStorage.setItem(`minischeme_editor_draft_${meta.id}`, this.codeArea.value);
         localStorage.setItem('minischeme_editor_last_id', meta.id);
@@ -959,9 +1002,7 @@ class SchemeIdeModal {
     }
 
     downloadMsbc() {
-        if (!this.lastCompiled) {
-            if (!this.compile()) return;
-        }
+        if (!this.compile()) return;
         const meta = this._getMetaFromInputs();
         const filename = `${meta.id}.msbc`;
         const blob = new Blob([this.lastCompiled.combinedBytes], { type: 'application/octet-stream' });
@@ -976,8 +1017,9 @@ class SchemeIdeModal {
     }
 
     downloadScm() {
+        if (!this.codeArea) return;
         const meta = this._getMetaFromInputs();
-        const filename = `${meta.id}.scm`;
+        const filename = `${meta.id}.allinone.scm`;
         const blob = new Blob([this.codeArea.value], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

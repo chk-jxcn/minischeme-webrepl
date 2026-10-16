@@ -7,7 +7,6 @@
 ;;; name = 天气预报
 ;;; description = 当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数
 ;;; version = 1
-;;; pages = 5
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]

@@ -8,7 +8,6 @@
 ;;; description = 设置模式（热点配网网页）、选择启动应用、网络/硬件/存储信息
 ;;; version = 2
 ;;; kind = system ; installed from the market as apps/settings.msbc, run from the hardware pages; never a boot app
-;;; pages = 4
 ;;; api = 1.3 ; the device API it needs (docs/api): the mid press inside the settings (back), firmware API 1.x, x >= 3
 ;;; 
 ;;; [config]

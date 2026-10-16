@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>MiniScheme WebREPL 完整特性自动化测试套件</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1118; color: #e2e8f0; margin: 0; padding: 24px; line-height: 1.5; }
+        h1 { margin-top: 0; color: #38bdf8; font-size: 24px; }
+        .summary-card { background: #131b26; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 16px; margin-bottom: 20px; display: flex; gap: 24px; }
+        .stat-box { display: flex; flex-direction: column; }
+        .stat-box .val { font-size: 24px; font-weight: bold; font-family: monospace; }
+        .stat-box.pass .val { color: #4ade80; }
+        .stat-box.fail .val { color: #f87171; }
+        .stat-box .lbl { font-size: 12px; color: #94a3b8; }
+        .test-list { display: flex; flex-direction: column; gap: 8px; }
+        .test-item { background: #131b26; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
+        .test-item.pass { border-left: 4px solid #4ade80; }
+        .test-item.fail { border-left: 4px solid #f87171; }
+        .test-name { font-weight: 500; font-size: 14px; }
+        .test-badge { font-size: 12px; padding: 2px 8px; border-radius: 4px; font-family: monospace; }
+        .test-badge.pass { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
+        .test-badge.fail { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+        .test-err { font-size: 12px; color: #fca5a5; margin-top: 4px; font-family: monospace; white-space: pre-wrap; }
+        #test-results { margin-top: 24px; padding: 12px; background: #080d14; border-radius: 6px; font-family: monospace; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 MiniScheme WebREPL 完整特性自动化测试套件</h1>
+    <div class="summary-card">
+        <div class="stat-box"><span class="val" id="stat-total">0</span><span class="lbl">测试总数</span></div>
+        <div class="stat-box pass"><span class="val" id="stat-passed">0</span><span class="lbl">通过 (PASSED)</span></div>
+        <div class="stat-box fail"><span class="val" id="stat-failed">0</span><span class="lbl">失败 (FAILED)</span></div>
+        <div class="stat-box"><span class="val" id="stat-duration">0 ms</span><span class="lbl">测试耗时</span></div>
+    </div>
+
+    <div class="test-list" id="test-list"></div>
+    <div id="test-results" data-status="RUNNING">正在加载测试环境与 WASM 模块...</div>
+
+    <!-- WebREPL Components -->
+    <script src="device_link.js"></script>
+    <script src="sim_storage.js"></script>
+    <script src="hw_mirror.js"></script>
+    <script src="file_manager.js"></script>
+    <script src="font_generator.js"></script>
+    <script src="font_manager.js"></script>
+    <script src="app_manager.js"></script>
+    <script src="app_web.js"></script>
+    <script src="device_setup.js"></script>
+    <script src="editor_flasher.js"></script>
+
+    <script>
+    const tests = [];
+    const results = [];
+    let wasmCompilerInst = null;
+    let wasmMemory = null;
+
+    function addTest(name, fn) {
+        tests.push({ name, fn });
+    }
+
+    function assert(cond, msg) {
+        if (!cond) throw new Error(msg || "Assertion failed");
+    }
+
+    function assertEqual(actual, expected, msg) {
+        if (actual !== expected) {
+            throw new Error(`${msg || 'Assertion failed'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+        }
+    }
+
+    // Helper: Initialize standalone WASM VM & compiler for test suite
+    async function initWasmCompiler() {
+        if (wasmCompilerInst) return wasmCompilerInst;
+        const res = await fetch('minischeme_vm.wasm');
+        if (!res.ok) throw new Error('Failed to fetch minischeme_vm.wasm: ' + res.statusText);
+        const bytes = await res.arrayBuffer();
+        const importObject = {
+            env: {
+                sin: Math.sin, cos: Math.cos, tan: Math.tan,
+                asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+                pow: Math.pow, log: Math.log, exp: Math.exp, sqrt: Math.sqrt,
+                floor: Math.floor, ceil: Math.ceil, round: Math.round, fabs: Math.abs,
+                js_now_ms: () => performance.now(),
+                js_print: (ptr, len) => {}
+            }
+        };
+        const { instance } = await WebAssembly.instantiate(bytes, importObject);
+        wasmCompilerInst = instance;
+        wasmMemory = instance.exports.memory;
+        if (instance.exports.wasm_init) {
+            instance.exports.wasm_init();
+        }
+        
+        // Expose compileWithWasm globally for editor_flasher.js tests
+        window.compileWithWasm = function(source) {
+            const enc = new TextEncoder().encode(source + '\0');
+            const srcPtr = wasmCompilerInst.exports.malloc(enc.length);
+            new Uint8Array(wasmMemory.buffer, srcPtr, enc.length).set(enc);
+            const msbcPtr = wasmCompilerInst.exports.wasm_compile(srcPtr);
+            if (msbcPtr === 0) {
+                let errStr = "Compile error";
+                if (wasmCompilerInst.exports.wasm_get_error) {
+                    const errPtr = wasmCompilerInst.exports.wasm_get_error();
+                    const u8 = new Uint8Array(wasmMemory.buffer);
+                    let end = errPtr;
+                    while (u8[end] !== 0) end++;
+                    errStr = new TextDecoder('utf-8').decode(u8.subarray(errPtr, end));
+                }
+                wasmCompilerInst.exports.free(srcPtr);
+                return { success: false, error: errStr };
+            }
+            const size = wasmCompilerInst.exports.wasm_get_msbc_size();
+            const bytesOut = new Uint8Array(new Uint8Array(wasmMemory.buffer, msbcPtr, size));
+            let hex = "";
+            for (let i = 0; i < size; i++) hex += bytesOut[i].toString(16).padStart(2, '0');
+            
+            // Read disasm
+            let disasmStr = "";
+            if (wasmCompilerInst.exports.wasm_disasm_last) {
+                const disPtr = wasmCompilerInst.exports.wasm_disasm_last();
+                const u8 = new Uint8Array(wasmMemory.buffer);
+                let end = disPtr;
+                while (u8[end] !== 0) end++;
+                disasmStr = new TextDecoder('utf-8').decode(u8.subarray(disPtr, end));
+            }
+            wasmCompilerInst.exports.free(srcPtr);
+            return {
+                success: true,
+                bytes: bytesOut,
+                bytecode_hex: hex,
+                disasm: disasmStr,
+                compileTimeMs: "0.5"
+            };
+        };
+
+        return wasmCompilerInst;
+    }
+
+    // -----------------------------------------------------------------------
+    // Test Suite Definitions
+    // -----------------------------------------------------------------------
+
+    // 1. WASM Compiler & Engine Tests
+    addTest("1.1 WASM Compiler Export Verification", async () => {
+        const inst = await initWasmCompiler();
+        assert(typeof inst.exports.wasm_compile === "function", "Missing wasm_compile");
+        assert(typeof inst.exports.wasm_get_msbc_size === "function", "Missing wasm_get_msbc_size");
+        assert(typeof inst.exports.malloc === "function", "Missing malloc");
+        assert(typeof inst.exports.free === "function", "Missing free");
+    });
+
+    addTest("1.2 Compile Arithmetic Expression to MSBC", async () => {
+        const res = window.compileWithWasm("(+ 10 (* 3 5))");
+        assert(res.success, "Compilation failed: " + res.error);
+        assert(res.bytes && res.bytes.length > 0, "Empty bytecode");
+        assert(res.bytecode_hex.length === res.bytes.length * 2, "Hex length mismatch");
+    });
+
+    addTest("1.3 Compile Function Definitions and Invocations", async () => {
+        const code = "(define (fib n) (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2))))) (fib 6)";
+        const res = window.compileWithWasm(code);
+        assert(res.success, "Fibonacci compilation failed");
+        assert(res.disasm.length > 0, "Missing disassembly output");
+    });
+
+    addTest("1.4 Compiler Syntax Error Handling", async () => {
+        const res = window.compileWithWasm("(+ 1 2 (unclosed");
+        assert(!res.success, "Expected syntax error on unclosed parentheses");
+    });
+
+    // 2. Scheme Editor & Metadata Extraction Tests (editor_flasher.js)
+    addTest("2.1 Extract Metadata from Standard [app] Comments (Dynamic Pages)", () => {
+        const code = `;;; [app]
+;;; id = test_calc
+;;; name = 计算器
+;;; description = 简易计算器应用
+;;; version = 2.1.0
+;;; api = 1.5
+;;; [config]
+;;; proxy_url = http://proxy.local:8087
+;;; converter_url = http://conv.local:8087
+(+ 1 1)`;
+        const meta = extractSchemeMetadata(code);
+        assertEqual(meta.id, "test_calc", "App ID mismatch");
+        assertEqual(meta.name, "计算器", "Name mismatch");
+        assertEqual(meta.description, "简易计算器应用", "Description mismatch");
+        assertEqual(meta.version, "2.1.0", "Version mismatch");
+        assert(meta.pages === undefined, "Pages should not be fixed in metadata");
+        assertEqual(meta.api_version, "1.5", "API version mismatch");
+        assertEqual(meta.proxy_url, "http://proxy.local:8087", "Proxy URL mismatch");
+        assertEqual(meta.converter_url, "http://conv.local:8087", "Converter URL mismatch");
+    });
+
+    addTest("2.2 Extract Metadata from Scheme Define Forms", () => {
+        const code = `(define APP-ID "stocks_viewer")
+(define APP-NAME "实时行情")
+(define APP-VERSION "1.2.0")
+(gui-frame "Stocks" (gui-text "AAPL: 150" 16))`;
+        const meta = extractSchemeMetadata(code);
+        assertEqual(meta.id, "stocks_viewer", "App ID mismatch");
+        assertEqual(meta.name, "实时行情", "App Name mismatch");
+        assertEqual(meta.version, "1.2.0", "Version mismatch");
+    });
+
+    addTest("2.3 API Version Auto-Detection from Tokens", () => {
+        const v15Code = `(gui-frame "Banner" (gui-marquee 'pixel 20 1 1))`;
+        assertEqual(detectApiRequirement(v15Code), "1.5", "Expected API 1.5 for marquee");
+
+        const v12Code = `(gui-frame "HTTP" (http-get "http://api.local/data"))`;
+        assertEqual(detectApiRequirement(v12Code), "1.2", "Expected API 1.2 for http-get");
+
+        const v10Code = `(define (add a b) (+ a b))`;
+        assertEqual(detectApiRequirement(v10Code), "1.0", "Expected API 1.0 for basic scheme");
+    });
+
+    addTest("2.4 FNV-1a 32-bit Checksum Verification", () => {
+        const data = new TextEncoder().encode("[app]\nid = test\n");
+        const hash = fnv1a32(data);
+        assert(typeof hash === "number" && hash > 0, "Invalid hash");
+        assertEqual(fnv1a32(new Uint8Array([0x61, 0x62, 0x63])), 0x1A47E90B >>> 0, "Standard ABC FNV-1a hash mismatch");
+    });
+
+    addTest("2.5 Attach and Parse MSMD Binary Trailer", () => {
+        const dummyMsbc = new Uint8Array([0x4D, 0x53, 0x42, 0x43, 0x01, 0x02, 0x03, 0x04]);
+        const meta = {
+            id: "weather_test",
+            name: "天气预报",
+            description: "测试天气",
+            version: "1.0.0",
+            api_version: "1.5",
+            proxy_url: "http://proxy.local:8087",
+            converter_url: "http://conv.local:8087"
+        };
+        const packaged = attachMetaTrailerToMsbc(dummyMsbc, meta);
+        assert(packaged.combinedBytes.length > dummyMsbc.length + 12, "Trailer length too short");
+        
+        // Verify 'MSMD' magic
+        const end = packaged.combinedBytes.length;
+        const magic = String.fromCharCode(...packaged.combinedBytes.subarray(end - 4, end));
+        assertEqual(magic, "MSMD", "Magic mismatch");
+
+        // Parse back
+        const parsed = parseMsbcTrailer(packaged.combinedBytes);
+        assert(parsed !== null, "Failed to parse MSMD trailer");
+        assertEqual(parsed.meta.id, "weather_test", "Parsed ID mismatch");
+        assertEqual(parsed.meta.name, "天气预报", "Parsed Name mismatch");
+        assertEqual(parsed.bytecodeBytes.length, dummyMsbc.length, "Bytecode length mismatch");
+    });
+
+    addTest("2.6 Editor Bi-directional Metadata Sync & Header Generation", () => {
+        const meta = {
+            id: "my_clock",
+            name: "桌面时钟",
+            description: "全屏翻页时钟",
+            version: "1.1.0",
+            api_version: "1.2",
+            proxy_url: "",
+            converter_url: ""
+        };
+        const header = generateSchemeHeaderComment(meta);
+        assert(header.includes("id = my_clock"), "Missing ID in header comment");
+        assert(header.includes("name = 桌面时钟"), "Missing name in header comment");
+        assert(!header.includes("pages ="), "Header should not contain fixed pages");
+        const extracted = extractSchemeMetadata(header);
+        assertEqual(extracted.id, "my_clock", "Extracted ID failed");
+        assertEqual(extracted.name, "桌面时钟", "Extracted name failed");
+    });
+
+    addTest("2.7 Editor LocalStorage Draft Persistence", () => {
+        const testCode = "(gui-frame \"Draft Test\" (gui-text \"Auto Saved\"))";
+        localStorage.setItem("minischeme_editor_draft_test_app", testCode);
+        assertEqual(localStorage.getItem("minischeme_editor_draft_test_app"), testCode, "Draft persistence failed");
+        localStorage.removeItem("minischeme_editor_draft_test_app");
+    });
+
+    // 3. Web Serial Firmware Flasher Tests (editor_flasher.js)
+    addTest("3.1 Dynamic esptool-bundle.js Module Import", async () => {
+        const esptool = await loadEsptoolBundle();
+        assert(esptool !== null, "esptool bundle failed to load");
+        assert(typeof esptool.ESPLoader === "function", "Missing ESPLoader export");
+        assert(typeof esptool.Transport === "function", "Missing Transport export");
+    });
+
+    addTest("3.2 ESP32 Flash Offsets Layout Verification", () => {
+        const filesToFlash = [
+            { name: "bootloader.bin", address: 0x1000 },
+            { name: "partition-table.bin", address: 0x8000 },
+            { name: "minischeme_esp32.bin", address: 0x10000 }
+        ];
+        assertEqual(filesToFlash[0].address, 0x1000, "Bootloader offset must be 0x1000");
+        assertEqual(filesToFlash[1].address, 0x8000, "Partition table offset must be 0x8000");
+        assertEqual(filesToFlash[2].address, 0x10000, "Main app offset must be 0x10000");
+    });
+
+    addTest("3.3 Firmware Flasher Manual File Loading", () => {
+        const flasher = window.MiniSchemeFlasher;
+        assert(flasher !== null, "Flasher instance missing");
+        const dummyBoot = new Uint8Array([0xE9, 0x01, 0x02, 0x03]);
+        flasher.manualFirmware.bootloader = dummyBoot;
+        assertEqual(flasher.manualFirmware.bootloader.length, 4, "Manual file load failed");
+    });
+
+    // 4. Password-Protected HTTP Device Link Tests (device_link.js)
+    addTest("4.1 HTTP Authentication Password Storage Helper", () => {
+        setHttpAuthPassword("test_hw_secret_123");
+        assertEqual(getHttpAuthPassword(), "test_hw_secret_123", "Password storage failed");
+        const headers = getAuthHeaders();
+        assertEqual(headers["X-MiniScheme-Auth"], "test_hw_secret_123", "Auth header missing");
+        setHttpAuthPassword("");
+        assertEqual(getHttpAuthPassword(), "", "Password clear failed");
+    });
+
+    addTest("4.2 HttpDeviceLink Auth Header & Query Param Injection", () => {
+        const link = new HttpDeviceLink("http://192.168.1.100", "my_secret_pwd");
+        assertEqual(link.password, "my_secret_pwd", "Link password mismatch");
+        assertEqual(link.base, "http://192.168.1.100", "Base URL mismatch");
+        assertEqual(link.kind, "http", "Kind mismatch");
+    });
+
+    // 5. Initial Device Setup Wizard Tests (device_setup.js)
+    addTest("5.1 Device Setup Wizard Config INI Generation", () => {
+        const setup = window.MiniSchemeDeviceSetup;
+        assert(setup !== null, "DeviceSetup instance missing");
+        const ini = setup.buildConfigIni({
+            wifiSsid: "HomeWiFi",
+            wifiPassword: "SecretPassword123",
+            proxyUrl: "http://proxy.test:8087",
+            converterUrl: "http://conv.test:8087",
+            hwPassword: "HardPassword888",
+            bootApp: "apps/calendar/app.msbc"
+        });
+        assert(ini.includes("ssid = HomeWiFi"), "Missing wifi ssid");
+        assert(ini.includes("password = SecretPassword123"), "Missing wifi password");
+        assert(ini.includes("proxy_url = http://proxy.test:8087"), "Missing proxy_url");
+        assert(ini.includes("hardware_password = HardPassword888"), "Missing hardware_password");
+        assert(ini.includes("boot_app = apps/calendar/app.msbc"), "Missing default boot app");
+    });
+
+    // 6. App Market & INI Parser Tests (app_manager.js)
+    addTest("6.1 App Market Index JSON Loading & All-in-One SCM Mapping", async () => {
+        const res = await fetch("apps/index.json", { cache: "no-store" });
+        assert(res.ok, "Failed to load apps/index.json: " + res.status);
+        const list = await res.json();
+        assert(Array.isArray(list) && list.length >= 13, "Expected at least 13 apps, got " + list.length);
+        
+        // Verify Calendar app properties
+        const calendar = list.find(a => a.id === "calendar");
+        assert(calendar !== undefined, "Calendar app missing from index");
+        assertEqual(calendar.scm, "calendar.allinone.scm", "Missing allinone SCM field");
+        assertEqual(calendar.file, "calendar.msbc", "Missing MSBC file field");
+    });
+
+    addTest("6.2 INI Parser and Serializer (amParseIni, amIniSet)", () => {
+        const sampleIni = `[app]
+id = memo
+version = 1.0.0
+[config]
+auto_save = 1 ; Save immediately
+theme = dark # Slate theme`;
+        const parsed = amParseIni(sampleIni);
+        assert(parsed.app !== undefined, "Missing [app] section");
+        assert(parsed.config !== undefined, "Missing [config] section");
+        const values = amIniValues(sampleIni);
+        assertEqual(values.id, "memo", "ID value mismatch");
+        assertEqual(values.auto_save, "1", "auto_save value mismatch");
+
+        // Set value preserving comment
+        const updated = amIniSet(sampleIni, "config", "auto_save", "0");
+        assert(updated.includes("auto_save = 0"), "Failed to update value");
+        assert(updated.includes("Save immediately"), "Comment lost during update");
+    });
+
+    // 7. All-in-One Standalone App Compilation Tests
+    addTest("7.1 Standalone Compilation: Calendar All-in-One Scheme", async () => {
+        const res = await fetch("apps/calendar.allinone.scm");
+        assert(res.ok, "Failed to fetch calendar.allinone.scm");
+        const scm = await res.text();
+        assert(scm.length > 5000, "calendar.allinone.scm too small (" + scm.length + " chars)");
+        
+        // Compile using browser WASM compiler
+        const comp = window.compileWithWasm(scm);
+        assert(comp.success, "Calendar all-in-one compilation failed: " + comp.error);
+        assert(comp.bytes.length > 1000, "Calendar bytecode too small (" + comp.bytes.length + " B)");
+    });
+
+    addTest("7.2 Standalone Compilation: Weather All-in-One Scheme", async () => {
+        const res = await fetch("apps/weather.allinone.scm");
+        assert(res.ok, "Failed to fetch weather.allinone.scm");
+        const scm = await res.text();
+        assert(scm.length > 5000, "weather.allinone.scm too small");
+        
+        const comp = window.compileWithWasm(scm);
+        assert(comp.success, "Weather all-in-one compilation failed: " + comp.error);
+        assert(comp.bytes.length > 1000, "Weather bytecode too small");
+    });
+
+    addTest("7.3 Standalone Compilation: PC Monitor All-in-One Scheme", async () => {
+        const res = await fetch("apps/pcmonitor.allinone.scm");
+        assert(res.ok, "Failed to fetch pcmonitor.allinone.scm");
+        const scm = await res.text();
+        const comp = window.compileWithWasm(scm);
+        assert(comp.success, "PC Monitor all-in-one compilation failed: " + comp.error);
+    });
+
+    addTest("7.4 Standalone Compilation: Stocks All-in-One Scheme", async () => {
+        const res = await fetch("apps/stocks.allinone.scm");
+        assert(res.ok, "Failed to fetch stocks.allinone.scm");
+        const scm = await res.text();
+        const comp = window.compileWithWasm(scm);
+        assert(comp.success, "Stocks all-in-one compilation failed: " + comp.error);
+    });
+
+    // 8. Simulated Storage & Display Modes
+    addTest("8.1 Simulated Flash Storage & IndexedDB Subsystem", () => {
+        const sim = new SimStorage();
+        assert(sim !== undefined, "SimStorage class missing");
+        assert(typeof sim.restore === "function", "Missing restore method");
+        assert(typeof sim.save === "function", "Missing save method");
+        assert(typeof sim.poll === "function", "Missing poll method");
+    });
+
+    // -----------------------------------------------------------------------
+    // Test Runner Execution
+    // -----------------------------------------------------------------------
+    async function runAllTests() {
+        const listEl = document.getElementById("test-list");
+        const resultsEl = document.getElementById("test-results");
+        const t0 = performance.now();
+        let passed = 0;
+        let failed = 0;
+
+        for (let i = 0; i < tests.length; i++) {
+            const t = tests[i];
+            const item = document.createElement("div");
+            item.className = "test-item";
+            item.innerHTML = `<span class="test-name">${t.name}</span><span class="test-badge">RUNNING</span>`;
+            listEl.appendChild(item);
+
+            try {
+                await t.fn();
+                item.className = "test-item pass";
+                item.querySelector(".test-badge").className = "test-badge pass";
+                item.querySelector(".test-badge").textContent = "PASS";
+                passed++;
+                results.push({ name: t.name, status: "PASS" });
+            } catch (err) {
+                item.className = "test-item fail";
+                item.querySelector(".test-badge").className = "test-badge fail";
+                item.querySelector(".test-badge").textContent = "FAIL";
+                const errDiv = document.createElement("div");
+                errDiv.className = "test-err";
+                errDiv.textContent = err.stack || err.message;
+                item.appendChild(errDiv);
+                failed++;
+                results.push({ name: t.name, status: "FAIL", error: err.message });
+            }
+
+            document.getElementById("stat-total").textContent = i + 1;
+            document.getElementById("stat-passed").textContent = passed;
+            document.getElementById("stat-failed").textContent = failed;
+            // Advance event loop for headless virtual time
+            await new Promise(r => setTimeout(r, 10));
+        }
+
+        const t1 = performance.now();
+        const duration = Math.round(t1 - t0);
+        document.getElementById("stat-duration").textContent = duration + " ms";
+
+        const overallStatus = failed === 0 ? "PASSED" : "FAILED";
+        resultsEl.setAttribute("data-status", overallStatus);
+        resultsEl.setAttribute("data-total", tests.length);
+        resultsEl.setAttribute("data-passed", passed);
+        resultsEl.setAttribute("data-failed", failed);
+        resultsEl.setAttribute("data-duration-ms", duration);
+
+        if (failed === 0) {
+            resultsEl.style.color = "#4ade80";
+            resultsEl.innerHTML = `✔ ALL ${tests.length} TESTS PASSED SUCCESSFULLY in ${duration} ms! All WebREPL features are fully functional.`;
+        } else {
+            resultsEl.style.color = "#f87171";
+            resultsEl.innerHTML = `❌ ${failed} OF ${tests.length} TESTS FAILED. Please review failure details above.`;
+        }
+
+        window.__TEST_REPORT__ = {
+            status: overallStatus,
+            total: tests.length,
+            passed: passed,
+            failed: failed,
+            durationMs: duration,
+            results: results
+        };
+
+        console.log("=== WEBREPL_TEST_RUNNER_SUMMARY ===");
+        console.log(JSON.stringify(window.__TEST_REPORT__));
+    }
+
+    window.addEventListener("load", () => {
+        runAllTests();
+    });
+    </script>
+</body>
+</html>

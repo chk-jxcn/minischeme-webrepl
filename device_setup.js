@@ -9,13 +9,13 @@
 
 class DeviceSetupWizard {
     /**
-     * @param {object} opts
-     * @param {() => object} opts.getBackend
+     * @param {object} [opts]
+     * @param {() => object} [opts.getBackend]
      * @param {(kind: string, text: string) => void} [opts.log]
      */
-    constructor({ getBackend, log }) {
-        this.getBackend = getBackend;
-        this.log = log || (() => {});
+    constructor(opts = {}) {
+        this.getBackend = (opts && opts.getBackend) || (() => null);
+        this.log = (opts && opts.log) || (() => {});
         this.backend = null;
         this.busy = false;
         this._build();
@@ -99,7 +99,14 @@ class DeviceSetupWizard {
                 </div>
                 <div class="fm-status ds-status" role="status" aria-live="polite"></div>
             </div>`;
-        document.body.appendChild(root);
+
+        if (document.body) {
+            document.body.appendChild(root);
+        } else {
+            window.addEventListener('DOMContentLoaded', () => {
+                if (!root.parentElement && document.body) document.body.appendChild(root);
+            });
+        }
 
         const q = (sel) => root.querySelector(sel);
         this.el = {
@@ -257,24 +264,14 @@ class DeviceSetupWizard {
             }
 
             // 2. Generate config.ini
-            const configContent = [
-                '; MiniScheme Hardware Initial Configuration',
-                '[wifi]',
-                `ssid = ${ssid}`,
-                `password = ${pass}`,
-                '',
-                '[server]',
-                `proxy_url = ${proxy}`,
-                `converter_url = ${conv}`,
-                `hardware_password = ${hwPass}`,
-                '',
-                '[system]',
-                `boot_app = ${bootApp}`,
-                'button_long_ms = 800',
-                'button_mid_ms = 3500',
-                'button_hold_ms = 8000',
-                ''
-            ].join('\n');
+            const configContent = this.buildConfigIni({
+                wifiSsid: ssid,
+                wifiPassword: pass,
+                proxyUrl: proxy,
+                converterUrl: conv,
+                hwPassword: hwPass,
+                bootApp: bootApp
+            });
 
             const configBytes = new TextEncoder().encode(configContent);
             await this.backend.fsWrite('/spiffs/config.ini', configBytes);
@@ -295,4 +292,42 @@ class DeviceSetupWizard {
             this.log('error', `⚙️ 配置写入错误: ${e.message || e}`);
         }
     }
+
+    static buildConfigIni(opts = {}) {
+        const {
+            wifiSsid = '',
+            wifiPassword = '',
+            proxyUrl = 'http://proxy.local:8087',
+            converterUrl = 'http://converter.local:8087',
+            hwPassword = '',
+            bootApp = 'apps/calendar/app.msbc'
+        } = opts;
+
+        return [
+            '; MiniScheme Hardware Initial Configuration',
+            '[wifi]',
+            `ssid = ${wifiSsid}`,
+            `password = ${wifiPassword}`,
+            '',
+            '[server]',
+            `proxy_url = ${proxyUrl}`,
+            `converter_url = ${converterUrl}`,
+            `hardware_password = ${hwPassword}`,
+            '',
+            '[system]',
+            `boot_app = ${bootApp}`,
+            'button_long_ms = 800',
+            'button_mid_ms = 3500',
+            'button_hold_ms = 8000',
+            ''
+        ].join('\n');
+    }
+
+    buildConfigIni(opts = {}) {
+        return DeviceSetupWizard.buildConfigIni(opts);
+    }
 }
+
+window.DeviceSetupWizard = DeviceSetupWizard;
+window.MiniSchemeDeviceSetup = new DeviceSetupWizard();
+
