@@ -3,6 +3,7 @@ name: Build and Release WebREPL Standalone Exe
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 permissions:
@@ -42,17 +43,30 @@ jobs:
           }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
+      - name: Determine Release Tag
+        id: rel_tag
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } else {
+            $tag = "v1.0.${{ github.run_number }}"
+          }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Publishing release tag: $tag"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: MiniScheme-WebREPL-Windows-Exe
           path: dist/MiniScheme-WebREPL.exe
 
-      - name: Publish to GitHub Release v1.0.0
+      - name: Publish Latest GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0
-          name: "MiniScheme WebREPL & Local Server v1.0.0"
+          tag_name: ${{ steps.rel_tag.outputs.tag }}
+          name: "MiniScheme WebREPL & Local Server ${{ steps.rel_tag.outputs.tag }}"
+          make_latest: true
           body: |
             ## MiniScheme WebREPL Local Server (Windows Standalone Tray Executable)
             - **`MiniScheme-WebREPL.exe`**: Single-file standalone Windows application packaged from `server.py` (includes WebREPL static assets, WASM compiler/simulator, App Proxy, Protocol Converter, and Font Generator).

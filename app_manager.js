@@ -14,7 +14,7 @@
  */
 
 const AM_GITHUB_APPS_INDEX = 'https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json';
-const AM_GITHUB_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-apps/releases/download/v1.0.0/';
+const AM_GITHUB_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-apps/releases/latest/download/';
 const AM_LOCAL_INDEX = 'apps/index.json';
 
 function amEsc(s) {
@@ -450,6 +450,7 @@ class AppManager {
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
             const urls = [
+                `/api/release_asset?repo=minischeme-apps&asset=${encodeURIComponent(b.file)}`,
                 `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${b.file}`,
                 `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${b.file}`,
                 `apps/${b.file}`,

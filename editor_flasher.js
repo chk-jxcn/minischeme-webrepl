@@ -166,7 +166,8 @@ function parseMsbcTrailer(bytes) {
 // ---------------------------------------------------------------------------
 // 3. Web Serial Firmware Flasher (esptool-js integration)
 // ---------------------------------------------------------------------------
-const GITHUB_ESP32_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-esp32/releases/download/v1.0.0/';
+const GITHUB_ESP32_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-esp32/releases/latest/download/';
+const GITHUB_ESP32_LATEST_API = 'https://api.github.com/repos/chk-jxcn/minischeme-esp32/releases/latest';
 
 async function loadEsptoolBundle() {
     if (window.__esptool) return window.__esptool;
@@ -327,8 +328,23 @@ class WebSerialFirmwareFlasher {
         const statusEl = document.getElementById('flasher-gh-status');
         const btn = document.getElementById('flasher-fetch-gh-btn');
         if (btn) btn.disabled = true;
-        if (statusEl) statusEl.textContent = '正在从 GitHub Release 下载固件包...';
-        this.log('info', '正在从 GitHub 官方仓库/Release (v1.0.0) 下载固件文件...');
+        if (statusEl) statusEl.textContent = '正在从 GitHub 最新 Release 下载固件包...';
+        let releaseTag = 'latest';
+        let assetMap = {};
+        try {
+            const relRes = await fetch(GITHUB_ESP32_LATEST_API, {
+                headers: { 'Accept': 'application/vnd.github+json' },
+                cache: 'no-store'
+            });
+            if (relRes.ok) {
+                const relData = await relRes.json();
+                releaseTag = relData.tag_name || 'latest';
+                for (const a of (relData.assets || [])) {
+                    if (a.name && a.browser_download_url) assetMap[a.name] = a.browser_download_url;
+                }
+            }
+        } catch (e) { /* fallback to latest/download and main branch */ }
+        this.log('info', `正在从 GitHub 官方仓库最新 Release (${releaseTag}) 下载固件文件...`);
 
         try {
             const files = [
@@ -340,6 +356,8 @@ class WebSerialFirmwareFlasher {
             for (const item of files) {
                 this.log('info', `正在拉取: ${item.name} ...`);
                 const urls = [
+                    `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(item.name)}`,
+                    ...(assetMap[item.name] ? [assetMap[item.name]] : []),
                     `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${item.name}`,
                     `firmware/${item.name}`,
                     `${GITHUB_ESP32_RELEASE_BASE}${item.name}`

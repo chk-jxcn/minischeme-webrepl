@@ -14,14 +14,32 @@ if (-not (Test-Path $installDir)) {
 }
 
 $exePath = Join-Path $installDir "MiniScheme-WebREPL.exe"
-$exeUrl = "https://github.com/chk-jxcn/minischeme-webrepl/releases/download/v1.0.0/MiniScheme-WebREPL.exe"
+$latestApi = "https://api.github.com/repos/chk-jxcn/minischeme-webrepl/releases/latest"
+$exeUrl = "https://github.com/chk-jxcn/minischeme-webrepl/releases/latest/download/MiniScheme-WebREPL.exe"
+$releaseTag = "latest"
 
-# 1. Try downloading standalone packaged MiniScheme-WebREPL.exe from GitHub Release
+# 1. Dynamically resolve the latest GitHub Release asset URL
 try {
-    Write-Host "[*] Downloading standalone MiniScheme-WebREPL.exe from GitHub Release..." -ForegroundColor Yellow
+    $rel = Invoke-RestMethod -Uri $latestApi -Headers @{ "User-Agent" = "MiniScheme-Installer" } -TimeoutSec 10
+    if ($rel.tag_name) {
+        $releaseTag = $rel.tag_name
+    }
+    foreach ($asset in $rel.assets) {
+        if ($asset.name -like "*.exe" -and $asset.browser_download_url) {
+            $exeUrl = $asset.browser_download_url
+            break
+        }
+    }
+} catch {
+    # Fallback to /releases/latest/download/MiniScheme-WebREPL.exe redirect
+}
+
+# 2. Download standalone packaged MiniScheme-WebREPL.exe from Latest Release
+try {
+    Write-Host "[*] Downloading latest MiniScheme-WebREPL.exe ($releaseTag) from GitHub Release..." -ForegroundColor Yellow
     Invoke-WebRequest -Uri $exeUrl -OutFile $exePath -UseBasicParsing
     if ((Test-Path $exePath) -and ((Get-Item $exePath).Length -gt 100000)) {
-        Write-Host "[+] Downloaded MiniScheme-WebREPL.exe to $exePath" -ForegroundColor Green
+        Write-Host "[+] Downloaded MiniScheme-WebREPL.exe ($releaseTag) to $exePath" -ForegroundColor Green
         Write-Host "[*] Starting MiniScheme-WebREPL.exe (Default port: 8087, System Tray enabled)..." -ForegroundColor Green
         Start-Process -FilePath $exePath
         exit 0
@@ -30,7 +48,7 @@ try {
     Write-Host "[*] Standalone .exe not used ($($_.Exception.Message)), falling back to Python source mode..." -ForegroundColor Yellow
 }
 
-# 2. Fallback: Python source mode
+# 3. Fallback: Python source mode
 $pythonCmd = $null
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $pythonCmd = "python"

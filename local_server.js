@@ -1,10 +1,11 @@
 /**
  * @file local_server.js
  * @brief Local Server (MiniScheme-WebREPL.exe / server.py) detector,
- *        one-click GitHub downloader, and status panel for WebREPL.
+ *        dynamic latest GitHub Release resolver, and status panel for WebREPL.
  */
 
-const GITHUB_EXE_RELEASE_URL = 'https://github.com/chk-jxcn/minischeme-webrepl/releases/download/v1.0.0/MiniScheme-WebREPL.exe';
+const GITHUB_REPO_LATEST_API = 'https://api.github.com/repos/chk-jxcn/minischeme-webrepl/releases/latest';
+const GITHUB_EXE_RELEASE_URL = 'https://github.com/chk-jxcn/minischeme-webrepl/releases/latest/download/MiniScheme-WebREPL.exe';
 const GITHUB_INSTALL_PS1_CMD = 'irm https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.ps1 | iex';
 const GITHUB_INSTALL_SH_CMD = 'curl -fsSL https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.sh | bash';
 
@@ -16,6 +17,12 @@ class LocalServerManager {
         this.info = null;
         this.dialog = null;
         this.probing = false;
+        this.latestRelease = {
+            tag: 'latest',
+            exeUrl: GITHUB_EXE_RELEASE_URL,
+            htmlUrl: 'https://github.com/chk-jxcn/minischeme-webrepl/releases/latest',
+            size: null
+        };
     }
 
     init() {
@@ -67,8 +74,44 @@ class LocalServerManager {
             });
         }
 
-        // Probe immediately on page load
+        // Probe local server and resolve latest GitHub Release on load
         this.probeLocalServer(false);
+        this.resolveLatestRelease();
+    }
+
+    async resolveLatestRelease() {
+        try {
+            const res = await fetch(GITHUB_REPO_LATEST_API, {
+                headers: { 'Accept': 'application/vnd.github+json' },
+                cache: 'no-store'
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const tag = data.tag_name || 'latest';
+                const assets = Array.isArray(data.assets) ? data.assets : [];
+                const exeAsset = assets.find((a) => a.name && a.name.toLowerCase().endsWith('.exe'));
+                this.latestRelease = {
+                    tag,
+                    exeUrl: (exeAsset && exeAsset.browser_download_url) || GITHUB_EXE_RELEASE_URL,
+                    htmlUrl: data.html_url || 'https://github.com/chk-jxcn/minischeme-webrepl/releases/latest',
+                    size: exeAsset ? exeAsset.size : null
+                };
+            }
+        } catch (e) {
+            // Keep /releases/latest/download/MiniScheme-WebREPL.exe redirect URL
+        }
+        this._updateReleaseUI();
+        return this.latestRelease;
+    }
+
+    _updateReleaseUI() {
+        const dlBtn = document.getElementById('local-server-download-exe');
+        if (dlBtn && this.latestRelease) {
+            dlBtn.href = this.latestRelease.exeUrl;
+            const sizeMb = this.latestRelease.size ? ` (${(this.latestRelease.size / 1048576).toFixed(1)} MB)` : '';
+            const tagLabel = this.latestRelease.tag !== 'latest' ? ` [${this.latestRelease.tag}]` : ' [Latest]';
+            dlBtn.textContent = `⬇️ 从 GitHub 一键下载 MiniScheme-WebREPL.exe${tagLabel}${sizeMb}`;
+        }
     }
 
     open() {
@@ -78,6 +121,7 @@ class LocalServerManager {
             try { this.dialog.showModal(); } catch (e) {}
         }
         this.probeLocalServer(true);
+        this.resolveLatestRelease();
     }
 
     close() {
@@ -201,7 +245,7 @@ class LocalServerManager {
                     `⚪ 当前运行在纯浏览器离线/远端模式（未检测到本机 8087 端口服务）` +
                     `</div>` +
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
-                    `可点击下方按钮一键下载并运行 <b>MiniScheme-WebREPL.exe</b>，自动启动本地 WebREPL + 应用代理并在系统托盘显示本机 IP 与端口。` +
+                    `可点击下方按钮一键下载并运行最新 Release <b>MiniScheme-WebREPL.exe</b>，自动启动本地 WebREPL + 应用代理并在系统托盘显示本机 IP 与端口。` +
                     `</div>`;
             }
             if (btnJump) {

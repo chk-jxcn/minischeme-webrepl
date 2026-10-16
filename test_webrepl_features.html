@@ -433,9 +433,11 @@ theme = dark # Slate theme`;
         assert(typeof sim.poll === "function", "Missing poll method");
     });
 
-    addTest("7.5 Local Server (Exe) Probing & /api/server_info Verification", async () => {
+    addTest("7.5 Local Server (Exe) Probing, Dynamic Latest Release & /api/server_info Verification", async () => {
         assert(window.MiniSchemeLocalServer !== undefined, "Missing MiniSchemeLocalServer instance");
-        assert(GITHUB_EXE_RELEASE_URL.endsWith("MiniScheme-WebREPL.exe"), "Exe release URL mismatch");
+        assert(GITHUB_EXE_RELEASE_URL.includes("/releases/latest/download/MiniScheme-WebREPL.exe"), "Exe release URL must use /releases/latest/download/");
+        assert(!GITHUB_EXE_RELEASE_URL.includes("/v1.0.0/"), "Exe release URL must not hardcode v1.0.0");
+        assert(typeof window.MiniSchemeLocalServer.resolveLatestRelease === "function", "Missing resolveLatestRelease method");
         const info = await window.MiniSchemeLocalServer.probeLocalServer(true);
         assert(info !== null && info.success === true, "Failed to probe local server /api/server_info");
         assert(typeof info.ip === "string" && info.ip.length >= 7, "Invalid LAN IP in server_info");

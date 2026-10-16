@@ -292,6 +292,24 @@ class TestWebReplFeatures(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 proc2.kill()
 
+    def test_08_dynamic_latest_release_discovery(self):
+        """Verify /api/latest_release and ensure no hardcoded /releases/download/v1.0.0/ URLs exist"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/api/latest_release?repo=minischeme-webrepl")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        rel = json.loads(res.read().decode("utf-8"))
+        self.assertTrue(rel.get("success"))
+        self.assertEqual(rel.get("repo"), "minischeme-webrepl")
+        self.assertIn("/releases/latest/download/", rel.get("download_base", ""))
+
+        # Verify no hardcoded /releases/download/v1.0.0/ remains in client/installer files
+        for fname in ("local_server.js", "editor_flasher.js", "app_manager.js", "index.html", "install.ps1", "server.py"):
+            fpath = os.path.join(ROOT_DIR, fname)
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.assertNotIn("/releases/download/v1.0.0/", content, f"Hardcoded release v1.0.0 found in {fname}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

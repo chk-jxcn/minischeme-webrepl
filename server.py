@@ -248,6 +248,91 @@ class IntegratedProxyContext:
 
 
 proxy_ctx = IntegratedProxyContext()
+_release_cache = {}
+_release_lock = threading.Lock()
+
+
+def get_latest_github_release(repo="minischeme-webrepl", ttl=120):
+    """Dynamically resolve the latest release metadata and asset URLs for a chk-jxcn repository."""
+    now = time.time()
+    with _release_lock:
+        cached = _release_cache.get(repo)
+        if cached and cached[1] > now:
+            return cached[0]
+
+    api_url = f"https://api.github.com/repos/chk-jxcn/{repo}/releases/latest"
+    fallback_base = f"https://github.com/chk-jxcn/{repo}/releases/latest/download/"
+    try:
+        req = urllib.request.Request(
+            api_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "MiniScheme-WebREPL/1.0",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        assets = {}
+        for a in data.get("assets") or []:
+            if a.get("name") and a.get("browser_download_url"):
+                assets[a["name"]] = {
+                    "url": a["browser_download_url"],
+                    "size": a.get("size", 0),
+                }
+        info = {
+            "success": True,
+            "repo": repo,
+            "tag_name": data.get("tag_name") or "latest",
+            "name": data.get("name") or data.get("tag_name") or "latest",
+            "published_at": data.get("published_at") or "",
+            "html_url": data.get("html_url") or f"https://github.com/chk-jxcn/{repo}/releases/latest",
+            "download_base": fallback_base,
+            "assets": assets,
+        }
+        with _release_lock:
+            _release_cache[repo] = (info, now + ttl)
+        return info
+    except Exception as e:
+        return {
+            "success": True,
+            "repo": repo,
+            "tag_name": "latest",
+            "name": "latest",
+            "html_url": f"https://github.com/chk-jxcn/{repo}/releases/latest",
+            "download_base": fallback_base,
+            "assets": {},
+            "fallback": True,
+            "note": str(e),
+        }
+
+
+def fetch_latest_release_asset(repo, asset_name):
+    """Fetch an asset from the latest GitHub release, falling back to local bundle if offline."""
+    rel = get_latest_github_release(repo)
+    asset_info = (rel.get("assets") or {}).get(asset_name)
+    urls = []
+    if asset_info and asset_info.get("url"):
+        urls.append(asset_info["url"])
+    urls.append(f"https://github.com/chk-jxcn/{repo}/releases/latest/download/{asset_name}")
+
+    ctype = "application/json" if asset_name.endswith(".json") else "application/octet-stream"
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "MiniScheme-WebREPL/1.0"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                body = resp.read(32 * 1024 * 1024)
+                if len(body) > 0:
+                    return 200, ctype, body
+        except Exception:
+            continue
+
+    # Offline / local bundle fallback
+    sub = "firmware" if repo == "minischeme-esp32" else "apps"
+    local_candidate = os.path.join(BASE_DIR, sub, asset_name)
+    if os.path.isfile(local_candidate):
+        with open(local_candidate, "rb") as f:
+            return 200, ctype, f.read()
+    return 404, "application/json", b'{"error":"release asset not found"}'
 
 
 def handle_proxy_endpoint(path_with_query):
@@ -262,6 +347,10 @@ def handle_proxy_endpoint(path_with_query):
             ctype = "application/json" if rel.endswith(".json") else "application/octet-stream"
             with open(local_candidate, "rb") as f:
                 return 200, ctype, f.read()
+        if "/" not in rel:
+            status, ctype, body = fetch_latest_release_asset("minischeme-apps", rel)
+            if status == 200:
+                return status, ctype, body
         return 404, "application/json", b'{"error":"market file not found"}'
 
     if path == "/fetch":
@@ -324,6 +413,31 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 "converter_url": f"http://{primary_ip}:{ACTIVE_PORT}",
                 "frozen": bool(getattr(sys, "frozen", False)),
             })
+            return
+
+        # 1b. Dynamic GitHub Latest Release Discovery & Asset Proxy
+        if req_path == "/api/latest_release":
+            qs = urllib.parse.parse_qs(parsed_self.query)
+            repo = (qs.get("repo") or ["minischeme-webrepl"])[0]
+            if repo not in ("minischeme-webrepl", "minischeme-esp32", "minischeme-apps", "minischeme"):
+                return self._json_reply({"success": False, "error": "unsupported repository"}, 400)
+            info = get_latest_github_release(repo)
+            return self._json_reply(info, 200 if info.get("success") else 502)
+
+        if req_path == "/api/release_asset":
+            qs = urllib.parse.parse_qs(parsed_self.query)
+            repo = (qs.get("repo") or ["minischeme-esp32"])[0]
+            asset = (qs.get("asset") or [""])[0]
+            if repo not in ("minischeme-webrepl", "minischeme-esp32", "minischeme-apps") or not asset or "/" in asset:
+                self.send_error(400, "invalid repo or asset")
+                return
+            status, ctype, body = fetch_latest_release_asset(repo, asset)
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         # 2. Direct App Proxy & Market endpoints (/app/*, /health, /market/*, /fetch)
@@ -673,6 +787,7 @@ class Win32SystemTray:
         ID_OPEN_LOCAL = 1001
         ID_OPEN_LAN = 1002
         ID_COPY_PROXY = 1003
+        ID_CHECK_RELEASE = 1005
         ID_EXIT = 1004
 
         LRESULT = ctypes.c_ssize_t
@@ -720,6 +835,7 @@ class Win32SystemTray:
             user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_LOCAL, f"🌐 打开 WebREPL 页面 ({local_url})")
             user32.AppendMenuW(hmenu, MF_STRING, ID_OPEN_LAN, f"📡 本机 IP: {self.ip}  |  监听端口: {self.port}")
             user32.AppendMenuW(hmenu, MF_STRING, ID_COPY_PROXY, f"📋 复制局域网代理地址 ({lan_url})")
+            user32.AppendMenuW(hmenu, MF_STRING, ID_CHECK_RELEASE, "🔄 检查并下载最新 Release 版本")
             user32.AppendMenuW(hmenu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(hmenu, MF_STRING, ID_EXIT, "❌ 退出 MiniScheme 本地服务")
             user32.SetMenuDefaultItem(hmenu, ID_OPEN_LOCAL, False)
@@ -736,6 +852,11 @@ class Win32SystemTray:
                 webbrowser.open(lan_url)
             elif cmd == ID_COPY_PROXY:
                 self._copy_to_clipboard(lan_url)
+            elif cmd == ID_CHECK_RELEASE:
+                rel = get_latest_github_release("minischeme-webrepl")
+                exe_asset = (rel.get("assets") or {}).get("MiniScheme-WebREPL.exe")
+                target = (exe_asset and exe_asset.get("url")) or rel.get("html_url") or "https://github.com/chk-jxcn/minischeme-webrepl/releases/latest"
+                webbrowser.open(target)
             elif cmd == ID_EXIT:
                 user32.DestroyWindow(hwnd)
 
