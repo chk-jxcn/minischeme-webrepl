@@ -17,10 +17,10 @@ def main():
 
     data_items = [
         ("index.html", "."),
-        ("style.css", "."),
-        ("font_charsets.json", "."),
-        ("compiler.wasm", "."),
-        ("minischeme_vm.wasm", "."),
+        ("css", "css"),
+        ("js", "js"),
+        ("wasm", "wasm"),
+        ("data", "data"),
         ("apps", "apps"),
         ("firmware", "firmware"),
         ("proxy", "proxy"),

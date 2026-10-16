@@ -104,7 +104,10 @@ async function initWasm() {
             }
         };
 
-        const response = await fetch('minischeme_vm.wasm');
+        let response = await fetch('wasm/minischeme_vm.wasm');
+        if (!response.ok) {
+            response = await fetch('minischeme_vm.wasm');
+        }
         if (!response.ok) {
             throw new Error(`HTTP ${response.status} fetching minischeme_vm.wasm`);
         }

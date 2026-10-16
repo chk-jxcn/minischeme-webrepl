@@ -6,7 +6,9 @@
 <script>
 async function run() {
     try {
-        const wasmRes = await fetch('minischeme_vm.wasm');
+        let wasmRes = await fetch('wasm/minischeme_vm.wasm');
+        if (!wasmRes.ok) wasmRes = await fetch('../wasm/minischeme_vm.wasm');
+        if (!wasmRes.ok) wasmRes = await fetch('minischeme_vm.wasm');
         const wasmBytes = await wasmRes.arrayBuffer();
         const importObject = {
             env: {

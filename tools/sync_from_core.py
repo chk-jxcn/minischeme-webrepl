@@ -41,8 +41,11 @@ def sync_core():
         print(f"[+] Synced rich app market index.json to {apps_dst}")
 
     # 3. Check WASM artifacts
-    vm_wasm = os.path.join(BASE_DIR, "minischeme_vm.wasm")
-    comp_wasm = os.path.join(BASE_DIR, "compiler.wasm")
+    vm_wasm = os.path.join(BASE_DIR, "wasm", "minischeme_vm.wasm")
+    comp_wasm = os.path.join(BASE_DIR, "wasm", "compiler.wasm")
+    if not (os.path.exists(vm_wasm) and os.path.exists(comp_wasm)):
+        vm_wasm = os.path.join(BASE_DIR, "minischeme_vm.wasm")
+        comp_wasm = os.path.join(BASE_DIR, "compiler.wasm")
     if os.path.exists(vm_wasm) and os.path.exists(comp_wasm):
         print(f"[+] WASM binaries verified: minischeme_vm.wasm ({os.path.getsize(vm_wasm)} B), compiler.wasm ({os.path.getsize(comp_wasm)} B)")
     else:

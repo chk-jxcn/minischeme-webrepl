@@ -64,10 +64,22 @@ python server.py --port 8080 --with-proxy
 
 Then navigate to `http://localhost:8080` in Chrome, Edge, or any modern Chromium-based browser.
 
-## Deployment & Sync
-When the core MiniScheme interpreter or ESP-IDF firmware is updated, re-sync the public deployment bundle:
-```bash
-python tools/sync_from_core.py
+## Project Structure
+
+```
+minischeme-webrepl/
+├── apps/               # Built-in Scheme application packages (.scm, .msbc, meta.ini)
+├── css/                # Web stylesheets (style.css)
+├── data/               # Static data assets (font_charsets.json)
+├── firmware/           # Prebuilt ESP32 firmware binaries & manifest
+├── js/                 # Client JavaScript frontend modules
+├── proxy/              # App Proxy & Protocol Converter service
+├── tests/              # Test suite (Python integration & browser HTML suites)
+├── tools/              # Developer & packaging tools (build_exe.py, make_font.py)
+├── wasm/               # WebAssembly binaries (minischeme_vm.wasm, compiler.wasm) & C sources
+├── index.html          # WebREPL web interface entry point
+├── server.py           # Local server & Windows system tray application
+└── install.ps1 / .sh   # One-line installer scripts
 ```
 
 ## License

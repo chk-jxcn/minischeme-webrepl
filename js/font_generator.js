@@ -470,7 +470,8 @@ class FontGenerator {
             this.engine = (await ServerFontEngine.probe()) || new BrowserFontEngine();
             this.browserEngine = this.engine instanceof BrowserFontEngine ? this.engine : null;
             try {
-                const r = await fetch('font_charsets.json');
+                let r = await fetch('data/font_charsets.json');
+                if (!r.ok) r = await fetch('font_charsets.json');
                 const data = await r.json();
                 const byId = new Map(data.presets.map((p) => [p.id, p]));
                 this.presets = data.presets.map((p) => ({

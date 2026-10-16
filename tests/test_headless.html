@@ -10,7 +10,9 @@ async function test() {
                 js_print: (ptr, len) => {}
             }
         };
-        const resp = await fetch('compiler.wasm');
+        let resp = await fetch('wasm/compiler.wasm');
+        if (!resp.ok) resp = await fetch('../wasm/compiler.wasm');
+        if (!resp.ok) resp = await fetch('compiler.wasm');
         const bytes = await resp.arrayBuffer();
         const results = await WebAssembly.instantiate(bytes, importObject);
         const inst = results.instance;

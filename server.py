@@ -379,6 +379,19 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=BASE_DIR, **kwargs)
 
+    def translate_path(self, path):
+        clean_path = super().translate_path(path)
+        if os.path.exists(clean_path):
+            return clean_path
+
+        # Fallback to categorized subdirectories if requested without folder prefix
+        rel = os.path.relpath(clean_path, BASE_DIR).replace("\\", "/")
+        for sub in ("js", "css", "wasm", "data", "tests"):
+            candidate = os.path.join(BASE_DIR, sub, rel)
+            if os.path.exists(candidate):
+                return candidate
+        return clean_path
+
     def log_message(self, format, *args):
         # Avoid crashing when running without a console window (--noconsole)
         if sys.stderr is not None:
@@ -666,10 +679,15 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         self.send_error(404, "Endpoint not found")
 
     def end_headers(self):
-        if self.path.endswith(".wasm"):
+        clean_url = self.path.split("?")[0]
+        if clean_url.endswith(".wasm"):
             self.send_header("Content-Type", "application/wasm")
-        elif self.path.endswith((".fasl", ".msbc")):
+        elif clean_url.endswith((".fasl", ".msbc")):
             self.send_header("Content-Type", "application/octet-stream")
+        elif clean_url.endswith(".js"):
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+        elif clean_url.endswith(".css"):
+            self.send_header("Content-Type", "text/css; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
         super().end_headers()

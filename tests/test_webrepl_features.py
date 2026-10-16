@@ -102,7 +102,7 @@ class TestWebReplFeatures(unittest.TestCase):
         cls.server.stop()
 
     def test_01_index_html_assets(self):
-        """Verify index.html serves with workspace tabs, hidden editor view, and no hex/disasm/fixed-pages"""
+        """Verify index.html serves with workspace tabs, hidden editor view, and categorized assets"""
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
         conn.request("GET", "/")
         res = conn.getresponse()
@@ -116,8 +116,10 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("btn-link-device-setup", body, "Link bar Device Setup button next to Connect button missing")
         self.assertIn("btn-scheme-editor", body, "Editor button missing")
         self.assertIn("btn-firmware-flasher", body, "Flasher button missing")
-        self.assertIn("editor_flasher.js", body, "editor_flasher.js script missing")
-        self.assertIn("device_setup.js", body, "device_setup.js script missing")
+        self.assertIn("js/editor_flasher.js", body, "js/editor_flasher.js script missing")
+        self.assertIn("js/device_setup.js", body, "js/device_setup.js script missing")
+        self.assertIn("css/style.css", body, "css/style.css stylesheet missing")
+        self.assertIn("js/app.js", body, "js/app.js script missing")
         self.assertNotIn("editor-disasm-pre", body, "Disassembly should not be shown in Editor UI")
         self.assertNotIn("editor-hex-div", body, "Hex stream should not be shown in Editor UI")
         self.assertNotIn("editor-meta-pages", body, "Fixed pages field should not be in Editor UI")
@@ -311,6 +313,8 @@ class TestWebReplFeatures(unittest.TestCase):
         # Verify no hardcoded /releases/download/v1.0.0/ remains in client/installer files
         for fname in ("local_server.js", "editor_flasher.js", "app_manager.js", "index.html", "install.ps1", "server.py"):
             fpath = os.path.join(ROOT_DIR, fname)
+            if not os.path.exists(fpath):
+                fpath = os.path.join(ROOT_DIR, "js", fname)
             with open(fpath, "r", encoding="utf-8") as f:
                 content = f.read()
             self.assertNotIn("/releases/download/v1.0.0/", content, f"Hardcoded release v1.0.0 found in {fname}")
@@ -340,29 +344,58 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn('id="sim-wifi-toggle"', body, "WASM WiFi toggle switch missing in index.html")
         self.assertIn('id="btn-app-web"', body, "Device Web button missing in index.html")
 
-        # Verify app_web.js contains all 5 tabs and config handlers
-        conn.request("GET", "/app_web.js")
-        res_aw = conn.getresponse()
-        self.assertEqual(res_aw.status, 200)
-        content_aw = res_aw.read().decode("utf-8")
-        self.assertIn("AppWebPanel", content_aw)
-        self.assertIn('data-tab="app"', content_aw)
-        self.assertIn('data-tab="system"', content_aw)
-        self.assertIn('data-tab="config"', content_aw)
-        self.assertIn('data-tab="manage"', content_aw)
-        self.assertIn('data-tab="info"', content_aw)
-        self.assertIn("aw-sys-wifi-online", content_aw)
-        self.assertIn("saveSystemConfig", content_aw)
-        self.assertIn("saveRawConfigIni", content_aw)
-        self.assertIn("isSimWifiOnline", content_aw)
-        self.assertIn("setSimWifiOnline", content_aw)
+        # Verify app_web.js contains all 5 tabs and config handlers via both clean /js/ and legacy / URL
+        for url in ("/js/app_web.js", "/app_web.js"):
+            conn.request("GET", url)
+            res_aw = conn.getresponse()
+            self.assertEqual(res_aw.status, 200, f"Failed to get {url}")
+            content_aw = res_aw.read().decode("utf-8")
+            self.assertIn("AppWebPanel", content_aw)
+            self.assertIn('data-tab="app"', content_aw)
+            self.assertIn('data-tab="system"', content_aw)
+            self.assertIn('data-tab="config"', content_aw)
+            self.assertIn('data-tab="manage"', content_aw)
+            self.assertIn('data-tab="info"', content_aw)
+            self.assertIn("aw-sys-wifi-online", content_aw)
+            self.assertIn("saveSystemConfig", content_aw)
+            self.assertIn("saveRawConfigIni", content_aw)
+            self.assertIn("isSimWifiOnline", content_aw)
+            self.assertIn("setSimWifiOnline", content_aw)
 
         # Verify device_setup.js contains ds-wifi-enable
-        conn.request("GET", "/device_setup.js")
-        res_ds = conn.getresponse()
-        self.assertEqual(res_ds.status, 200)
-        content_ds = res_ds.read().decode("utf-8")
-        self.assertIn("ds-wifi-enable", content_ds)
+        for url in ("/js/device_setup.js", "/device_setup.js"):
+            conn.request("GET", url)
+            res_ds = conn.getresponse()
+            self.assertEqual(res_ds.status, 200, f"Failed to get {url}")
+            content_ds = res_ds.read().decode("utf-8")
+            self.assertIn("ds-wifi-enable", content_ds)
+
+    def test_11_directory_structure_categorization(self):
+        """Verify repository root is clean and assets are organized into js, css, wasm, data, tests"""
+        # 1. Check categorized directories exist
+        for dname in ("js", "css", "wasm", "data", "tests", "apps", "firmware", "proxy", "tools"):
+            dpath = os.path.join(ROOT_DIR, dname)
+            self.assertTrue(os.path.isdir(dpath), f"Expected directory {dname} to exist")
+
+        # 2. Check no loose JS, CSS, or WASM files remain directly in root
+        root_files = os.listdir(ROOT_DIR)
+        loose_js = [f for f in root_files if f.endswith(".js")]
+        loose_css = [f for f in root_files if f.endswith(".css")]
+        loose_wasm = [f for f in root_files if f.endswith(".wasm")]
+        loose_test_html = [f for f in root_files if f.startswith("test_") and f.endswith(".html")]
+
+        self.assertEqual(loose_js, [], f"Root directory should not contain loose JS files: {loose_js}")
+        self.assertEqual(loose_css, [], f"Root directory should not contain loose CSS files: {loose_css}")
+        self.assertEqual(loose_wasm, [], f"Root directory should not contain loose WASM files: {loose_wasm}")
+        self.assertEqual(loose_test_html, [], f"Root directory should not contain loose test HTML files: {loose_test_html}")
+
+        # 3. Check categorized assets are located correctly
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "css", "style.css")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "wasm", "compiler.wasm")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "wasm", "minischeme_vm.wasm")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "data", "font_charsets.json")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "tests", "test_webrepl_features.html")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT_DIR, "js", "app.js")))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <base href="/">
     <title>MiniScheme WebREPL 完整特性自动化测试套件</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1118; color: #e2e8f0; margin: 0; padding: 24px; line-height: 1.5; }
@@ -37,17 +38,17 @@
     <div id="test-results" data-status="RUNNING">正在加载测试环境与 WASM 模块...</div>
 
     <!-- WebREPL Components -->
-    <script src="device_link.js"></script>
-    <script src="sim_storage.js"></script>
-    <script src="hw_mirror.js"></script>
-    <script src="file_manager.js"></script>
-    <script src="font_generator.js"></script>
-    <script src="font_manager.js"></script>
-    <script src="app_manager.js"></script>
-    <script src="app_web.js"></script>
-    <script src="device_setup.js"></script>
-    <script src="local_server.js"></script>
-    <script src="editor_flasher.js"></script>
+    <script src="js/device_link.js"></script>
+    <script src="js/sim_storage.js"></script>
+    <script src="js/hw_mirror.js"></script>
+    <script src="js/file_manager.js"></script>
+    <script src="js/font_generator.js"></script>
+    <script src="js/font_manager.js"></script>
+    <script src="js/app_manager.js"></script>
+    <script src="js/app_web.js"></script>
+    <script src="js/device_setup.js"></script>
+    <script src="js/local_server.js"></script>
+    <script src="js/editor_flasher.js"></script>
 
     <script>
     const tests = [];
@@ -72,7 +73,8 @@
     // Helper: Initialize standalone WASM VM & compiler for test suite
     async function initWasmCompiler() {
         if (wasmCompilerInst) return wasmCompilerInst;
-        const res = await fetch('minischeme_vm.wasm');
+        let res = await fetch('wasm/minischeme_vm.wasm');
+        if (!res.ok) res = await fetch('minischeme_vm.wasm');
         if (!res.ok) throw new Error('Failed to fetch minischeme_vm.wasm: ' + res.statusText);
         const bytes = await res.arrayBuffer();
         const importObject = {
