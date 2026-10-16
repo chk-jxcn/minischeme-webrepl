@@ -169,16 +169,121 @@ function parseMsbcTrailer(bytes) {
 const GITHUB_ESP32_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-esp32/releases/latest/download/';
 const GITHUB_ESP32_LATEST_API = 'https://api.github.com/repos/chk-jxcn/minischeme-esp32/releases/latest';
 
+// Safe base64 decoding helper that never throws on undefined, null, or unpadded input
+function safeAtob(val) {
+    if (val === undefined || val === null) return '';
+    let str = String(val).trim();
+    if (!str) return '';
+    while (str.length % 4 !== 0) str += '=';
+    try {
+        return window.atob(str);
+    } catch (e1) {
+        const cleaned = str.replace(/[^A-Za-z0-9+/=]/g, '');
+        while (cleaned.length % 4 !== 0) cleaned += '=';
+        try {
+            return window.atob(cleaned);
+        } catch (e2) {
+            return '';
+        }
+    }
+}
+
+// Ensure global window.atob is safeguarded against undefined/null strings in third-party bundles
+if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+    const rawAtob = window.atob.bind(window);
+    window.atob = function(val) {
+        if (val === undefined || val === null || val === 'undefined' || val === 'null') {
+            return '';
+        }
+        try {
+            return rawAtob(val);
+        } catch (e) {
+            return safeAtob(val);
+        }
+    };
+}
+
 async function loadEsptoolBundle() {
     if (window.__esptool) return window.__esptool;
-    try {
-        window.__esptool = await import('./esptool-bundle.js');
-        return window.__esptool;
-    } catch (e1) {
-        console.warn('Failed to load local esptool-bundle.js, trying unpkg CDN fallback...', e1);
-        window.__esptool = await import('https://unpkg.com/esptool-js@0.5.2/bundle.js');
-        return window.__esptool;
+
+    const localCandidates = [
+        './js/esptool-bundle.js',
+        'js/esptool-bundle.js',
+        '/js/esptool-bundle.js',
+        './esptool-bundle.js',
+        '/esptool-bundle.js'
+    ];
+
+    const cdnCandidates = [
+        'https://unpkg.com/esptool-js@0.5.6/bundle.js',
+        'https://cdn.jsdelivr.net/npm/esptool-js@latest/bundle.js',
+        'https://unpkg.com/esptool-js@latest/bundle.js'
+    ];
+
+    let mod = null;
+    let lastErr = null;
+
+    // 1. Try local bundle paths first (works offline, zero latency, guaranteed stub compatibility)
+    for (const url of localCandidates) {
+        try {
+            mod = await import(url);
+            if (mod && mod.ESPLoader) {
+                console.log(`[MiniScheme Flasher] Successfully loaded local esptool bundle from: ${url}`);
+                break;
+            }
+        } catch (err) {
+            lastErr = err;
+        }
     }
+
+    // 2. If local paths fail, fallback to modern CDN versions (>= 0.5.6)
+    if (!mod || !mod.ESPLoader) {
+        console.warn('[MiniScheme Flasher] Local esptool-bundle.js not found, trying CDN fallback...', lastErr);
+        for (const url of cdnCandidates) {
+            try {
+                mod = await import(url);
+                if (mod && mod.ESPLoader) {
+                    console.log(`[MiniScheme Flasher] Successfully loaded esptool bundle from CDN: ${url}`);
+                    break;
+                }
+            } catch (err) {
+                lastErr = err;
+            }
+        }
+    }
+
+    if (!mod || !mod.ESPLoader) {
+        throw new Error(`Failed to load Espressif flasher driver (esptool-js): ${lastErr ? lastErr.message : 'driver not found'}`);
+    }
+
+    // 3. Apply defensive unwrap patch for stub decoders across all version variants
+    if (mod.getStubJsonByChipName) {
+        const originalGetStub = mod.getStubJsonByChipName;
+        mod.getStubJsonByChipName = async function(chipName, rev) {
+            const res = await originalGetStub(chipName, rev);
+            if (res && res.default && (!res.decodedText || res.decodedText.length === 0)) {
+                const d = res.default;
+                res.entry = res.entry !== undefined ? res.entry : d.entry;
+                res.text = res.text || d.text;
+                res.text_start = res.text_start !== undefined ? res.text_start : d.text_start;
+                res.data = res.data || d.data;
+                res.data_start = res.data_start !== undefined ? res.data_start : d.data_start;
+                res.bss_start = res.bss_start !== undefined ? res.bss_start : d.bss_start;
+                const decodeFn = mod.decodeBase64Data || function(b64) {
+                    const decoded = safeAtob(b64);
+                    const ui8 = new Uint8Array(decoded.length);
+                    for (let i = 0; i < decoded.length; i++) ui8[i] = decoded.charCodeAt(i);
+                    return ui8;
+                };
+                if (!res.decodedText && res.text) res.decodedText = decodeFn(res.text);
+                if (!res.decodedData && res.data) res.decodedData = decodeFn(res.data);
+            }
+            return res;
+        };
+    }
+
+    window.__esptool = mod;
+    return mod;
 }
 
 class WebSerialFirmwareFlasher {
@@ -358,8 +463,10 @@ class WebSerialFirmwareFlasher {
                 const urls = [
                     `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(item.name)}`,
                     ...(assetMap[item.name] ? [assetMap[item.name]] : []),
-                    `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${item.name}`,
+                    `./firmware/${item.name}`,
                     `firmware/${item.name}`,
+                    `/firmware/${item.name}`,
+                    `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${item.name}`,
                     `${GITHUB_ESP32_RELEASE_BASE}${item.name}`
                 ];
                 let buf = null;
@@ -369,6 +476,10 @@ class WebSerialFirmwareFlasher {
                         if (res.ok) {
                             const ab = await res.arrayBuffer();
                             if (ab.byteLength > 256) {
+                                const u8 = new Uint8Array(ab);
+                                if (u8[0] === 0x3C) { // Skip HTML error responses ('<')
+                                    continue;
+                                }
                                 buf = ab;
                                 break;
                             }
@@ -463,11 +574,18 @@ class WebSerialFirmwareFlasher {
                 this.log('info', `提升烧录波特率至 ${baudrate} baud...`);
             }
 
-            // Build files array
+            // Build files array and strictly guarantee Uint8Array instances
+            const toUint8 = (d) => {
+                if (d instanceof Uint8Array) return d;
+                if (d instanceof ArrayBuffer) return new Uint8Array(d);
+                if (ArrayBuffer.isView(d)) return new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+                return new Uint8Array(d);
+            };
+
             const filesToFlash = [
-                { data: src.bootloader, address: 0x1000 },
-                { data: src.partition, address: 0x8000 },
-                { data: src.firmware, address: 0x10000 }
+                { data: toUint8(src.bootloader), address: 0x1000 },
+                { data: toUint8(src.partition), address: 0x8000 },
+                { data: toUint8(src.firmware), address: 0x10000 }
             ];
 
             const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);

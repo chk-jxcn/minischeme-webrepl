@@ -287,6 +287,28 @@
         assert(typeof esptool.Transport === "function", "Missing Transport export");
     });
 
+    addTest("3.1b Safe atob Base64 Handling & Stub Decoding", async () => {
+        // 1. Verify safeAtob helper does not throw on undefined/null/unpadded inputs
+        assertEqual(safeAtob(undefined), "", "safeAtob(undefined) must return empty string");
+        assertEqual(safeAtob(null), "", "safeAtob(null) must return empty string");
+        assertEqual(safeAtob(""), "", "safeAtob('') must return empty string");
+        assertEqual(window.atob(undefined), "", "window.atob(undefined) must not throw");
+        assertEqual(window.atob(null), "", "window.atob(null) must not throw");
+        const decHello = window.atob("SGVsbG8=");
+        assertEqual(decHello, "Hello", "Standard atob must work correctly");
+
+        // 2. Verify all standard ESP chip stubs decode cleanly without atob exception
+        const esptool = await loadEsptoolBundle();
+        assert(typeof esptool.getStubJsonByChipName === "function", "Missing getStubJsonByChipName");
+        const chipsToTest = ["ESP32", "ESP32-C3", "ESP32-S3", "ESP8266"];
+        for (const chip of chipsToTest) {
+            const stub = await esptool.getStubJsonByChipName(chip);
+            assert(stub !== undefined, `Stub for ${chip} returned undefined`);
+            assert(stub.decodedText instanceof Uint8Array, `decodedText for ${chip} must be Uint8Array`);
+            assert(stub.decodedText.length > 0, `decodedText for ${chip} must not be empty`);
+        }
+    });
+
     addTest("3.2 ESP32 Flash Offsets Layout Verification", () => {
         const filesToFlash = [
             { name: "bootloader.bin", address: 0x1000 },

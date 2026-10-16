@@ -395,7 +395,7 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 if os.path.exists(cand_cal):
                     return cand_cal
 
-        for sub in ("js", "css", "wasm", "data", "tests", "apps"):
+        for sub in ("js", "css", "wasm", "data", "tests", "apps", "firmware", "fonts"):
             candidate = os.path.join(BASE_DIR, sub, rel)
             if os.path.exists(candidate):
                 return candidate
