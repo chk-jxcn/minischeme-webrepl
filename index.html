@@ -25,6 +25,7 @@
             </div>
             <span class="status-indicator online" id="status-dot"></span>
             <span id="device-status-text">WASM 编译器准备就绪</span>
+            <button class="pill-btn highlight" id="btn-local-server" title="一键下载安装并运行本地服务端 (MiniScheme-WebREPL.exe)">🖥️ 本地服务端 (Exe)</button>
         </div>
     </header>
 
@@ -489,6 +490,66 @@
         </div>
     </dialog>
 
+    <!-- =================================================================== -->
+    <!-- 模态弹窗：本地服务端 (MiniScheme-WebREPL.exe) 一键下载安装与运行 -->
+    <!-- =================================================================== -->
+    <dialog id="local-server-dialog" class="modal-dialog flasher-modal" hidden>
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <span class="modal-icon">🖥️</span>
+                <h2>本地服务端 (MiniScheme-WebREPL.exe) 一键下载与运行</h2>
+                <span class="arch-badge">默认 8087 端口 · 自动避让 · 系统托盘常驻</span>
+            </div>
+            <button class="modal-close-btn" id="local-server-close-btn" title="关闭">&times;</button>
+        </div>
+        <div class="modal-body flasher-body">
+            <!-- 当前本地服务连接状态 -->
+            <div class="flasher-card" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                <div id="local-server-status-box">正在检测本地服务端状态...</div>
+                <div style="display:flex; gap:8px;">
+                    <button class="pill-btn" id="local-server-probe-btn">🔄 重新检测</button>
+                    <button class="action-btn highlight" id="local-server-jump-btn" hidden>🚀 切换到本地运行页面</button>
+                </div>
+            </div>
+
+            <!-- 方式 1：直接下载独立 Exe -->
+            <div class="flasher-card">
+                <div class="flasher-item-title" style="font-size:14px; margin-bottom:8px;">⚡ 方式一：下载独立桌面版可执行程序 (Windows 免安装 Python)</div>
+                <div class="flasher-desc" style="margin-bottom:12px;">
+                    将 <code>server.py</code> 完整打包为单文件 <b>MiniScheme-WebREPL.exe</b>（内置 WebREPL 界面、本地应用代理、协议转换器与字库引擎）：
+                    <ul style="margin:6px 0 0 18px; line-height:1.6;">
+                        <li><b>自动端口绑定</b>：默认监听本机 <code>8087</code> 端口；若 <code>8087</code> 被占用则自动顺延绑定可用端口（如 <code>8088</code>）。</li>
+                        <li><b>Windows 系统托盘 (Tray)</b>：启动后在右下角托盘显示 <b>本机局域网 IP</b> 与 <b>监听端口</b>，<b>左键点击托盘图标即可打开页面</b>，右键可复制局域网代理地址或退出。</li>
+                    </ul>
+                </div>
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                    <a class="action-btn highlight" id="local-server-download-exe" href="https://github.com/chk-jxcn/minischeme-webrepl/releases/download/v1.0.0/MiniScheme-WebREPL.exe" target="_blank" rel="noopener" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                        ⬇️ 从 GitHub 一键下载 MiniScheme-WebREPL.exe
+                    </a>
+                    <a class="pill-btn" href="https://github.com/chk-jxcn/minischeme-webrepl/releases" target="_blank" rel="noopener" style="text-decoration:none;">
+                        📦 查看全部 GitHub Releases
+                    </a>
+                </div>
+            </div>
+
+            <!-- 方式 2：终端流式一键下载安装并运行 -->
+            <div class="flasher-card">
+                <div class="flasher-item-title" style="font-size:14px; margin-bottom:8px;">💻 方式二：终端一键流式下载安装并自动启动</div>
+                <div class="flasher-desc" style="margin-bottom:8px;">
+                    在 PowerShell 或终端执行以下命令，将自动从 GitHub 下载最新服务端并启动托盘与浏览器页面：
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                    <input type="text" class="device-host-input" style="flex:1; font-family:monospace;" value="irm https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.ps1 | iex" readonly>
+                    <button class="pill-btn highlight" id="local-server-copy-ps1-btn">📋 复制 PowerShell 命令</button>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <input type="text" class="device-host-input" style="flex:1; font-family:monospace;" value="curl -fsSL https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.sh | bash" readonly>
+                    <button class="pill-btn" id="local-server-copy-sh-btn">📋 复制 Bash 命令</button>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
     <script src="device_link.js"></script>
     <script src="sim_storage.js"></script>
     <script src="hw_mirror.js"></script>
@@ -498,6 +559,7 @@
     <script src="app_manager.js"></script>
     <script src="app_web.js"></script>
     <script src="device_setup.js"></script>
+    <script src="local_server.js"></script>
     <script src="editor_flasher.js"></script>
     <script src="app.js"></script>
 </body>

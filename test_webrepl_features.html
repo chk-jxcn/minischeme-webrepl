@@ -46,6 +46,7 @@
     <script src="app_manager.js"></script>
     <script src="app_web.js"></script>
     <script src="device_setup.js"></script>
+    <script src="local_server.js"></script>
     <script src="editor_flasher.js"></script>
 
     <script>
@@ -430,6 +431,15 @@ theme = dark # Slate theme`;
         assert(typeof sim.restore === "function", "Missing restore method");
         assert(typeof sim.save === "function", "Missing save method");
         assert(typeof sim.poll === "function", "Missing poll method");
+    });
+
+    addTest("7.5 Local Server (Exe) Probing & /api/server_info Verification", async () => {
+        assert(window.MiniSchemeLocalServer !== undefined, "Missing MiniSchemeLocalServer instance");
+        assert(GITHUB_EXE_RELEASE_URL.endsWith("MiniScheme-WebREPL.exe"), "Exe release URL mismatch");
+        const info = await window.MiniSchemeLocalServer.probeLocalServer(true);
+        assert(info !== null && info.success === true, "Failed to probe local server /api/server_info");
+        assert(typeof info.ip === "string" && info.ip.length >= 7, "Invalid LAN IP in server_info");
+        assert(typeof info.port === "number" && info.port > 0, "Invalid port in server_info");
     });
 
     // -----------------------------------------------------------------------

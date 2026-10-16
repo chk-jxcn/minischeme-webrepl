@@ -365,7 +365,8 @@ class SimDeviceLink {
     async exec(bytes) {
         let hex = '';
         for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
-        const res = await fetch('/api/execute_bytecode', {
+        const base = window.LOCAL_SERVER_BASE || '';
+        const res = await fetch(base + '/api/execute_bytecode', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ bytecode_hex: hex, byte_len: bytes.length })

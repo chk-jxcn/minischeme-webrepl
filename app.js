@@ -818,7 +818,8 @@ async function marketService(ex) {
     marketFetching = true;
     let bytes = null, status = 0;
     try {
-        const res = await fetch('/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
+        const base = window.LOCAL_SERVER_BASE || '';
+        const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
         if (res.ok) {
             bytes = new Uint8Array(await res.arrayBuffer());
             status = 1;
@@ -1129,7 +1130,8 @@ async function feedFetch(ex, url) {
     let bytes = null;
     let problem = '';
     try {
-        const res = await fetch('/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
+        const base = window.LOCAL_SERVER_BASE || '';
+        const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
         if (res.ok) {
             bytes = new Uint8Array(await res.arrayBuffer());
         } else if (res.status === 404) {

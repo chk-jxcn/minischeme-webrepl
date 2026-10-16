@@ -1,0 +1,64 @@
+name: Build and Release WebREPL Standalone Exe
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow fonttools cryptography
+
+      - name: Build MiniScheme-WebREPL.exe
+        run: |
+          python tools/build_exe.py
+
+      - name: Verify MiniScheme-WebREPL.exe starts and binds port
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist/MiniScheme-WebREPL.exe" -ArgumentList "--no-tray", "--port", "18087" -PassThru
+          Start-Sleep -Seconds 3
+          $resp = Invoke-RestMethod -Uri "http://127.0.0.1:18087/api/server_info" -TimeoutSec 5
+          Write-Host "Server Info:" ($resp | ConvertTo-Json -Compress)
+          if (-not $resp.success -or $resp.port -ne 18087) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "MiniScheme-WebREPL.exe verification failed"
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniScheme-WebREPL-Windows-Exe
+          path: dist/MiniScheme-WebREPL.exe
+
+      - name: Publish to GitHub Release v1.0.0
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: "MiniScheme WebREPL & Local Server v1.0.0"
+          body: |
+            ## MiniScheme WebREPL Local Server (Windows Standalone Tray Executable)
+            - **`MiniScheme-WebREPL.exe`**: Single-file standalone Windows application packaged from `server.py` (includes WebREPL static assets, WASM compiler/simulator, App Proxy, Protocol Converter, and Font Generator).
+            - **Default Port & Auto-Fallback**: Listens on port `8087` by default; automatically switches to the next available port (`8088`, `8089`, ...) if `8087` is already in use.
+            - **System Tray Integration**: Displays the local LAN IP and listening port in the Windows system tray; left-click to open the WebREPL page in your browser, right-click to copy the LAN proxy URL or exit.
+          files: |
+            dist/MiniScheme-WebREPL.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

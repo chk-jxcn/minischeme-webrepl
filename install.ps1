@@ -1,4 +1,4 @@
-# MiniScheme WebREPL One-Click Installer for Windows (PowerShell)
+# MiniScheme WebREPL One-Click Installer & Launcher for Windows (PowerShell)
 # Usage:
 #   irm https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.ps1 | iex
 
@@ -8,7 +8,29 @@ Write-Host "==========================================================" -Foregro
 Write-Host "   MiniScheme WebREPL - One-Click Installer (Windows)     " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Check Python
+$installDir = Join-Path $HOME ".minischeme-webrepl"
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}
+
+$exePath = Join-Path $installDir "MiniScheme-WebREPL.exe"
+$exeUrl = "https://github.com/chk-jxcn/minischeme-webrepl/releases/download/v1.0.0/MiniScheme-WebREPL.exe"
+
+# 1. Try downloading standalone packaged MiniScheme-WebREPL.exe from GitHub Release
+try {
+    Write-Host "[*] Downloading standalone MiniScheme-WebREPL.exe from GitHub Release..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $exeUrl -OutFile $exePath -UseBasicParsing
+    if ((Test-Path $exePath) -and ((Get-Item $exePath).Length -gt 100000)) {
+        Write-Host "[+] Downloaded MiniScheme-WebREPL.exe to $exePath" -ForegroundColor Green
+        Write-Host "[*] Starting MiniScheme-WebREPL.exe (Default port: 8087, System Tray enabled)..." -ForegroundColor Green
+        Start-Process -FilePath $exePath
+        exit 0
+    }
+} catch {
+    Write-Host "[*] Standalone .exe not used ($($_.Exception.Message)), falling back to Python source mode..." -ForegroundColor Yellow
+}
+
+# 2. Fallback: Python source mode
 $pythonCmd = $null
 if (Get-Command python -ErrorAction SilentlyContinue) {
     $pythonCmd = "python"
@@ -17,53 +39,27 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
 }
 
 if (-not $pythonCmd) {
-    Write-Host "[!] Error: Python 3 is required but was not found in PATH." -ForegroundColor Red
-    Write-Host "    Please install Python 3.10+ from https://www.python.org/ or Windows Store." -ForegroundColor Yellow
+    Write-Host "[!] Error: Neither MiniScheme-WebREPL.exe nor Python 3 was available." -ForegroundColor Red
     exit 1
 }
 
-$pyVer = & $pythonCmd --version
-Write-Host "[+] Found $pyVer" -ForegroundColor Green
-
-# 2. Target Directory
-$installDir = "minischeme-webrepl"
-if (-not (Test-Path $installDir)) {
-    Write-Host "[*] Cloning WebREPL repository..." -ForegroundColor Yellow
+$repoDir = Join-Path $installDir "repo"
+if (-not (Test-Path $repoDir)) {
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        git clone https://github.com/chk-jxcn/minischeme-webrepl.git $installDir
+        git clone https://github.com/chk-jxcn/minischeme-webrepl.git $repoDir
     } else {
-        Write-Host "[*] Git not found, downloading zip package..." -ForegroundColor Yellow
         $zipUrl = "https://github.com/chk-jxcn/minischeme-webrepl/archive/refs/heads/main.zip"
-        $zipFile = "minischeme-webrepl.zip"
+        $zipFile = Join-Path $installDir "webrepl.zip"
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
-        Expand-Archive -Path $zipFile -DestinationPath "temp_webrepl" -Force
-        Move-Item "temp_webrepl/minischeme-webrepl-main" $installDir
-        Remove-Item "temp_webrepl", $zipFile -Recurse -Force
+        Expand-Archive -Path $zipFile -DestinationPath $installDir -Force
+        Move-Item (Join-Path $installDir "minischeme-webrepl-main") $repoDir -Force
+        Remove-Item $zipFile -Force
     }
 } else {
-    Write-Host "[*] Existing directory '$installDir' found. Updating..." -ForegroundColor Yellow
-    if (Test-Path "$installDir/.git") {
-        git -C $installDir pull
+    if (Test-Path "$repoDir/.git") {
+        git -C $repoDir pull
     }
 }
 
-Set-Location $installDir
-
-# 3. Optional dependencies
-Write-Host "[*] Checking Python dependencies..." -ForegroundColor Yellow
-& $pythonCmd -m pip install --quiet pillow 2>$null
-
-# 4. Launch Local WebREPL Server
-$port = 8080
-Write-Host ""
-Write-Host "==========================================================" -ForegroundColor Green
-Write-Host "   MiniScheme WebREPL is ready! Starting local server...  " -ForegroundColor Green
-Write-Host "   URL: http://localhost:$port                            " -ForegroundColor Green
-Write-Host "==========================================================" -ForegroundColor Green
-Write-Host ""
-
-# Open default browser
-Start-Process "http://localhost:$port"
-
-# Run server
-& $pythonCmd server.py --port $port
+Set-Location $repoDir
+& $pythonCmd server.py --port 8087 --open-browser

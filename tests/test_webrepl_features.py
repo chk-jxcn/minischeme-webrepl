@@ -210,7 +210,7 @@ class TestWebReplFeatures(unittest.TestCase):
         fixture = WebReplServerFixture(webrepl_port, with_proxy=True)
         # Patch the command line to use proxy_port
         fixture.proc = subprocess.Popen(
-            [sys.executable, "server.py", "--port", str(webrepl_port), "--with-proxy", "--proxy-port", str(proxy_port)],
+            [sys.executable, "server.py", "--no-tray", "--port", str(webrepl_port), "--with-proxy", "--proxy-port", str(proxy_port)],
             cwd=ROOT_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -234,9 +234,8 @@ class TestWebReplFeatures(unittest.TestCase):
                 try:
                     c2 = http.client.HTTPConnection("127.0.0.1", proxy_port, timeout=1)
                     c2.request("GET", "/health")
-                    # Proxy responds with 404/200 for health
-                    c2.getresponse()
-                    up_proxy = True
+                    if c2.getresponse().status == 200:
+                        up_proxy = True
                 except Exception:
                     pass
 
@@ -249,6 +248,51 @@ class TestWebReplFeatures(unittest.TestCase):
         finally:
             fixture.stop()
 
+    def test_07_server_info_and_port_fallback(self):
+        """Verify /api/server_info and automatic port fallback when preferred port is busy"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/api/server_info")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        info = json.loads(res.read().decode("utf-8"))
+        self.assertTrue(info["success"])
+        self.assertEqual(info["port"], self.port)
+        self.assertTrue(len(info["ip"]) >= 7)
+
+        # Verify automatic fallback when self.port is already bound
+        proc2 = subprocess.Popen(
+            [sys.executable, "server.py", "--no-tray", "--port", str(self.port)],
+            cwd=ROOT_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        try:
+            fallback_port = self.port + 1
+            up_fallback = False
+            t0 = time.time()
+            while time.time() - t0 < 5.0:
+                try:
+                    c = http.client.HTTPConnection("127.0.0.1", fallback_port, timeout=1)
+                    c.request("GET", "/api/server_info")
+                    r = c.getresponse()
+                    if r.status == 200:
+                        data = json.loads(r.read().decode("utf-8"))
+                        if data.get("port") == fallback_port:
+                            up_fallback = True
+                            break
+                except Exception:
+                    pass
+                time.sleep(0.1)
+            self.assertTrue(up_fallback, f"Expected server.py to fall back from busy port {self.port} to {fallback_port}")
+        finally:
+            proc2.terminate()
+            try:
+                proc2.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc2.kill()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
