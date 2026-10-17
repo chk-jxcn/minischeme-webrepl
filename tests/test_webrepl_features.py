@@ -830,6 +830,30 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("124.222.231.186:8087", setup_js)
         self.assertIn("仅支持非加密协议", setup_js)
 
+    def test_17_cors_preflight_and_device_link_auth(self):
+        """Verify server CORS preflight headers and HttpDeviceLink CORS-simple auth handling"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/api/info")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 204)
+        headers = dict(res.getheaders())
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
+        self.assertEqual(headers.get("Access-Control-Allow-Private-Network"), "true")
+        allow_headers = headers.get("Access-Control-Allow-Headers", "")
+        self.assertIn("X-MiniScheme-Auth", allow_headers)
+        self.assertIn("Content-Type", allow_headers)
+        self.assertIn("Authorization", allow_headers)
+        conn.close()
+
+        # Check js/device_link.js:
+        link_js_path = os.path.join(ROOT_DIR, "js", "device_link.js")
+        with open(link_js_path, "r", encoding="utf-8") as f:
+            link_js = f.read()
+        # Verify auth is passed in query string and not as mandatory custom header
+        self.assertIn("path + sep + 'auth='", link_js)
+        self.assertNotIn("headers['X-MiniScheme-Auth'] = pwd", link_js)
+        self.assertIn("Mixed-Content or CORS", link_js)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

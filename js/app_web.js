@@ -620,7 +620,11 @@ class AppWebPanel {
         // 2. Hardware device connected via HTTP active link
         if (window.activeLink && window.activeLink.base) {
             try {
-                await fetch(`${window.activeLink.base}/api/reset?settings=1`, { method: 'POST' });
+                if (typeof window.activeLink._fetch === 'function') {
+                    await window.activeLink._fetch('/api/reset?settings=1', { method: 'POST' }, 5000, r => r.text());
+                } else {
+                    await fetch(`${window.activeLink.base}/api/reset?settings=1`, { method: 'POST' });
+                }
                 this.log('info', '✅ 重启指令已发送至设备');
             } catch (e) {
                 this.log('error', `重启设备失败: ${e.message || e}`);
@@ -1032,9 +1036,14 @@ class AppWebPanel {
             }
         } else if (window.activeLink && window.activeLink.base) {
             try {
-                const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`);
-                if (res.ok) {
-                    const r = await res.json();
+                let r = null;
+                if (typeof window.activeLink._json === 'function') {
+                    r = await window.activeLink._json(`/api/apps/config?key=${encodeURIComponent(k)}`);
+                } else {
+                    const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`);
+                    if (res.ok) r = await res.json();
+                }
+                if (r) {
                     meta = r.meta || meta;
                     ini = r.ini || '';
                     exists = !!r.exists;
@@ -1132,12 +1141,21 @@ class AppWebPanel {
             ok = this._fsWrite(c.path, bytes);
         } else if (window.activeLink && window.activeLink.base) {
             try {
-                const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: text
-                });
-                ok = res.ok;
+                if (typeof window.activeLink._fetch === 'function') {
+                    await window.activeLink._fetch(`/api/apps/config?key=${encodeURIComponent(k)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: text
+                    }, 10000, r => r.text());
+                    ok = true;
+                } else {
+                    const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: text
+                    });
+                    ok = res.ok;
+                }
             } catch (e) {}
         }
 
@@ -1170,8 +1188,13 @@ class AppWebPanel {
             ok = this._fsWrite(c.path, bytes);
         } else if (window.activeLink && window.activeLink.base) {
             try {
-                const res = await fetch(`${window.activeLink.base}/api/apps/reset?key=${encodeURIComponent(k)}`, { method: 'POST' });
-                ok = res.ok;
+                if (typeof window.activeLink._fetch === 'function') {
+                    await window.activeLink._fetch(`/api/apps/reset?key=${encodeURIComponent(k)}`, { method: 'POST' }, 10000, r => r.text());
+                    ok = true;
+                } else {
+                    const res = await fetch(`${window.activeLink.base}/api/apps/reset?key=${encodeURIComponent(k)}`, { method: 'POST' });
+                    ok = res.ok;
+                }
             } catch (e) {}
         }
 
@@ -1222,12 +1245,21 @@ class AppWebPanel {
                     ok = this._fsWrite(c.path, new TextEncoder().encode(newText));
                 } else if (window.activeLink && window.activeLink.base) {
                     try {
-                        const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                            body: newText
-                        });
-                        ok = res.ok;
+                        if (typeof window.activeLink._fetch === 'function') {
+                            await window.activeLink._fetch(`/api/apps/config?key=${encodeURIComponent(k)}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                body: newText
+                            }, 10000, r => r.text());
+                            ok = true;
+                        } else {
+                            const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                body: newText
+                            });
+                            ok = res.ok;
+                        }
                     } catch (e) {}
                 }
                 const rawStatus = document.getElementById(`aw-cfg-raw-status-${this._cfgId(k)}`);

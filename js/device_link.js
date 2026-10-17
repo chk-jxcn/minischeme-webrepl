@@ -66,7 +66,10 @@ class HttpDeviceLink {
             const headers = { ...(opts.headers || {}) };
             const pwd = this.password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
             if (pwd) {
-                headers['X-MiniScheme-Auth'] = pwd;
+                // Pass auth via query parameter. We intentionally do NOT set 'X-MiniScheme-Auth'
+                // header by default because custom headers trigger browser CORS preflight (OPTIONS)
+                // checks, which causes preflight failures on devices with strict or older CORS headers.
+                // Both firmware and proxy verify auth via '?auth=' or '?token=' query parameters.
                 const sep = path.includes('?') ? '&' : '?';
                 path = path + sep + 'auth=' + encodeURIComponent(pwd);
             }
@@ -79,6 +82,12 @@ class HttpDeviceLink {
             return await read(res);
         } catch (e) {
             if (e.name === 'AbortError') throw new Error('设备响应超时');
+            if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:' && this.base.startsWith('http:')) {
+                console.warn('[HttpDeviceLink] Potential Mixed-Content or CORS block:', e);
+                if (e instanceof TypeError || (e.message && e.message.includes('fetch'))) {
+                    throw new Error(`连接硬件失败 (可能受浏览器安全策略限制): HTTPS 页面访问本地 HTTP 设备时，若被拦截，请点击地址栏左侧网站设置图标将【不安全内容】设为【允许】，或在本地运行 WebREPL (http://127.0.0.1:8087)。(${e.message || e})`);
+                }
+            }
             throw e;
         } finally {
             clearTimeout(timer);
