@@ -121,9 +121,9 @@
   "kind": "system",
   "web": false,
   "file": "settings.msbc",
-  "size": 30437,
+  "size": 30498,
   "scm": "settings.allinone.scm",
-  "hash": "5e1680fb"
+  "hash": "e2cfcd8f"
  },
  {
   "id": "stocks",
