@@ -575,7 +575,7 @@ class TestWebReplFeatures(unittest.TestCase):
             index_content = f.read()
         self.assertIn('id="btn-proxy-admin"', index_content)
         self.assertIn('id="btn-quick-proxy-admin"', index_content)
-        self.assertIn('id="proxy-admin-dialog"', index_content)
+        self.assertNotIn('id="proxy-admin-dialog"', index_content)
         self.assertIn('js/proxy_admin.js', index_content)
 
         with open(os.path.join(ROOT_DIR, "server.py"), "r", encoding="utf-8") as f:

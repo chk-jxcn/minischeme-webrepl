@@ -363,6 +363,9 @@ body {
     font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
 }
 
 .pill-btn:hover {

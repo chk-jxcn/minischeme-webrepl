@@ -408,6 +408,10 @@ class LocalServerManager {
                 btnJump.hidden = true;
             }
         }
+
+        if (window.proxyAdminManager && typeof window.proxyAdminManager.refreshLinks === 'function') {
+            window.proxyAdminManager.refreshLinks();
+        }
     }
 }
 

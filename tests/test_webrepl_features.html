@@ -632,9 +632,12 @@ theme = dark # Slate theme`;
     addTest("Test 31: Proxy Admin Portal Manager and URL resolution", async () => {
         assert(window.ProxyAdminManager, "ProxyAdminManager class must be defined");
         assert(window.proxyAdminManager, "Global proxyAdminManager instance must be defined");
-        const mgr = new window.ProxyAdminManager();
+        const mgr = window.proxyAdminManager;
         const url = mgr.getAdminUrl();
         assert(url.endsWith("/admin"), "Admin URL must end with /admin");
+        assert(document.getElementById("proxy-admin-dialog") === null, "proxy-admin-dialog modal must not exist");
+        assert(typeof mgr.open === "function", "open method must exist");
+        assert(typeof mgr.refreshLinks === "function", "refreshLinks method must exist");
     });
 
     addTest("Test 32: WebREPL Server IP & Port Configuration and Persistence", async () => {
