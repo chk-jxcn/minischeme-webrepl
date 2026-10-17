@@ -27,30 +27,30 @@ const PRESET_FONTS = [
         name: "simsun-16",
         label: "宋体 16px (经典正文)",
         size: 16,
-        glyphs: 4536,
-        bytes: 178832,
+        glyphs: 7539,
+        bytes: 298920,
         file: "fonts/simsun-16.mfnt",
-        desc: "标准 16px 点阵宋体，包含常用一级汉字全集 (GB2312) + ASCII + 数字符号"
+        desc: "标准 16px 点阵宋体，包含常用一级与二级汉字全集 (GB2312) + ASCII + 数字符号"
     },
     {
         id: "simsun-12",
         name: "simsun-12",
         label: "宋体 12px (紧凑小字)",
         size: 12,
-        glyphs: 4536,
-        bytes: 143112,
+        glyphs: 7539,
+        bytes: 239184,
         file: "fonts/simsun-12.mfnt",
-        desc: "紧凑 12px 点阵宋体，适合高信息密度展示与小屏幕排版"
+        desc: "紧凑 12px 点阵宋体，包含常用一级与二级汉字全集 (GB2312)，适合高信息密度展示与小屏幕排版"
     },
     {
         id: "simhei-16",
         name: "simhei-16",
         label: "黑体 16px (清晰标题)",
         size: 16,
-        glyphs: 4536,
-        bytes: 178064,
+        glyphs: 7539,
+        bytes: 298216,
         file: "fonts/simhei-16.mfnt",
-        desc: "清晰 16px 点阵黑体，笔画加粗，适合标题与高对比度显示"
+        desc: "清晰 16px 点阵黑体，笔画加粗，包含常用一级与二级汉字全集 (GB2312)，适合标题与高对比度显示"
     }
 ];
 
@@ -149,7 +149,7 @@ class FontManager {
                     <div class="fm-presets-box" style="margin-top:14px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
                             <span style="font-weight:600; font-size:13px; color:var(--text-accent, #61afef);">📦 内置推荐字库 (EXE / 服务端自带)</span>
-                            <span style="font-size:11px; opacity:0.7;">常用一级汉字全集 (GB2312) · 一键安装并设为默认</span>
+                            <span style="font-size:11px; opacity:0.7;">常用一级与二级汉字全集 (GB2312) · 一键安装并设为默认</span>
                         </div>
                         <div class="fm-presets-list" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:10px;">
                         </div>

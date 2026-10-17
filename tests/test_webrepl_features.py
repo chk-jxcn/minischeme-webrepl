@@ -509,6 +509,9 @@ class TestWebReplFeatures(unittest.TestCase):
             self.assertTrue(any(f.get("name") == "simsun-16" for f in fonts))
             self.assertTrue(any(f.get("name") == "simsun-12" for f in fonts))
             self.assertTrue(any(f.get("name") == "simhei-16" for f in fonts))
+            for f in fonts:
+                self.assertGreaterEqual(f.get("glyphs", 0), 7000)
+                self.assertIn("二级", f.get("desc", ""))
 
         # Verify simsun-16.mfnt binary endpoint and valid MFNT magic
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/fonts/simsun-16.mfnt", timeout=3) as res_font:

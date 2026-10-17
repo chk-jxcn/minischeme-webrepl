@@ -5,10 +5,10 @@
     "label": "宋体 16px (经典正文)",
     "face": "simsun",
     "size": 16,
-    "glyphs": 4536,
-    "bytes": 178832,
+    "glyphs": 7539,
+    "bytes": 298920,
     "file": "simsun-16.mfnt",
-    "desc": "标准 16px 点阵宋体，包含 GB2312 常用一级汉字全集 + ASCII + 数字符号"
+    "desc": "标准 16px 点阵宋体，包含 GB2312 常用一级与二级汉字全集 + ASCII + 数字符号"
   },
   {
     "id": "simsun-12",
@@ -16,10 +16,10 @@
     "label": "宋体 12px (紧凑小字)",
     "face": "simsun",
     "size": 12,
-    "glyphs": 4536,
-    "bytes": 143112,
+    "glyphs": 7539,
+    "bytes": 239184,
     "file": "simsun-12.mfnt",
-    "desc": "紧凑 12px 点阵宋体，适合高信息密度展示与小屏幕排版"
+    "desc": "紧凑 12px 点阵宋体，包含 GB2312 常用一级与二级汉字全集，适合高信息密度展示与小屏幕排版"
   },
   {
     "id": "simhei-16",
@@ -27,9 +27,9 @@
     "label": "黑体 16px (清晰标题)",
     "face": "simhei",
     "size": 16,
-    "glyphs": 4536,
-    "bytes": 178064,
+    "glyphs": 7539,
+    "bytes": 298216,
     "file": "simhei-16.mfnt",
-    "desc": "清晰 16px 点阵黑体，笔画加粗，适合标题与高对比度显示"
+    "desc": "清晰 16px 点阵黑体，笔画加粗，包含 GB2312 常用一级与二级汉字全集，适合标题与高对比度显示"
   }
 ]
