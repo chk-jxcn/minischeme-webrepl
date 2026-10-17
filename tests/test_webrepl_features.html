@@ -637,6 +637,36 @@ theme = dark # Slate theme`;
         assert(url.endsWith("/admin"), "Admin URL must end with /admin");
     });
 
+    addTest("Test 32: WebREPL Server IP & Port Configuration and Persistence", async () => {
+        assert(window.MiniSchemeLocalServer, "MiniSchemeLocalServer instance must be defined");
+        const mgr = window.MiniSchemeLocalServer;
+        assert(typeof mgr.saveConfig === "function", "saveConfig method must exist");
+        assert(typeof mgr.resetConfig === "function", "resetConfig method must exist");
+        assert(typeof mgr.testConnection === "function", "testConnection method must exist");
+
+        // Test saving custom IP & Port
+        localStorage.setItem("webrepl_server_host", "192.168.31.200");
+        localStorage.setItem("webrepl_server_port", "9090");
+
+        // Probe local server with saved host/port (force fresh probe)
+        await mgr.probeLocalServer(true);
+        assertEqual(window.LOCAL_SERVER_BASE, "http://192.168.31.200:9090", "LOCAL_SERVER_BASE must reflect saved host and port");
+
+        // Verify DeviceSetupWizard accepts configured host as local proxy
+        assert(window.DeviceSetupWizard.isLocalProxyUrl("http://192.168.31.200:9090"), "DeviceSetupWizard must allow configured custom server IP");
+
+        // Test WASM proxy URL sync if wasm exports are available
+        if (typeof window.syncWasmProxyUrl === "function") {
+            window.syncWasmProxyUrl();
+        }
+
+        // Test resetConfig
+        mgr.resetConfig();
+        assertEqual(localStorage.getItem("webrepl_server_host"), null, "webrepl_server_host must be cleared on reset");
+        assertEqual(localStorage.getItem("webrepl_server_port"), null, "webrepl_server_port must be cleared on reset");
+        await mgr.probeLocalServer(true);
+    });
+
     // -----------------------------------------------------------------------
     // Test Runner Execution
     // -----------------------------------------------------------------------

@@ -177,6 +177,20 @@ static char g_mock_ap_ssid[33] = "";
 static char g_mock_ap_pass[64] = "12345678";
 static int g_mock_ap_preset = 0;
 
+/* Configurable server / proxy base URL (defaults to http://127.0.0.1:8087) */
+static char g_mock_proxy_url[128] = "http://127.0.0.1:8087";
+
+void wasm_set_proxy_url(const char *url) {
+    if (url && url[0]) {
+        snprintf(g_mock_proxy_url, sizeof(g_mock_proxy_url), "%s", url);
+        mini_json_feed_set_https_proxy(g_mock_proxy_url);
+    }
+}
+
+const char *wasm_get_proxy_url(void) {
+    return g_mock_proxy_url;
+}
+
 static Value prim_mock_wifi_ap(MiniVM *vm, int argc, Value *argv) {
     (void)vm;
     if (argc < 1 || !mini_is_string(argv[0]) || !mini_string_data(argv[0])[0]) return mini_false();
@@ -797,10 +811,10 @@ static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
         (mini_app_config_key_ok(key) && mock_ini_value("/spiffs/config.ini", key, val, sizeof(val)))) {
         /* the simulator's requests go through server.py on the PC that runs
          * the app proxy: an unset proxy is that PC's */
-        if (!val[0] && strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
+        if (!val[0] && strcmp(key, "proxy") == 0) return mini_make_string(vm, g_mock_proxy_url);
         return mini_make_string(vm, val);
     }
-    if (strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
+    if (strcmp(key, "proxy") == 0) return mini_make_string(vm, g_mock_proxy_url);
     return mini_false();
 }
 
@@ -1647,7 +1661,7 @@ const char *wasm_reboot(void) {
         char conv[128] = "";
         if (!mock_ini_value("/spiffs/config.ini", "https_proxy", conv, sizeof(conv)) || !conv[0]) {
             if (!mock_ini_value("/spiffs/config.ini", "proxy", conv, sizeof(conv)) || !conv[0]) {
-                snprintf(conv, sizeof(conv), "http://127.0.0.1:8087");
+                snprintf(conv, sizeof(conv), "%s", g_mock_proxy_url);
             }
         }
         mini_json_feed_set_https_proxy(conv);
@@ -2139,7 +2153,7 @@ static bool mk_config(const char *key, char *out, size_t cap) {
     if (mock_ini_value("/spiffs/config.ini", key, out, cap) && out[0]) return true;
     /* as prim_mock_config_get: the simulator's proxy is this PC's */
     if (strcmp(key, "proxy") == 0) {
-        snprintf(out, cap, "http://127.0.0.1:8087");
+        snprintf(out, cap, "%s", g_mock_proxy_url);
         return true;
     }
     return false;

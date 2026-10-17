@@ -54,6 +54,12 @@ class DeviceSetupWizard {
             const second = parseInt(m172[1], 10);
             if (second >= 16 && second <= 31) return true;
         }
+        if (window.LOCAL_SERVER_BASE) {
+            try {
+                const cfgHost = new URL(window.LOCAL_SERVER_BASE).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+                if (host === cfgHost) return true;
+            } catch (e) {}
+        }
         return false;
     }
 

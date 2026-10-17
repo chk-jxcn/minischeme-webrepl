@@ -130,6 +130,19 @@ async function initWasm() {
             }
         }
 
+        window.syncWasmProxyUrl = function(customUrl) {
+            if (!wasmInstance || !wasmInstance.exports) return;
+            const url = customUrl || window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            if (typeof wasmInstance.exports.wasm_set_proxy_url === 'function' && typeof wasmInstance.exports.wasm_alloc_buffer === 'function') {
+                const bytes = new TextEncoder().encode(url + '\0');
+                const ptr = wasmInstance.exports.wasm_alloc_buffer(bytes.length);
+                new Uint8Array(wasmMemory.buffer, ptr, bytes.length).set(bytes);
+                wasmInstance.exports.wasm_set_proxy_url(ptr);
+                wasmInstance.exports.wasm_free_buffer(ptr);
+            }
+        };
+        window.syncWasmProxyUrl();
+
         console.log(`MiniScheme Native VM + Scheme Compiler (WASM) ready! (${bytes.byteLength} bytes)`);
         statusText.textContent = "WASM 原生 VM + Scheme 优化编译器已就绪";
         statusDot.className = "status-indicator online";
@@ -370,6 +383,9 @@ async function bootWasmDevice(why, firstBoot = false) {
     appActive = false;
     deviceSymbolsStale = true;
     const r = readStringFromWasm(ex.wasm_reboot());
+    if (typeof window.syncWasmProxyUrl === 'function') {
+        window.syncWasmProxyUrl();
+    }
     if (r === '') {
         if (firstBoot) {
             await bootBundledApp();

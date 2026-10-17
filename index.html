@@ -507,19 +507,45 @@
         <div class="modal-header">
             <div class="modal-title-group">
                 <span class="modal-icon">🖥️</span>
-                <h2>本地服务端 (MiniScheme-WebREPL.exe) 一键下载与运行</h2>
-                <span class="arch-badge">默认 8087 端口 · 自动避让 · 系统托盘常驻</span>
+                <h2>WebREPL 后端服务连接与管理设置</h2>
+                <span class="arch-badge">支持自定义 IP / 端口 · 默认 8087 · 本地代理</span>
             </div>
             <button class="modal-close-btn" id="local-server-close-btn" title="关闭">&times;</button>
         </div>
         <div class="modal-body flasher-body">
-            <!-- 当前本地服务连接状态 -->
+            <!-- 当前服务连接状态 -->
             <div class="flasher-card" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                <div id="local-server-status-box">正在检测本地服务端状态...</div>
+                <div id="local-server-status-box">正在检测服务状态...</div>
                 <div style="display:flex; gap:8px;">
                     <button class="pill-btn" id="local-server-probe-btn">🔄 重新检测</button>
-                    <button class="action-btn highlight" id="local-server-jump-btn" hidden>🚀 切换到本地运行页面</button>
+                    <button class="action-btn highlight" id="local-server-jump-btn" hidden>🚀 切换到服务运行页面</button>
                 </div>
+            </div>
+
+            <!-- 服务 IP 与端口配置卡片 -->
+            <div class="flasher-card" style="border: 1px solid rgba(56, 189, 248, 0.25); background: rgba(56, 189, 248, 0.03);">
+                <div class="flasher-item-title" style="font-size:14px; margin-bottom:8px; color:var(--accent-cyan); display:flex; align-items:center; gap:6px;">
+                    <span>⚙️</span> WebREPL 服务 IP 与端口设置
+                </div>
+                <div class="flasher-desc" style="margin-bottom:10px;">
+                    设置 WebREPL（应用下载、HTTPS 代理 /api/fetch 与管理后台）连接的后端服务地址：
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 120px; gap:10px; align-items:center; margin-bottom:10px;">
+                    <div>
+                        <label for="server-host-input" style="font-size:12px; color:var(--text-secondary); display:block; margin-bottom:4px;">服务 IP / 主机名:</label>
+                        <input type="text" id="server-host-input" class="device-host-input" placeholder="例如: 127.0.0.1 或 192.168.1.100" style="width:100%; font-family:monospace;">
+                    </div>
+                    <div>
+                        <label for="server-port-input" style="font-size:12px; color:var(--text-secondary); display:block; margin-bottom:4px;">端口号:</label>
+                        <input type="number" id="server-port-input" class="device-host-input" placeholder="8087" min="1" max="65535" style="width:100%; font-family:monospace;">
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <button class="pill-btn highlight" id="server-cfg-test-btn">🔍 测试连接</button>
+                    <button class="action-btn highlight" id="server-cfg-save-btn">💾 保存并应用</button>
+                    <button class="pill-btn" id="server-cfg-reset-btn">🔄 恢复默认 (127.0.0.1:8087)</button>
+                </div>
+                <div id="server-cfg-feedback" style="font-size:12px; margin-top:10px; padding:8px 12px; border-radius:6px; background:rgba(255,255,255,0.03); line-height:1.5;" hidden></div>
             </div>
 
             <!-- 方式 1：直接下载独立 Exe -->

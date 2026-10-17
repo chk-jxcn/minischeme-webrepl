@@ -42,10 +42,36 @@ class LocalServerManager {
             btnProbe.addEventListener('click', () => this.probeLocalServer(true));
         }
 
+        const btnTest = document.getElementById('server-cfg-test-btn');
+        if (btnTest) {
+            btnTest.addEventListener('click', () => this.testConnection());
+        }
+
+        const btnSave = document.getElementById('server-cfg-save-btn');
+        if (btnSave) {
+            btnSave.addEventListener('click', () => this.saveConfig());
+        }
+
+        const btnReset = document.getElementById('server-cfg-reset-btn');
+        if (btnReset) {
+            btnReset.addEventListener('click', () => this.resetConfig());
+        }
+
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const savedHost = localStorage.getItem('webrepl_server_host');
+        const savedPort = localStorage.getItem('webrepl_server_port');
+        if (hostInput) {
+            hostInput.value = savedHost || (window.location.hostname || '127.0.0.1');
+        }
+        if (portInput) {
+            portInput.value = savedPort || (window.location.port || '8087');
+        }
+
         const btnOpenLocalUrl = document.getElementById('local-server-jump-btn');
         if (btnOpenLocalUrl) {
             btnOpenLocalUrl.addEventListener('click', () => {
-                const targetUrl = (this.info && this.info.local_url) || 'http://127.0.0.1:8087';
+                const targetUrl = (this.info && this.info.local_url) || (window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087');
                 window.location.href = targetUrl;
             });
         }
@@ -153,23 +179,110 @@ class LocalServerManager {
         return null;
     }
 
+    async testConnection() {
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const fb = document.getElementById('server-cfg-feedback');
+        if (!hostInput || !portInput) return null;
+
+        let host = hostInput.value.trim() || '127.0.0.1';
+        host = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        let port = portInput.value.trim() || '8087';
+
+        const targetUrl = `http://${host}:${port}`;
+        if (fb) {
+            fb.hidden = false;
+            fb.style.display = 'block';
+            fb.innerHTML = `<span style="color:var(--accent-cyan);">⏳ 正在连接测试 ${targetUrl}/api/server_info ...</span>`;
+        }
+
+        const t0 = performance.now();
+        const res = await this._tryEndpoint(targetUrl);
+        const elapsed = Math.round(performance.now() - t0);
+
+        if (fb) {
+            if (res) {
+                fb.innerHTML = `<span style="color:#4ade80; font-weight:600;">✔ 连接成功 (${elapsed} ms)！MiniScheme 服务已就绪</span><br>` +
+                    `<span style="font-size:11.5px; color:var(--text-secondary);">服务地址: ${targetUrl} &nbsp;|&nbsp; 局域网代理: ${res.lan_url || targetUrl}</span>`;
+            } else {
+                fb.innerHTML = `<span style="color:#ef4444; font-weight:600;">✖ 连接失败 (${elapsed} ms)</span><br>` +
+                    `<span style="font-size:11.5px; color:var(--text-secondary);">未能连接到 ${targetUrl}。请检查 IP/端口是否正确，或者 server.py / MiniScheme-WebREPL.exe 是否正在运行。</span>`;
+            }
+        }
+        return res;
+    }
+
+    async saveConfig() {
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const fb = document.getElementById('server-cfg-feedback');
+        if (!hostInput || !portInput) return;
+
+        let host = hostInput.value.trim() || '127.0.0.1';
+        host = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        let port = portInput.value.trim() || '8087';
+
+        localStorage.setItem('webrepl_server_host', host);
+        localStorage.setItem('webrepl_server_port', port);
+
+        const targetUrl = `http://${host}:${port}`;
+        window.LOCAL_SERVER_BASE = targetUrl;
+        if (typeof window.syncWasmProxyUrl === 'function') {
+            window.syncWasmProxyUrl(targetUrl);
+        }
+
+        if (fb) {
+            fb.hidden = false;
+            fb.style.display = 'block';
+            fb.innerHTML = `<span style="color:#4ade80;">✔ 配置已保存并生效！当前服务地址：<b>${targetUrl}</b></span>`;
+        }
+
+        await this.probeLocalServer(true);
+    }
+
+    async resetConfig() {
+        localStorage.removeItem('webrepl_server_host');
+        localStorage.removeItem('webrepl_server_port');
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const fb = document.getElementById('server-cfg-feedback');
+        if (hostInput) hostInput.value = window.location.hostname || '127.0.0.1';
+        if (portInput) portInput.value = window.location.port || '8087';
+        if (fb) {
+            fb.hidden = false;
+            fb.style.display = 'block';
+            fb.innerHTML = `<span style="color:var(--text-secondary);">已清除自定义配置，恢复自动检测 (默认 127.0.0.1:8087)</span>`;
+        }
+        await this.probeLocalServer(true);
+    }
+
     async probeLocalServer(manual = false) {
         if (this.probing) return this.info;
         this.probing = true;
         const statusEl = document.getElementById('local-server-status-box');
         if (manual && statusEl) {
-            statusEl.textContent = '🔍 正在检测本地 MiniScheme 服务 (端口 8087 ~ 8092)...';
+            statusEl.textContent = '🔍 正在检测 MiniScheme 后端服务状态...';
         }
 
         try {
             const candidates = [];
-            if (window.location.protocol.startsWith('http')) {
-                candidates.push(''); // Same origin first
-            }
-            for (const p of [8087, 8088, 8089, 8090, 8091, 8080]) {
-                const origin = `http://127.0.0.1:${p}`;
-                if (window.location.origin !== origin) {
-                    candidates.push(origin);
+            const savedHost = (localStorage.getItem('webrepl_server_host') || '').trim();
+            const savedPort = (localStorage.getItem('webrepl_server_port') || '').trim();
+
+            if (savedHost) {
+                const cleanHost = savedHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+                const cleanPort = savedPort || '8087';
+                candidates.push(`http://${cleanHost}:${cleanPort}`);
+            } else {
+                if (window.location.protocol.startsWith('http')) {
+                    candidates.push(''); // Same origin first
+                }
+
+                for (const p of [8087, 8088, 8089, 8090, 8091, 8080]) {
+                    const origin = `http://127.0.0.1:${p}`;
+                    if (!candidates.includes(origin) && window.location.origin !== origin) {
+                        candidates.push(origin);
+                    }
                 }
             }
 
@@ -184,7 +297,18 @@ class LocalServerManager {
 
             this.info = found;
             window.LOCAL_SERVER_INFO = found;
-            window.LOCAL_SERVER_BASE = found ? found.baseUrl : '';
+            if (found) {
+                window.LOCAL_SERVER_BASE = found.baseUrl;
+            } else if (savedHost) {
+                const cleanHost = savedHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+                window.LOCAL_SERVER_BASE = `http://${cleanHost}:${savedPort || '8087'}`;
+            } else {
+                window.LOCAL_SERVER_BASE = '';
+            }
+
+            if (typeof window.syncWasmProxyUrl === 'function') {
+                window.syncWasmProxyUrl(window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087');
+            }
 
             this._updateUI();
             return found;
@@ -197,42 +321,74 @@ class LocalServerManager {
         const btnHeader = document.getElementById('btn-local-server');
         const statusBox = document.getElementById('local-server-status-box');
         const btnJump = document.getElementById('local-server-jump-btn');
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const savedHost = (localStorage.getItem('webrepl_server_host') || '').trim();
+        const savedPort = (localStorage.getItem('webrepl_server_port') || '').trim();
+
+        if (hostInput && !hostInput.matches(':focus')) {
+            hostInput.value = savedHost || (this.info ? (this.info.ip || '127.0.0.1') : '127.0.0.1');
+        }
+        if (portInput && !portInput.matches(':focus')) {
+            portInput.value = savedPort || (this.info ? String(this.info.port || '8087') : '8087');
+        }
 
         if (this.info) {
             const { ip, port, lan_url, local_url } = this.info;
-            const isSameOrigin = this.info.baseUrl === '';
+            const isSameOrigin = this.info.baseUrl === '' || (window.location.origin && this.info.baseUrl === window.location.origin);
+            const activeHost = savedHost || ip || '127.0.0.1';
+            const activePort = savedPort || port || '8087';
 
             if (btnHeader) {
-                btnHeader.textContent = `🟢 本地服务 ${ip}:${port}`;
-                btnHeader.title = `本地服务运行中 | 本机 IP: ${ip} | 端口: ${port} (点击查看详情)`;
+                btnHeader.textContent = `🟢 服务 ${activeHost}:${activePort}`;
+                btnHeader.title = `MiniScheme 后端服务运行中 | 地址: ${this.info.baseUrl || local_url} (点击查看或修改 IP/端口)`;
             }
 
             if (statusBox) {
                 statusBox.innerHTML =
                     `<div style="color:#4ade80; font-weight:600; margin-bottom:4px;">` +
-                    `🟢 已连接本地服务端 ${isSameOrigin ? '(当前页面即由本地服务承载)' : '(已自动关联本地服务 API)'}` +
+                    `🟢 已连接 MiniScheme 服务端 ${isSameOrigin ? '(当前页面由本地服务承载)' : `(${this.info.baseUrl})`}` +
                     `</div>` +
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
-                    `本机局域网 IP: <b style="color:var(--text-primary);">${ip}</b> &nbsp;|&nbsp; ` +
-                    `监听端口: <b style="color:var(--accent-cyan);">${port}</b> &nbsp;|&nbsp; ` +
-                    `ESP32 代理地址: <code style="color:#38bdf8;">${lan_url}</code>` +
+                    `服务 IP: <b style="color:var(--text-primary);">${activeHost}</b> &nbsp;|&nbsp; ` +
+                    `端口: <b style="color:var(--accent-cyan);">${activePort}</b> &nbsp;|&nbsp; ` +
+                    `ESP32 代理地址: <code style="color:#38bdf8;">${lan_url || `http://${activeHost}:${activePort}`}</code>` +
                     `</div>`;
             }
 
             if (btnJump) {
                 btnJump.hidden = isSameOrigin;
-                btnJump.textContent = `🚀 切换到本地运行页面 (${local_url})`;
+                btnJump.textContent = `🚀 切换到服务运行页面 (${local_url || this.info.baseUrl})`;
             }
 
             // Sync detected LAN proxy URL to DeviceSetupWizard defaults
             if (window.MiniSchemeDeviceSetup && window.MiniSchemeDeviceSetup.el) {
                 const ds = window.MiniSchemeDeviceSetup.el;
-                if (ds.proxyUrl && (!ds.proxyUrl.value || ds.proxyUrl.value === 'http://192.168.1.100:8087')) {
-                    ds.proxyUrl.value = lan_url;
+                const effectiveProxy = window.LOCAL_SERVER_BASE || lan_url || `http://${activeHost}:${activePort}`;
+                if (ds.proxyUrl && (!ds.proxyUrl.value || ds.proxyUrl.value === 'http://192.168.1.100:8087' || ds.proxyUrl.value === 'http://127.0.0.1:8087')) {
+                    ds.proxyUrl.value = effectiveProxy;
                 }
-                if (ds.converterUrl && (!ds.converterUrl.value || ds.converterUrl.value === 'http://192.168.1.100:8087')) {
-                    ds.converterUrl.value = lan_url;
+                if (ds.converterUrl && (!ds.converterUrl.value || ds.converterUrl.value === 'http://192.168.1.100:8087' || ds.converterUrl.value === 'http://127.0.0.1:8087')) {
+                    ds.converterUrl.value = effectiveProxy;
                 }
+            }
+        } else if (savedHost) {
+            const customUrl = `http://${savedHost}:${savedPort || '8087'}`;
+            if (btnHeader) {
+                btnHeader.textContent = `🔴 服务未连上 (${savedHost}:${savedPort || '8087'})`;
+                btnHeader.title = `未能连接到指定服务 ${customUrl}，点击检查或重新配置`;
+            }
+            if (statusBox) {
+                statusBox.innerHTML =
+                    `<div style="color:#ef4444; font-weight:600; margin-bottom:4px;">` +
+                    `🔴 无法连接到配置的后端服务 (${customUrl})` +
+                    `</div>` +
+                    `<div style="font-size:12px; color:var(--text-secondary);">` +
+                    `请检查 IP 与端口是否填写正确，并确保该机器上的 server.py 或 MiniScheme-WebREPL.exe 正在运行。` +
+                    `</div>`;
+            }
+            if (btnJump) {
+                btnJump.hidden = true;
             }
         } else {
             if (btnHeader) {
@@ -245,7 +401,7 @@ class LocalServerManager {
                     `⚪ 当前运行在纯浏览器离线/远端模式（未检测到本机 8087 端口服务）` +
                     `</div>` +
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
-                    `可点击下方按钮一键下载并运行最新 Release <b>MiniScheme-WebREPL.exe</b>，自动启动本地 WebREPL + 应用代理并在系统托盘显示本机 IP 与端口。` +
+                    `可点击下方按钮一键下载并运行最新 Release <b>MiniScheme-WebREPL.exe</b>，或在上方配置已有的服务 IP 和端口。` +
                     `</div>`;
             }
             if (btnJump) {
