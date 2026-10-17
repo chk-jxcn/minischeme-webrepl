@@ -574,11 +574,11 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
 
 
 class ProxyServer(http.server.ThreadingHTTPServer):
-    def __init__(self, server_address, master_key_1: bytes, admin_password: str, db_path: str = "minischeme_proxy.db", protocol_mode: str = "encrypted", admin_login_delay: int = 0):
+    def __init__(self, server_address, master_key_1: bytes, admin_password: str, db_path: str = "minischeme_proxy.db", protocol_mode: str = "both", admin_login_delay: int = 0):
         super().__init__(server_address, ProxyHandler)
         self.master_key_1 = master_key_1
         self.admin_password = admin_password
         self.db = Database(db_path)
         self.recovery_challenges: dict = {}
-        self.protocol_mode = (protocol_mode or "encrypted").lower().strip()
+        self.protocol_mode = (protocol_mode or "both").lower().strip()
         self.admin_login_delay = max(0, admin_login_delay or 0)
