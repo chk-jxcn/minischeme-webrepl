@@ -364,7 +364,7 @@ class DeviceSetupWizard {
         if (!this._isSimulator() && !this.lockedHwPassword) {
             this.el.hwPass.value = '';
         }
-        this.el.bootApp.value = 'apps/calendar/app.msbc';
+        this.el.bootApp.value = '';
         this._status('已填入推荐默认设置', 'ok');
     }
 
@@ -527,7 +527,7 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
-            bootApp = 'apps/calendar/app.msbc'
+            bootApp = ''
         } = opts;
 
         if (isSim && (!DeviceSetupWizard.isLocalProxyUrl(proxyUrl) || !DeviceSetupWizard.isLocalProxyUrl(converterUrl))) {

@@ -1130,13 +1130,7 @@ async function bootBundledApp(prefix = '') {
             res = await fetch('settings.msbc', { cache: 'no-store' });
         }
         if (!res.ok) {
-            res = await fetch('apps/calendar.msbc', { cache: 'no-store' });
-        }
-        if (!res.ok) {
-            res = await fetch('app.msbc', { cache: 'no-store' });
-        }
-        if (!res.ok) {
-            res = await fetch('apps/app.msbc', { cache: 'no-store' });
+            res = await fetch('apps/settings/app.msbc', { cache: 'no-store' });
         }
         if (!res.ok) throw new Error(`settings.msbc: HTTP ${res.status}`);
         const bytes = new Uint8Array(await res.arrayBuffer());

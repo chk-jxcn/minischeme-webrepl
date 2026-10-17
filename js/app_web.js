@@ -589,7 +589,7 @@ class AppWebPanel {
         if (this.el.sysOrientation) this.el.sysOrientation.value = disp['orientation'] || '0';
         if (this.el.sysPalette) this.el.sysPalette.value = disp['palette'] || '0';
         if (this.el.sysDevName) this.el.sysDevName.value = sys['device_name'] || 'MiniScheme-Sim';
-        if (this.el.sysBootApp) this.el.sysBootApp.value = sys['boot_app'] || 'apps/weather.msbc';
+        if (this.el.sysBootApp) this.el.sysBootApp.value = sys['boot_app'] || '';
 
         // 6. Raw INI
         if (this.el.sysRawIni) this.el.sysRawIni.value = iniText;
@@ -610,7 +610,7 @@ class AppWebPanel {
             [`${serverSec}.proxy_url`]: proxyUrl,
             [`${serverSec}.converter_url`]: (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim(),
             'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
-            'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim() || 'apps/weather.msbc',
+            'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
             'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
             'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0'
         };
