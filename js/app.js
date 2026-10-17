@@ -133,7 +133,7 @@ async function initWasm() {
         window.syncWasmProxyUrl = function(customUrl) {
             if (!wasmInstance || !wasmInstance.exports) return;
             let url = customUrl || window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
-            if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(url)) {
+            if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isSupportedProxyUrl(url)) {
                 url = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
             }
             if (typeof wasmInstance.exports.wasm_set_proxy_url === 'function' && typeof wasmInstance.exports.wasm_alloc_buffer === 'function') {

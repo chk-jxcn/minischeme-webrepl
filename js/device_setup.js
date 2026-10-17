@@ -78,6 +78,13 @@ class DeviceSetupWizard {
         return true;
     }
 
+    static isSupportedProxyUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        if (DeviceSetupWizard.isLocalProxyUrl(url)) return true;
+        if (url.includes('124.222.231.186')) return true;
+        return false;
+    }
+
     /**
      * Dedicated public proxy & protocol converter address.
      */
@@ -257,6 +264,10 @@ class DeviceSetupWizard {
                             <label for="ds-converter-url" style="font-size: 13px;">协议转换器:</label>
                             <input type="text" id="ds-converter-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
                         </div>
+                        <div style="display: flex; gap: 8px; margin-left: 130px; margin-bottom: 10px; flex-wrap: wrap;">
+                            <button type="button" class="pill-btn" id="ds-fill-public-proxy" style="font-size: 11.5px; padding: 3px 8px;">🌐 快捷填入公网服务器 (124.222.231.186:8087)</button>
+                            <button type="button" class="pill-btn" id="ds-fill-local-proxy" style="font-size: 11.5px; padding: 3px 8px;">🏠 快捷填入本地服务 (127.0.0.1:8087)</button>
+                        </div>
                         <div id="ds-hw-password-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 6px;">
                             <label for="ds-hw-password" style="font-size: 13px;">硬件安全密码:</label>
                             <input type="text" id="ds-hw-password" placeholder="设置硬件密码 (已设置后将明文显示且不可修改)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
@@ -323,7 +334,27 @@ class DeviceSetupWizard {
             hwPass: q('#ds-hw-password'),
             hwPassHint: q('#ds-hw-password-hint'),
             bootApp: q('#ds-boot-app'),
+            fillPublicBtn: q('#ds-fill-public-proxy'),
+            fillLocalBtn: q('#ds-fill-local-proxy'),
         };
+
+        if (this.el.fillPublicBtn) {
+            this.el.fillPublicBtn.addEventListener('click', () => {
+                const pub = DeviceSetupWizard.getPublicProxyServer();
+                this.el.proxyUrl.value = pub;
+                this.el.converterUrl.value = pub;
+                this._status('已填入公网服务器地址 (124.222.231.186:8087)', 'ok');
+            });
+        }
+
+        if (this.el.fillLocalBtn) {
+            this.el.fillLocalBtn.addEventListener('click', () => {
+                const loc = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+                this.el.proxyUrl.value = loc;
+                this.el.converterUrl.value = loc;
+                this._status('已填入本地服务地址 (127.0.0.1:8087)', 'ok');
+            });
+        }
 
         if (this.el.wifiEnable) {
             this.el.wifiEnable.addEventListener('change', (e) => {
@@ -618,8 +649,8 @@ class DeviceSetupWizard {
         }
 
         if (isSim) {
-            if (!DeviceSetupWizard.isLocalProxyUrl(proxy) || !DeviceSetupWizard.isLocalProxyUrl(conv)) {
-                const msg = '本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)';
+            if (!DeviceSetupWizard.isSupportedProxyUrl(proxy) || !DeviceSetupWizard.isSupportedProxyUrl(conv)) {
+                const msg = '本地模拟设备 (WASM) 仅支持非加密协议，请连接本地代理服务器 (127.0.0.1 / 局域网 IP) 或已部署的公网服务器 (124.222.231.186:8087)';
                 this._status(msg, 'error');
                 this.log('error', `⚙️ ${msg}`);
                 return;
@@ -698,8 +729,8 @@ class DeviceSetupWizard {
             bootApp = ''
         } = opts;
 
-        if (isSim && (!DeviceSetupWizard.isLocalProxyUrl(proxyUrl) || !DeviceSetupWizard.isLocalProxyUrl(converterUrl))) {
-            throw new Error('本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)');
+        if (isSim && (!DeviceSetupWizard.isSupportedProxyUrl(proxyUrl) || !DeviceSetupWizard.isSupportedProxyUrl(converterUrl))) {
+            throw new Error('本地模拟设备 (WASM) 仅支持非加密协议，请连接本地代理服务器 (127.0.0.1 / 局域网 IP) 或已部署的公网服务器 (124.222.231.186:8087)');
         }
 
         return [

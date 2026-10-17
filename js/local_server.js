@@ -52,6 +52,28 @@ class LocalServerManager {
             btnSave.addEventListener('click', () => this.saveConfig());
         }
 
+        const btnUsePublic = document.getElementById('btn-use-public-server');
+        if (btnUsePublic) {
+            btnUsePublic.addEventListener('click', () => {
+                const hostInput = document.getElementById('server-host-input');
+                const portInput = document.getElementById('server-port-input');
+                if (hostInput) hostInput.value = '124.222.231.186';
+                if (portInput) portInput.value = '8087';
+                this.saveConfig();
+            });
+        }
+
+        const btnUseLocal = document.getElementById('btn-use-local-server');
+        if (btnUseLocal) {
+            btnUseLocal.addEventListener('click', () => {
+                const hostInput = document.getElementById('server-host-input');
+                const portInput = document.getElementById('server-port-input');
+                if (hostInput) hostInput.value = '127.0.0.1';
+                if (portInput) portInput.value = '8087';
+                this.saveConfig();
+            });
+        }
+
         const btnReset = document.getElementById('server-cfg-reset-btn');
         if (btnReset) {
             btnReset.addEventListener('click', () => this.resetConfig());
@@ -406,6 +428,11 @@ class LocalServerManager {
             if (btnHeader) {
                 btnHeader.textContent = `🟢 服务 ${activeHost}:${activePort}`;
                 btnHeader.title = `MiniScheme 后端服务运行中 | 地址: ${this.info.baseUrl || local_url} (点击查看或修改 IP/端口)`;
+            }
+
+            const btnProxyAdmin = document.getElementById('btn-proxy-admin');
+            if (btnProxyAdmin) {
+                btnProxyAdmin.href = `http://${activeHost}:${activePort}/admin`;
             }
 
             if (statusBox) {

@@ -24,7 +24,7 @@
                 </select>
             </div>
             <span class="status-indicator online" id="status-dot"></span>
-            <span id="device-status-text">WASM 编译器准备就绪</span>
+            <a class="pill-btn highlight" id="btn-public-proxy" href="http://124.222.231.186:8087/admin" target="_blank" rel="noopener noreferrer" title="公网应用代理与协议转换服务已部署于 124.222.231.186:8087，点击打开管理后台">🌐 公网代理 (124.222.231.186)</a>
             <a class="pill-btn highlight" id="btn-proxy-admin" href="/admin" target="_blank" rel="noopener noreferrer" title="在独立新页面打开 MiniScheme 代理服务管理后台 (/admin)：设备全量审计、租户数据明文审阅与设备上线预设">🛡️ 代理管理后台</a>
             <button class="pill-btn highlight" id="btn-local-server" title="一键下载安装并运行本地服务端 (MiniScheme-WebREPL.exe)">🖥️ 本地服务端 (Exe)</button>
         </div>
@@ -518,6 +518,28 @@
                 <div style="display:flex; gap:8px;">
                     <button class="pill-btn" id="local-server-probe-btn">🔄 重新检测</button>
                     <button class="action-btn highlight" id="local-server-jump-btn" hidden>🚀 切换到服务运行页面</button>
+                </div>
+            </div>
+
+            <!-- 已部署公网服务器卡片 -->
+            <div class="flasher-card" style="border: 1px solid rgba(14, 165, 233, 0.4); background: rgba(14, 165, 233, 0.05); margin-bottom: 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                    <div class="flasher-item-title" style="font-size:14px; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+                        <span>🌐</span> 已部署公网应用代理与协议转换服务器 (124.222.231.186:8087)
+                    </div>
+                    <span class="arch-badge" style="background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3);">🟢 已部署在线</span>
+                </div>
+                <div class="flasher-desc" style="font-size:12.5px; line-height:1.6; margin-bottom:10px;">
+                    公网代理与协议转换服务已在云服务器 <code>124.222.231.186:8087</code> 部署完毕并开机自启（systemd: <code>minischeme-proxy.service</code>，支持加密与通用协议，5 秒防爆破保护）。
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                    <button class="action-btn highlight" id="btn-use-public-server" style="padding:6px 14px; font-size:13px; background:#0284c7;">🌐 设为当前连接的后端服务 (124.222.231.186)</button>
+                    <button class="pill-btn" id="btn-use-local-server" style="padding:6px 14px; font-size:13px;">🏠 设为本地服务 (127.0.0.1)</button>
+                    <a class="pill-btn" href="http://124.222.231.186:8087/admin" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">🔐 公网 Admin 后台</a>
+                    <a class="pill-btn" href="http://124.222.231.186:8087/user" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">👤 公网 User 中心</a>
+                </div>
+                <div style="font-size:11.5px; color:#eab308; line-height:1.5;">
+                    ⚠️ 提示：若外网直接访问该端口超时，请在<b>腾讯云控制台 -> 安全组</b>添加入站规则：放行 <b>TCP 8087</b> 端口。
                 </div>
             </div>
 
