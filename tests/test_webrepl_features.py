@@ -117,7 +117,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("flasher-dialog", body, "Firmware Flasher dialog missing")
         self.assertIn("btn-device-setup", body, "Device Setup button missing")
         self.assertIn("btn-link-device-setup", body, "Link bar Device Setup button next to Connect button missing")
-        self.assertIn("btn-scheme-editor", body, "Editor button missing")
+        self.assertNotIn("btn-scheme-editor", body, "Editor button should not be duplicated in toolbar")
         self.assertIn("btn-firmware-flasher", body, "Flasher button missing")
         self.assertIn("js/editor_flasher.js", body, "js/editor_flasher.js script missing")
         self.assertIn("js/device_setup.js", body, "js/device_setup.js script missing")
