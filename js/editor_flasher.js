@@ -650,7 +650,6 @@ class WebSerialFirmwareFlasher {
 
             this.log('ok', '✔ 串口已关闭。MiniScheme 固件正在启动，你可以在 WebREPL 中连接 WiFi HTTP 或串口终端进行控制！');
             this.log('info', '💡 提示：如果开发板未自动亮屏，可轻按板上的 RST / EN 按键手动复位。');
-            alert('🎉 固件烧录成功！设备已发送重启信号，欢迎使用 MiniScheme！\n（若未自动亮屏，可轻按板上 RST / EN 键）');
         } catch (err) {
             this.log('error', `❌ 烧录失败: ${err.message}`);
             alert(`烧录失败: ${err.message}`);
