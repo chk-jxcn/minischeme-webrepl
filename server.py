@@ -307,7 +307,16 @@ def get_latest_github_release(repo="minischeme-webrepl", ttl=120):
 
 
 def fetch_latest_release_asset(repo, asset_name):
-    """Fetch an asset from the latest GitHub release, falling back to local bundle if offline."""
+    """Fetch an asset from local bundle if available, otherwise from latest GitHub release."""
+    ctype = "application/json" if asset_name.endswith(".json") else "application/octet-stream"
+
+    # Local bundle first (fastest, guaranteed match with current build)
+    sub = "firmware" if repo == "minischeme-esp32" else "apps"
+    local_candidate = os.path.join(BASE_DIR, sub, asset_name)
+    if os.path.isfile(local_candidate):
+        with open(local_candidate, "rb") as f:
+            return 200, ctype, f.read()
+
     rel = get_latest_github_release(repo)
     asset_info = (rel.get("assets") or {}).get(asset_name)
     urls = []
@@ -315,7 +324,6 @@ def fetch_latest_release_asset(repo, asset_name):
         urls.append(asset_info["url"])
     urls.append(f"https://github.com/chk-jxcn/{repo}/releases/latest/download/{asset_name}")
 
-    ctype = "application/json" if asset_name.endswith(".json") else "application/octet-stream"
     for url in urls:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "MiniScheme-WebREPL/1.0"})
@@ -326,12 +334,6 @@ def fetch_latest_release_asset(repo, asset_name):
         except Exception:
             continue
 
-    # Offline / local bundle fallback
-    sub = "firmware" if repo == "minischeme-esp32" else "apps"
-    local_candidate = os.path.join(BASE_DIR, sub, asset_name)
-    if os.path.isfile(local_candidate):
-        with open(local_candidate, "rb") as f:
-            return 200, ctype, f.read()
     return 404, "application/json", b'{"error":"release asset not found"}'
 
 

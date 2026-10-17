@@ -558,10 +558,24 @@ class WebSerialFirmwareFlasher {
                 }
             };
 
+            const resetConstructors = {
+                hardReset: (trans) => ({
+                    reset: async () => {
+                        try {
+                            await trans.setSignals(false, true);
+                            await new Promise(r => setTimeout(r, 150));
+                            await trans.setSignals(false, false);
+                            await new Promise(r => setTimeout(r, 200));
+                        } catch (e) { /* ignore */ }
+                    }
+                })
+            };
+
             const esploader = new ESPLoader({
                 transport: transport,
                 baudrate: 115200,
-                terminal: term
+                terminal: term,
+                resetConstructors: resetConstructors
             });
             this.esploader = esploader;
 
@@ -595,8 +609,8 @@ class WebSerialFirmwareFlasher {
             const flashOptions = {
                 fileArray: filesToFlash,
                 flashSize: 'keep',
-                flashMode: 'dio',
-                flashFreq: '40m',
+                flashMode: 'keep',
+                flashFreq: 'keep',
                 compress: true,
                 eraseAll: eraseAll,
                 reportProgress: (fileIndex, written, total) => {
@@ -610,12 +624,23 @@ class WebSerialFirmwareFlasher {
             await esploader.writeFlash(flashOptions);
 
             this.setProgress(100, '烧录成功 100%');
-            this.log('ok', '🎉 固件烧写完成！正在通过 RTS 引脚硬复位芯片重启进入 MiniScheme 系统...');
+            this.log('ok', '🎉 固件烧写完成！正在通过硬件引脚复位芯片重启进入 MiniScheme 系统...');
+
+            try {
+                // Assert EN low (RTS=true, DTR=false) to reset ESP32
+                await transport.setSignals(false, true);
+                await new Promise(r => setTimeout(r, 150));
+                // Release EN high with IO0 high (RTS=false, DTR=false) so ESP32 reboots from Flash
+                await transport.setSignals(false, false);
+                await new Promise(r => setTimeout(r, 200));
+            } catch (e) {
+                this.log('info', '发送硬件复位信号: ' + e.message);
+            }
 
             try {
                 await esploader.after('hard_reset');
             } catch (e) {
-                this.log('info', '执行硬复位完成');
+                // Ignore fallback error
             }
 
             await transport.disconnect();
@@ -624,7 +649,8 @@ class WebSerialFirmwareFlasher {
             this.esploader = null;
 
             this.log('ok', '✔ 串口已关闭。MiniScheme 固件正在启动，你可以在 WebREPL 中连接 WiFi HTTP 或串口终端进行控制！');
-            alert('🎉 固件烧录成功！设备已自动重启，欢迎使用 MiniScheme！');
+            this.log('info', '💡 提示：如果开发板未自动亮屏，可轻按板上的 RST / EN 按键手动复位。');
+            alert('🎉 固件烧录成功！设备已发送重启信号，欢迎使用 MiniScheme！\n（若未自动亮屏，可轻按板上 RST / EN 键）');
         } catch (err) {
             this.log('error', `❌ 烧录失败: ${err.message}`);
             alert(`烧录失败: ${err.message}`);
@@ -639,13 +665,14 @@ class WebSerialFirmwareFlasher {
         try {
             const port = await navigator.serial.requestPort();
             await port.open({ baudRate: 115200 });
+            // Pull EN low while keeping IO0 high (DTR=false, RTS=true)
             await port.setSignals({ dataTerminalReady: false, requestToSend: true });
-            await new Promise(r => setTimeout(r, 100));
-            await port.setSignals({ dataTerminalReady: true, requestToSend: false });
-            await new Promise(r => setTimeout(r, 50));
+            await new Promise(r => setTimeout(r, 150));
+            // Release EN high while keeping IO0 high (DTR=false, RTS=false) so chip boots into user app
             await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+            await new Promise(r => setTimeout(r, 200));
             await port.close();
-            this.log('ok', '✔ 已发送硬件复位信号 (RTS/DTR Reset)');
+            this.log('ok', '✔ 已发送硬件复位重启信号 (ESP32 Run / Reboot)');
         } catch (e) {
             this.log('error', `复位失败: ${e.message}`);
         }
