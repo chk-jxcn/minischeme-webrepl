@@ -92,6 +92,13 @@ class AppWebPanel {
 
                     <!-- Tab 2: 系统配置 -->
                     <div class="aw-pane" id="aw-pane-system" hidden>
+                        <div style="margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; gap: 12px;">
+                            <div>
+                                <div style="font-weight: 600; color: #fff; font-size: 13px;">📟 设备运行模式</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">重启设备并进入内置系统设置界面（可进行出厂设置、字库管理与网络配置）</div>
+                            </div>
+                            <button class="pill-btn highlight" id="aw-sys-enter-settings-btn" style="white-space: nowrap; cursor: pointer; padding: 6px 14px; font-weight: 500;">⚙️ 进入设置模式</button>
+                        </div>
                         <section class="aw-section">
                             <h3 class="aw-sec-title">📶 WiFi 网络与连网控制</h3>
                             <div style="margin-bottom: 12px; background: rgba(59,130,246,0.1); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(59,130,246,0.25);">
@@ -251,6 +258,7 @@ class AppWebPanel {
             sysSaveStatus: root.querySelector('#aw-sys-save-status'),
             sysRawIni: root.querySelector('#aw-sys-raw-ini'),
             sysSaveRawBtn: root.querySelector('#aw-sys-save-raw-btn'),
+            sysEnterSettingsBtn: root.querySelector('#aw-sys-enter-settings-btn'),
             // App config tab elements
             cfgRunHead: root.querySelector('#aw-cfg-runhead'),
             cfgRunBox: root.querySelector('#aw-cfg-runcfg'),
@@ -289,6 +297,10 @@ class AppWebPanel {
                     window.setSimWifiOnline(e.target.checked, e.target);
                 }
             });
+        }
+
+        if (this.el.sysEnterSettingsBtn) {
+            this.el.sysEnterSettingsBtn.addEventListener('click', () => this.enterSettingsMode());
         }
 
         if (this.el.sysSaveBtn) {
@@ -537,6 +549,49 @@ class AppWebPanel {
             this._status(`应用页面 ${(len / 1024).toFixed(1)} KB (gzip) 载入成功`);
         } catch (e) {
             this._status(`页面解压失败: ${e.message || e}`, 'error');
+        }
+    }
+
+    async enterSettingsMode() {
+        if (!confirm('确定要重启设备并进入内置系统设置界面吗？')) return;
+        this.log('info', '🔄 设备正在重启进入系统设置模式...');
+        this.close();
+
+        // 1. WASM simulation mode
+        if (this.target && this.target.kind === 'wasm') {
+            if (typeof window.bootBundledApp === 'function') {
+                await window.bootBundledApp('设置模式: ', 'settings');
+            } else {
+                this.log('error', '未找到 bootBundledApp 函数');
+            }
+            return;
+        }
+
+        // 2. Hardware device connected via HTTP active link
+        if (window.activeLink && window.activeLink.base) {
+            try {
+                await fetch(`${window.activeLink.base}/api/reset?settings=1`, { method: 'POST' });
+                this.log('info', '✅ 重启指令已发送至设备');
+            } catch (e) {
+                this.log('error', `重启设备失败: ${e.message || e}`);
+            }
+            return;
+        }
+
+        // 3. Hardware device connected via serial or other link
+        if (window.activeLink && typeof window.activeLink.reset === 'function') {
+            try {
+                await window.activeLink.reset(true);
+                this.log('info', '✅ 重启指令已发送至设备');
+            } catch (e) {
+                this.log('error', `重启设备失败: ${e.message || e}`);
+            }
+            return;
+        }
+
+        // 4. Fallback to WASM bundled settings
+        if (typeof window.bootBundledApp === 'function') {
+            await window.bootBundledApp('设置模式: ', 'settings');
         }
     }
 

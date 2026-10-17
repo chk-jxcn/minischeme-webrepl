@@ -453,6 +453,8 @@ class TestWebReplFeatures(unittest.TestCase):
             self.assertIn('data-tab="manage"', content_aw)
             self.assertIn('data-tab="info"', content_aw)
             self.assertIn("aw-sys-wifi-online", content_aw)
+            self.assertIn("aw-sys-enter-settings-btn", content_aw)
+            self.assertIn("enterSettingsMode", content_aw)
             self.assertIn("saveSystemConfig", content_aw)
             self.assertIn("saveRawConfigIni", content_aw)
             self.assertIn("isSimWifiOnline", content_aw)

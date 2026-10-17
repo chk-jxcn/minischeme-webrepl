@@ -1181,6 +1181,8 @@ async function bootBundledApp(prefix = '', preferredApp = 'calendar') {
         appendTerminalLine('error', `启动应用失败: ${e.message || e}`);
     }
 }
+// Expose bootBundledApp for external panels and components
+window.bootBundledApp = bootBundledApp;
 
 // =========================================================================
 // PC performance monitor: same app image as the board. On the board the
@@ -1748,6 +1750,11 @@ async function handleCommand(code) {
 // =========================================================================
 
 let activeLink = null;
+Object.defineProperty(window, 'activeLink', {
+    get: () => activeLink,
+    set: (v) => { activeLink = v; },
+    configurable: true
+});
 
 // =========================================================================
 // Board screen mirror and real figures (HTTP link, hw_mirror.js)
