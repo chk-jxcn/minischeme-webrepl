@@ -272,9 +272,10 @@ class DeviceSetupWizard {
             this.el.hwPass.disabled = false;
             this.el.hwPass.style.opacity = '1';
             this.el.hwPass.style.cursor = '';
+            this.el.hwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
             if (this.el.hwPassHint) {
                 this.el.hwPassHint.style.color = '#eab308';
-                this.el.hwPassHint.textContent = '⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与身份验证；一旦设置将以明文显示且禁止修改。';
+                this.el.hwPassHint.textContent = '⚠️ 必填项：硬件密码用于 HKDF 派生端到端加密密钥与身份验证（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
             }
         }
     }
@@ -454,8 +455,28 @@ class DeviceSetupWizard {
         const pass = isSim ? '' : this.el.wifiPass.value.trim();
         const proxy = this.el.proxyUrl.value.trim();
         const conv = this.el.converterUrl.value.trim() || proxy;
-        const hwPass = isSim ? '' : (this.lockedHwPassword || this.el.hwPass.value.trim());
         const bootApp = this.el.bootApp.value.trim();
+
+        let hwPass = '';
+        if (!isSim) {
+            hwPass = this.lockedHwPassword || (this.el.hwPass ? this.el.hwPass.value.trim() : '');
+            if (!this.lockedHwPassword) {
+                if (!hwPass) {
+                    const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
+                    this._status(msg, 'error');
+                    this.log('error', `⚙️ ${msg}`);
+                    if (this.el.hwPass) this.el.hwPass.focus();
+                    return;
+                }
+                if (hwPass.length < 6) {
+                    const msg = '硬件密码长度不能小于 6 位字符，请重新输入';
+                    this._status(msg, 'error');
+                    this.log('error', `⚙️ ${msg}`);
+                    if (this.el.hwPass) this.el.hwPass.focus();
+                    return;
+                }
+            }
+        }
 
         if (isSim) {
             if (!DeviceSetupWizard.isLocalProxyUrl(proxy) || !DeviceSetupWizard.isLocalProxyUrl(conv)) {

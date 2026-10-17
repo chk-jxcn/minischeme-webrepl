@@ -127,11 +127,11 @@ class AppWebPanel {
                                 💡 本地模拟设备仅允许使用本地代理 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力。
                             </div>
                             <div style="margin-top: 10px;">
-                                <label>硬件密码 (hardware_password)
-                                    <input type="text" id="aw-sys-hw-pass" placeholder="模拟设备免密 (可输入密码或留空)">
+                                <label>硬件密码 (hardware_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
+                                    <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
                                 </label>
                                 <div id="aw-sys-hw-pass-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                    本地模拟设备不需要密码；若已设置则明文显示并锁定禁止修改。
+                                    硬件密码用于加密通道与设备安全认证；一旦设置将直接明文显示并锁定禁止修改。
                                 </div>
                             </div>
                         </section>
@@ -564,22 +564,32 @@ class AppWebPanel {
         // 4. Hardware password
         const hwPass = (srv['hardware_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
         this.lockedHwPassword = hwPass;
+        const reqBadge = this.el.root.querySelector('#aw-sys-hw-pass-req');
         if (this.el.sysHwPass) {
+            this.el.sysHwPass.type = 'text'; // Always plaintext
             if (hwPass) {
                 this.el.sysHwPass.value = hwPass;
                 this.el.sysHwPass.disabled = true;
-                this.el.sysHwPass.title = '硬件密码已设置，直接明文显示并禁止修改';
+                this.el.sysHwPass.readOnly = true;
+                this.el.sysHwPass.style.opacity = '0.85';
+                this.el.sysHwPass.style.cursor = 'not-allowed';
+                this.el.sysHwPass.title = '硬件密码已设置，显示为不可编辑框，并以明文显示密码';
+                if (reqBadge) reqBadge.style.display = 'none';
                 if (this.el.sysHwPassNote) {
-                    this.el.sysHwPassNote.textContent = '🔒 硬件密码已设置并已生效，系统直接明文显示并锁定禁止修改。';
-                    this.el.sysHwPassNote.style.color = 'var(--accent-cyan)';
+                    this.el.sysHwPassNote.textContent = '🔒 硬件密码已设置并已生效，显示为不可编辑框，并以明文显示密码。';
+                    this.el.sysHwPassNote.style.color = '#4ade80';
                 }
             } else {
                 this.el.sysHwPass.value = '';
                 this.el.sysHwPass.disabled = false;
-                this.el.sysHwPass.placeholder = '模拟设备免密 (可输入密码或留空)';
+                this.el.sysHwPass.readOnly = false;
+                this.el.sysHwPass.style.opacity = '1';
+                this.el.sysHwPass.style.cursor = '';
+                this.el.sysHwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
+                if (reqBadge) reqBadge.style.display = 'inline';
                 if (this.el.sysHwPassNote) {
-                    this.el.sysHwPassNote.textContent = '本地模拟设备不需要密码；若在此设置则保存后明文显示并锁定。';
-                    this.el.sysHwPassNote.style.color = 'var(--text-secondary)';
+                    this.el.sysHwPassNote.textContent = '⚠️ 硬件密码未设置，为必选项，且保存时长度不能小于 6 位字符（保存后明文显示且禁止修改）。';
+                    this.el.sysHwPassNote.style.color = '#eab308';
                 }
             }
         }
@@ -603,12 +613,37 @@ class AppWebPanel {
             return;
         }
 
+        let hwPassToSave = this.lockedHwPassword;
+        if (!hwPassToSave) {
+            const rawHwPass = (this.el.sysHwPass ? this.el.sysHwPass.value : '').trim();
+            if (!rawHwPass) {
+                const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
+                if (this.el.sysSaveStatus) {
+                    this.el.sysSaveStatus.textContent = `❌ ${msg}`;
+                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                }
+                if (this.el.sysHwPass) this.el.sysHwPass.focus();
+                return;
+            }
+            if (rawHwPass.length < 6) {
+                const msg = '硬件密码长度不能小于 6 位字符，请重新输入';
+                if (this.el.sysSaveStatus) {
+                    this.el.sysSaveStatus.textContent = `❌ ${msg}`;
+                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                }
+                if (this.el.sysHwPass) this.el.sysHwPass.focus();
+                return;
+            }
+            hwPassToSave = rawHwPass;
+        }
+
         const rawText = this.readConfigIni();
         const parsed = this._parseIni(rawText);
         const serverSec = parsed['server'] ? 'server' : 'system';
         const updates = {
             [`${serverSec}.proxy_url`]: proxyUrl,
             [`${serverSec}.converter_url`]: (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim(),
+            [`${serverSec}.hardware_password`]: hwPassToSave,
             'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
             'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
             'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
@@ -627,13 +662,10 @@ class AppWebPanel {
             else updates['wifi.wifi_password'] = pass;
         }
 
-        if (!this.lockedHwPassword && this.el.sysHwPass && this.el.sysHwPass.value.trim()) {
-            updates[`${serverSec}.hardware_password`] = this.el.sysHwPass.value.trim();
-        }
-
         const newIni = this._updateIni(rawText, updates);
         const ok = this.writeConfigIni(newIni);
         if (ok) {
+            this.lockedHwPassword = hwPassToSave;
             if (this.el.sysSaveStatus) {
                 this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';
                 this.el.sysSaveStatus.style.color = '#72d696';

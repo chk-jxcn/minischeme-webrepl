@@ -52,6 +52,7 @@
     <script src="js/editor_flasher.js"></script>
 
     <script>
+    window.alert = function(msg) { console.warn("[alert stub]", msg); };
     const tests = [];
     const results = [];
     let wasmCompilerInst = null;
@@ -627,6 +628,38 @@ theme = dark # Slate theme`;
         panel.loadSystemTab();
         assertEqual(panel.el.sysHwPass.value, "LockHwPassword123", "Hardware password must be shown in plaintext");
         assertEqual(panel.el.sysHwPass.disabled, true, "Hardware password must be locked/disabled");
+        assertEqual(panel.el.sysHwPass.readOnly, true, "Hardware password must be uneditable");
+        assertEqual(panel.el.sysHwPass.type, "text", "Hardware password must be plaintext type=text");
+
+        // Test unset hardware password: must be required and >= 6 characters
+        const sampleNoPass = sampleIni.replace("hardware_password = LockHwPassword123", "hardware_password = ");
+        panel.readConfigIni = () => sampleNoPass;
+        panel.loadSystemTab();
+        assertEqual(panel.el.sysHwPass.value, "", "Unset password must be blank");
+        assertEqual(panel.el.sysHwPass.disabled, false, "Unset password must be editable");
+        assertEqual(panel.el.sysHwPass.readOnly, false, "Unset password must be editable");
+
+        // Validation: empty password must be rejected
+        panel.el.sysHwPass.value = "";
+        let savedIni = null;
+        panel.writeConfigIni = (ini) => { savedIni = ini; return true; };
+        panel.saveSystemConfig();
+        assertEqual(savedIni, null, "Must reject saving when hardware password is empty");
+
+        // Validation: < 6 characters must be rejected
+        panel.el.sysHwPass.value = "12345";
+        savedIni = null;
+        panel.saveSystemConfig();
+        assertEqual(savedIni, null, "Must reject saving when hardware password is less than 6 characters");
+
+        // Validation: >= 6 characters must be accepted and locked upon reload
+        panel.el.sysHwPass.value = "SecurePass888";
+        savedIni = null;
+        panel.readConfigIni = () => savedIni || sampleNoPass;
+        panel.saveSystemConfig();
+        assert(savedIni !== null && savedIni.includes("hardware_password = SecurePass888"), "Must save hardware password with >= 6 chars");
+        assertEqual(panel.el.sysHwPass.value, "SecurePass888", "Must display saved password in plaintext");
+        assertEqual(panel.el.sysHwPass.disabled, true, "Must lock input after saving");
     });
 
     addTest("Test 31: Proxy Admin Portal Manager and URL resolution", async () => {
