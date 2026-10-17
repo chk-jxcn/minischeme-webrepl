@@ -625,10 +625,10 @@ class AppWebPanel {
                 if (this.el.sysHwPass) this.el.sysHwPass.focus();
                 return;
             }
-            if (rawHwPass.length < 6) {
-                const msg = '硬件密码长度不能小于 6 位字符，请重新输入';
+            const chk = this._validatePasswordSecurity(rawHwPass);
+            if (!chk.valid) {
                 if (this.el.sysSaveStatus) {
-                    this.el.sysSaveStatus.textContent = `❌ ${msg}`;
+                    this.el.sysSaveStatus.textContent = `❌ ${chk.message}`;
                     this.el.sysSaveStatus.style.color = '#ee7c7c';
                 }
                 if (this.el.sysHwPass) this.el.sysHwPass.focus();
@@ -658,6 +658,15 @@ class AppWebPanel {
 
         const pass = (this.el.sysWifiPass ? this.el.sysWifiPass.value : '').trim();
         if (pass) {
+            const chk = this._validatePasswordSecurity(pass);
+            if (!chk.valid) {
+                if (this.el.sysSaveStatus) {
+                    this.el.sysSaveStatus.textContent = `❌ WiFi ${chk.message}`;
+                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                }
+                if (this.el.sysWifiPass) this.el.sysWifiPass.focus();
+                return;
+            }
             if (parsed['wifi'] && 'password' in parsed['wifi']) updates['wifi.password'] = pass;
             else updates['wifi.wifi_password'] = pass;
         }
@@ -863,6 +872,45 @@ class AppWebPanel {
         this.log(failed ? 'error' : 'info', `🌐 (app-web "${fn}") ${failed ? text : `→ ${text.length} B`}`);
         this.afterCall();
         e.source.postMessage({ appAnswer: true, id: d.id, text, failed }, '*');
+    }
+
+    _validatePasswordSecurity(pwd) {
+        if (window.DeviceSetupWizard && typeof window.DeviceSetupWizard.validatePasswordSecurity === 'function') {
+            return window.DeviceSetupWizard.validatePasswordSecurity(pwd);
+        }
+        if (!pwd || typeof pwd !== 'string') return { valid: false, message: '密码不能为空' };
+        const val = pwd.trim();
+        if (val.length < 6) return { valid: false, message: '密码长度不能小于 6 位字符' };
+        let allSame = true;
+        for (let i = 1; i < val.length; i++) {
+            if (val[i] !== val[0]) { allSame = false; break; }
+        }
+        if (allSame) return { valid: false, message: '密码过于简单，不能使用全重复字符（如 88888888、00000000）' };
+        const commonWeak = new Set([
+            '123456', '1234567', '12345678', '123456789', '01234567',
+            '88888888', '00000000', '11111111', '66666666',
+            '87654321', '76543210', '654321', '987654321',
+            'password', 'admin123', 'qwertyui'
+        ]);
+        if (commonWeak.has(val.toLowerCase())) {
+            return { valid: false, message: '该密码属于常见弱密码，请设置更安全的密码' };
+        }
+        let ascRun = 1, descRun = 1, repRun = 1;
+        for (let i = 1; i < val.length; i++) {
+            const prev = val.charCodeAt(i - 1), curr = val.charCodeAt(i);
+            if (prev >= 48 && prev <= 57 && curr >= 48 && curr <= 57) {
+                const diff = curr - prev;
+                if (diff === 1) { ascRun++; if (ascRun >= 4) return { valid: false, message: '密码过于简单，不能包含正序连续数字（如 12345678、1234）' }; }
+                else ascRun = 1;
+                if (diff === -1) { descRun++; if (descRun >= 4) return { valid: false, message: '密码过于简单，不能包含倒序连续数字（如 87654321、4321）' }; }
+                else descRun = 1;
+                if (diff === 0) { repRun++; if (repRun >= 4) return { valid: false, message: '密码过于简单，不能包含连续重复数字（如 88888888、00000000）' }; }
+                else repRun = 1;
+            } else {
+                ascRun = 1; descRun = 1; repRun = 1;
+            }
+        }
+        return { valid: true };
     }
 }
 

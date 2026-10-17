@@ -64,6 +64,93 @@ class DeviceSetupWizard {
     }
 
     /**
+     * Built-in password security filter:
+     * - Minimum length of 6 characters
+     * - Blocks all-identical characters (e.g. 88888888, 00000000)
+     * - Blocks ascending sequential numbers (e.g. 12345678, 1234, 2345)
+     * - Blocks descending sequential numbers (e.g. 87654321, 4321, 6543)
+     * - Blocks repeated digits in a row (e.g. 8888, 0000)
+     * - Blocks common weak passwords
+     */
+    static validatePasswordSecurity(pwd) {
+        if (!pwd || typeof pwd !== 'string') {
+            return { valid: false, message: '密码不能为空' };
+        }
+        const val = pwd.trim();
+        if (val.length < 6) {
+            return { valid: false, message: '密码长度不能小于 6 位字符' };
+        }
+
+        // 1. All identical characters
+        let allSame = true;
+        for (let i = 1; i < val.length; i++) {
+            if (val[i] !== val[0]) {
+                allSame = false;
+                break;
+            }
+        }
+        if (allSame) {
+            return { valid: false, message: '密码过于简单，不能使用全重复字符（如 88888888、00000000）' };
+        }
+
+        // 2. Common weak passwords blacklist
+        const commonWeak = new Set([
+            '123456', '1234567', '12345678', '123456789', '01234567',
+            '88888888', '00000000', '11111111', '66666666',
+            '87654321', '76543210', '654321', '987654321',
+            'password', 'admin123', 'qwertyui'
+        ]);
+        if (commonWeak.has(val.toLowerCase())) {
+            return { valid: false, message: '该密码属于常见弱密码，请设置更安全的密码' };
+        }
+
+        // 3. 4+ consecutive ascending, descending, or repeated digits
+        let ascRun = 1, descRun = 1, repRun = 1;
+        for (let i = 1; i < val.length; i++) {
+            const prev = val.charCodeAt(i - 1);
+            const curr = val.charCodeAt(i);
+            const isDigitPrev = (prev >= 48 && prev <= 57);
+            const isDigitCurr = (curr >= 48 && curr <= 57);
+
+            if (isDigitPrev && isDigitCurr) {
+                const diff = curr - prev;
+                if (diff === 1) {
+                    ascRun++;
+                    if (ascRun >= 4) {
+                        return { valid: false, message: '密码过于简单，不能包含正序连续数字（如 12345678、1234）' };
+                    }
+                } else {
+                    ascRun = 1;
+                }
+
+                if (diff === -1) {
+                    descRun++;
+                    if (descRun >= 4) {
+                        return { valid: false, message: '密码过于简单，不能包含倒序连续数字（如 87654321、4321）' };
+                    }
+                } else {
+                    descRun = 1;
+                }
+
+                if (diff === 0) {
+                    repRun++;
+                    if (repRun >= 4) {
+                        return { valid: false, message: '密码过于简单，不能包含连续重复数字（如 88888888、00000000）' };
+                    }
+                } else {
+                    repRun = 1;
+                }
+            } else {
+                ascRun = 1;
+                descRun = 1;
+                repRun = 1;
+            }
+        }
+
+        return { valid: true };
+    }
+
+    /**
      * Parse INI text into section.key map.
      */
     static parseIniMap(iniText) {
@@ -468,13 +555,23 @@ class DeviceSetupWizard {
                     if (this.el.hwPass) this.el.hwPass.focus();
                     return;
                 }
-                if (hwPass.length < 6) {
-                    const msg = '硬件密码长度不能小于 6 位字符，请重新输入';
-                    this._status(msg, 'error');
-                    this.log('error', `⚙️ ${msg}`);
+                const chk = DeviceSetupWizard.validatePasswordSecurity(hwPass);
+                if (!chk.valid) {
+                    this._status(chk.message, 'error');
+                    this.log('error', `⚙️ 硬件密码校验失败: ${chk.message}`);
                     if (this.el.hwPass) this.el.hwPass.focus();
                     return;
                 }
+            }
+        }
+
+        if (!isSim && pass) {
+            const chk = DeviceSetupWizard.validatePasswordSecurity(pass);
+            if (!chk.valid) {
+                this._status(`WiFi ${chk.message}`, 'error');
+                this.log('error', `⚙️ WiFi 密码校验失败: ${chk.message}`);
+                if (this.el.wifiPass) this.el.wifiPass.focus();
+                return;
             }
         }
 

@@ -583,6 +583,60 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("ID_OPEN_ADMIN", server_content)
         self.assertIn("打开代理服务管理后台", server_content)
 
+    def test_15_weak_password_filter(self):
+        """Verify built-in weak password filter rejects sequential and repeated digits"""
+        with open(os.path.join(ROOT_DIR, "js", "device_setup.js"), "r", encoding="utf-8") as f:
+            ds_js = f.read()
+        with open(os.path.join(ROOT_DIR, "js", "app_web.js"), "r", encoding="utf-8") as f:
+            aw_js = f.read()
+
+        self.assertIn("validatePasswordSecurity", ds_js, "DeviceSetupWizard missing validatePasswordSecurity")
+        self.assertIn("_validatePasswordSecurity", aw_js, "AppWebPanel missing _validatePasswordSecurity")
+        self.assertIn("12345678", ds_js, "Weak blacklist must include 12345678")
+        self.assertIn("88888888", ds_js, "Weak blacklist must include 88888888")
+        self.assertIn("00000000", ds_js, "Weak blacklist must include 00000000")
+
+        def verify_pwd(pwd):
+            if not pwd or len(pwd) < 6:
+                return False
+            if len(set(pwd)) == 1:
+                return False
+            if pwd.lower() in {'123456', '12345678', '88888888', '00000000', '87654321', '654321'}:
+                return False
+            asc_run = desc_run = rep_run = 1
+            for i in range(1, len(pwd)):
+                p, c = pwd[i-1], pwd[i]
+                if p.isdigit() and c.isdigit():
+                    diff = ord(c) - ord(p)
+                    if diff == 1:
+                        asc_run += 1
+                        if asc_run >= 4: return False
+                    else: asc_run = 1
+                    if diff == -1:
+                        desc_run += 1
+                        if desc_run >= 4: return False
+                    else: desc_run = 1
+                    if diff == 0:
+                        rep_run += 1
+                        if rep_run >= 4: return False
+                    else: rep_run = 1
+                else:
+                    asc_run = desc_run = rep_run = 1
+            return True
+
+        self.assertFalse(verify_pwd("12345678"))
+        self.assertFalse(verify_pwd("88888888"))
+        self.assertFalse(verify_pwd("00000000"))
+        self.assertFalse(verify_pwd("234567"))
+        self.assertFalse(verify_pwd("87654321"))
+        self.assertFalse(verify_pwd("654321"))
+        self.assertFalse(verify_pwd("pass1234"))
+        self.assertFalse(verify_pwd("4321pass"))
+        self.assertFalse(verify_pwd("12345"))
+        self.assertTrue(verify_pwd("mySecret926"))
+        self.assertTrue(verify_pwd("scheme_2026"))
+        self.assertTrue(verify_pwd("83910294"))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
