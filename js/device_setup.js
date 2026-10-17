@@ -93,6 +93,40 @@ class DeviceSetupWizard {
     }
 
     /**
+     * Resolves currently configured service URL from settings input fields,
+     * localStorage, or window.LOCAL_SERVER_BASE.
+     */
+    static getConfiguredServiceUrl() {
+        const hostEl = typeof document !== 'undefined' ? document.getElementById('server-host-input') : null;
+        const portEl = typeof document !== 'undefined' ? document.getElementById('server-port-input') : null;
+        let host = hostEl ? hostEl.value.trim() : '';
+        let port = portEl ? portEl.value.trim() : '';
+
+        if (!host && typeof localStorage !== 'undefined') {
+            try { host = (localStorage.getItem('webrepl_server_host') || '').trim(); } catch (e) {}
+        }
+        if (!port && typeof localStorage !== 'undefined') {
+            try { port = (localStorage.getItem('webrepl_server_port') || '').trim(); } catch (e) {}
+        }
+
+        if (!host && typeof window !== 'undefined' && window.LOCAL_SERVER_BASE) {
+            return window.LOCAL_SERVER_BASE;
+        }
+        if (!host && typeof window !== 'undefined' && window.LOCAL_SERVER_INFO && window.LOCAL_SERVER_INFO.baseUrl) {
+            return window.LOCAL_SERVER_INFO.baseUrl;
+        }
+
+        if (!host && typeof window !== 'undefined' && window.location) {
+            host = (window.location.hostname && window.location.hostname !== 'localhost') ? window.location.hostname : '127.0.0.1';
+        }
+        if (!host) host = '127.0.0.1';
+        if (!port) port = '8087';
+
+        host = host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+        return `http://${host}:${port}`;
+    }
+
+    /**
      * Built-in password security filter:
      * - Minimum length of 6 characters
      * - Blocks all-identical characters (e.g. 88888888, 00000000)
@@ -266,7 +300,7 @@ class DeviceSetupWizard {
                         </div>
                         <div style="display: flex; gap: 8px; margin-left: 130px; margin-bottom: 10px; flex-wrap: wrap;">
                             <button type="button" class="pill-btn" id="ds-fill-public-proxy" style="font-size: 11.5px; padding: 3px 8px;">🌐 快捷填入公网服务器 (124.222.231.186:8087)</button>
-                            <button type="button" class="pill-btn" id="ds-fill-local-proxy" style="font-size: 11.5px; padding: 3px 8px;">🏠 快捷填入本地服务 (127.0.0.1:8087)</button>
+                            <button type="button" class="pill-btn" id="ds-fill-local-proxy" style="font-size: 11.5px; padding: 3px 8px;">🏠 快捷填入当前服务 IP</button>
                         </div>
                         <div id="ds-hw-password-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 6px;">
                             <label for="ds-hw-password" style="font-size: 13px;">硬件安全密码:</label>
@@ -325,10 +359,10 @@ class DeviceSetupWizard {
 
         if (this.el.fillLocalBtn) {
             this.el.fillLocalBtn.addEventListener('click', () => {
-                const loc = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+                const loc = DeviceSetupWizard.getConfiguredServiceUrl();
                 this.el.proxyUrl.value = loc;
                 this.el.converterUrl.value = loc;
-                this._status('已填入本地服务地址 (127.0.0.1:8087)', 'ok');
+                this._status(`已读取并填入当前设置的服务地址 (${loc})`, 'ok');
             });
         }
 
@@ -405,7 +439,10 @@ class DeviceSetupWizard {
         if (this.el.title) {
             this.el.title.textContent = isSim ? '⚙️ 本地模拟设备初始化配置' : '⚙️ ESP32 设备初始化配置';
         }
-        const defaultLocalProxy = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+        const defaultLocalProxy = DeviceSetupWizard.getConfiguredServiceUrl();
+        if (this.el.fillLocalBtn) {
+            this.el.fillLocalBtn.textContent = `🏠 快捷填入当前服务 IP (${defaultLocalProxy.replace(/^https?:\/\//i, '')})`;
+        }
         if (isSim) {
             this.el.proxyUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
             this.el.converterUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
@@ -416,8 +453,8 @@ class DeviceSetupWizard {
                 this.el.proxyUrl.placeholder = `${pubProxy} (公网加密代理)`;
                 this.el.converterUrl.placeholder = `${pubProxy} (公网加密代理)`;
             } else {
-                this.el.proxyUrl.placeholder = 'http://192.168.1.100:8087';
-                this.el.converterUrl.placeholder = 'http://192.168.1.100:8087';
+                this.el.proxyUrl.placeholder = defaultLocalProxy;
+                this.el.converterUrl.placeholder = defaultLocalProxy;
             }
         }
     }
@@ -480,13 +517,14 @@ class DeviceSetupWizard {
     }
 
     _setDefault() {
+        const configuredSrv = DeviceSetupWizard.getConfiguredServiceUrl();
         let defaultProxy;
         if (this._isSimulator()) {
-            defaultProxy = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            defaultProxy = configuredSrv;
         } else if (DeviceSetupWizard.isPublicWebRepl()) {
             defaultProxy = DeviceSetupWizard.getPublicProxyServer();
         } else {
-            defaultProxy = window.LOCAL_SERVER_BASE || 'http://192.168.1.100:8087';
+            defaultProxy = configuredSrv;
         }
         if (this.el.wifiEnable) {
             this.el.wifiEnable.checked = true;
@@ -638,7 +676,7 @@ class DeviceSetupWizard {
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
-                bootApp: this.existingBootApp || '',
+                bootApp: 'settings',
                 isSimulator: isSim,
                 existingIni: this.existingIniText || '',
             });
@@ -679,7 +717,7 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
-            bootApp = '',
+            bootApp = 'settings',
             existingIni = ''
         } = opts;
 
@@ -757,9 +795,7 @@ class DeviceSetupWizard {
             setSectionKey('channel', 'channel_server', converterUrl);
             setSectionKey('channel', 'proxy_via_channel', '1');
 
-            if (bootApp !== undefined && bootApp !== null) {
-                setSectionKey('system', 'boot_app', bootApp);
-            }
+            setSectionKey('system', 'boot_app', bootApp || 'settings');
 
             return lines.join('\n');
         }
@@ -770,7 +806,7 @@ class DeviceSetupWizard {
             'config_version = 3',
             '',
             '[system]',
-            `boot_app = ${bootApp || ''}`,
+            `boot_app = ${bootApp || 'settings'}`,
             'device_name = 桌面屏',
             'app_storage_kb = 256',
             'button_long_ms = 800',
