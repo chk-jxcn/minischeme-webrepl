@@ -473,6 +473,7 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-MiniScheme-Auth")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
 
     def do_GET(self):
@@ -727,6 +728,7 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
         self.end_headers()
         self.wfile.write(body)
 
@@ -976,7 +978,11 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         elif clean_url.endswith(".css"):
             self.send_header("Content-Type", "text/css; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        headers_buf = b"".join(getattr(self, "_headers_buffer", [])).decode("latin-1", "ignore")
+        if "Access-Control-Allow-Origin:" not in headers_buf:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        if "Access-Control-Allow-Private-Network:" not in headers_buf:
+            self.send_header("Access-Control-Allow-Private-Network", "true")
         super().end_headers()
 
 

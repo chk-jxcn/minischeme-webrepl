@@ -246,19 +246,37 @@ class LocalServerManager {
 
     async _tryEndpoint(baseUrl) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1200);
+        const timer = setTimeout(() => controller.abort(), 2500);
         try {
-            const res = await fetch(`${baseUrl}/api/server_info`, {
-                cache: 'no-store',
-                signal: controller.signal
-            });
-            if (!res.ok) return null;
-            const data = await res.json();
-            if (data && data.success && data.port) {
-                return { ...data, baseUrl };
+            try {
+                const res = await fetch(`${baseUrl}/api/server_info`, {
+                    cache: 'no-store',
+                    signal: controller.signal
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && (data.success || data.status === 'ok')) {
+                        return { ...data, baseUrl };
+                    }
+                }
+            } catch (e) {
+                // fall through to /health
             }
-        } catch (e) {
-            return null;
+
+            try {
+                const res = await fetch(`${baseUrl}/health`, {
+                    cache: 'no-store',
+                    signal: controller.signal
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && (data.status === 'ok' || data.success)) {
+                        return { ...data, baseUrl, proxy_server: true };
+                    }
+                }
+            } catch (e2) {
+                // both failed
+            }
         } finally {
             clearTimeout(timer);
         }
@@ -279,8 +297,12 @@ class LocalServerManager {
         if (fb) {
             fb.hidden = false;
             fb.style.display = 'block';
-            fb.innerHTML = `<span style="color:var(--accent-cyan);">⏳ 正在连接测试 ${targetUrl}/api/server_info ...</span>`;
+            fb.innerHTML = `<span style="color:var(--accent-cyan);">⏳ 正在连接测试 ${targetUrl} ...</span>`;
         }
+
+        const isLoopbackTarget = (host === '127.0.0.1' || host === 'localhost');
+        const currentHostname = window.location.hostname || '';
+        const currentIsNonLoopback = (currentHostname && currentHostname !== '127.0.0.1' && currentHostname !== 'localhost');
 
         const t0 = performance.now();
         const res = await this._tryEndpoint(targetUrl);
@@ -288,11 +310,21 @@ class LocalServerManager {
 
         if (fb) {
             if (res) {
-                fb.innerHTML = `<span style="color:#4ade80; font-weight:600;">✔ 连接成功 (${elapsed} ms)！MiniScheme 服务已就绪</span><br>` +
-                    `<span style="font-size:11.5px; color:var(--text-secondary);">服务地址: ${targetUrl} &nbsp;|&nbsp; 局域网代理: ${res.lan_url || targetUrl}</span>`;
+                const typeLabel = res.proxy_server ? ' (代理/转换器服务)' : ' (完整 WebREPL 服务)';
+                fb.innerHTML = `<span style="color:#4ade80; font-weight:600;">✔ 连接成功 (${elapsed} ms)！MiniScheme 服务已就绪${typeLabel}</span><br>` +
+                    `<span style="font-size:11.5px; color:var(--text-secondary);">服务地址: ${targetUrl} &nbsp;|&nbsp; 协议模式: ${res.protocol_mode || 'both'}</span>`;
             } else {
+                let extraHint = '';
+                if (isLoopbackTarget && currentIsNonLoopback) {
+                    extraHint = `<div style="margin-top:8px; padding:8px 10px; border-radius:6px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.25); color:#fca5a5; font-size:11.5px; text-align:left; line-height:1.5;">` +
+                        `💡 <strong>为什么测试 127.0.0.1 会失败？</strong><br>` +
+                        `您当前是从 <code>${currentHostname}</code> 打开 WebREPL 的。浏览器执行的所有网络请求都在<strong>您当前的客户端设备</strong>（如手机、平板或其他电脑）上发起。<br>` +
+                        `测试 <code>127.0.0.1</code> 访问的是<strong>该客户端自身</strong>，而不是运行 MiniScheme 服务的主机！<br>` +
+                        `👉 <strong>解决方案</strong>：请将主机 IP 改为服务端电脑的局域网 IP（例如：<code>${currentHostname}</code>），或公网服务器 IP <code>124.222.231.186</code>。</div>`;
+                }
                 fb.innerHTML = `<span style="color:#ef4444; font-weight:600;">✖ 连接失败 (${elapsed} ms)</span><br>` +
-                    `<span style="font-size:11.5px; color:var(--text-secondary);">未能连接到 ${targetUrl}。请检查 IP/端口是否正确，或者 server.py / MiniScheme-WebREPL.exe 是否正在运行。</span>`;
+                    `<span style="font-size:11.5px; color:var(--text-secondary);">未能连接到 ${targetUrl}。请检查 IP/端口是否正确，或者 server.py / MiniScheme-WebREPL.exe 是否正在运行。</span>` +
+                    extraHint;
             }
         }
         return res;
