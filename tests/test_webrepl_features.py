@@ -142,6 +142,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertNotIn("editor-disasm-pre", body, "Disassembly should not be shown in Editor UI")
         self.assertNotIn("editor-hex-div", body, "Hex stream should not be shown in Editor UI")
         self.assertNotIn("editor-meta-pages", body, "Fixed pages field should not be in Editor UI")
+        self.assertIn('(wifi-ip)', body, "Quick command (wifi-ip) missing in index.html")
         conn.close()
 
     def test_02_wasm_mime_types(self):
