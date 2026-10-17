@@ -263,11 +263,6 @@ class DeviceSetupWizard {
                         在此设置 WiFi 网络、应用代理服务器地址以及硬件密码。点击<b>“保存并重启”</b>将配置写入目标设备。
                     </div>
 
-                    <!-- Simulator Notice Banner -->
-                    <div id="ds-sim-notice" hidden style="margin-bottom: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #7dd3fc; font-size: 12.5px; line-height: 1.5;">
-                        💻 <b>本地模拟设备模式</b>：模拟设备无需设置 WiFi 与硬件密码，并且<b>只能使用本地代理连接</b>（<code>127.0.0.1</code> / <code>localhost</code> / 局域网 IP），避免对外部服务器造成压力。
-                    </div>
-
                     <!-- WiFi Section -->
                     <div id="ds-wifi-section" class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
                         <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-cyan);">📶 1. WiFi 无线网络设置 [wifi]</h4>
@@ -334,7 +329,6 @@ class DeviceSetupWizard {
             target: q('.ds-target'),
             status: q('.ds-status'),
             introBanner: q('#ds-intro-banner'),
-            simNotice: q('#ds-sim-notice'),
             wifiSection: q('#ds-wifi-section'),
             wifiEnable: q('#ds-wifi-enable'),
             wifiSsid: q('#ds-wifi-ssid'),
@@ -432,7 +426,6 @@ class DeviceSetupWizard {
 
     _updateModeUi() {
         const isSim = this._isSimulator();
-        if (this.el.simNotice) this.el.simNotice.hidden = !isSim;
         if (this.el.wifiSection) this.el.wifiSection.hidden = isSim;
         if (this.el.hwPassRow) this.el.hwPassRow.style.display = isSim ? 'none' : 'grid';
         if (this.el.hwPassHint) this.el.hwPassHint.hidden = isSim;
