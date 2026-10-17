@@ -124,8 +124,11 @@ async function initWasm() {
             const initRet = wasmInstance.exports.wasm_init();
             if (initRet !== 0) {
                 console.error("wasm_init returned error code:", initRet);
-                statusText.textContent = "WASM VM 初始化失败";
-                statusDot.className = "status-indicator offline";
+                if (statusText) statusText.textContent = "WASM VM 初始化失败";
+                if (statusDot) {
+                    statusDot.className = "status-indicator offline";
+                    statusDot.title = "WASM VM 初始化失败";
+                }
                 return;
             }
         }
@@ -147,8 +150,11 @@ async function initWasm() {
         window.syncWasmProxyUrl();
 
         console.log(`MiniScheme Native VM + Scheme Compiler (WASM) ready! (${bytes.byteLength} bytes)`);
-        statusText.textContent = "WASM 原生 VM + Scheme 优化编译器已就绪";
-        statusDot.className = "status-indicator online";
+        if (statusText) statusText.textContent = "WASM 原生 VM + Scheme 优化编译器已就绪";
+        if (statusDot) {
+            statusDot.className = "status-indicator online";
+            statusDot.title = "WASM 原生 VM + Scheme 优化编译器已就绪";
+        }
         // Initialize default vertical resolution 320x480 & ESP32 240MHz speed mode
         setSimulatorResolution(320, 480, true);
         if (wasmInstance.exports.wasm_set_cpu_speed_mode) {
@@ -208,8 +214,11 @@ async function initWasm() {
 
     } catch (e) {
         console.error("Failed to load minischeme_vm.wasm:", e);
-        statusText.textContent = "WASM 模块加载失败";
-        statusDot.className = "status-indicator offline";
+        if (statusText) statusText.textContent = "WASM 模块加载失败";
+        if (statusDot) {
+            statusDot.className = "status-indicator offline";
+            statusDot.title = `WASM 模块加载失败: ${e.message}`;
+        }
         appendTerminalLine("error", `❌ 无法加载 minischeme_vm.wasm: ${e.message}`);
     }
 }
@@ -379,7 +388,7 @@ async function bootWasmDevice(why, firstBoot = false) {
     const ex = wasmInstance && wasmInstance.exports;
     if (!ex) return;
     if (!ex.wasm_reboot) {
-        await bootBundledApp();
+        await bootBundledApp('', 'calendar');
         return;
     }
     stopPcMonitor();
@@ -391,10 +400,10 @@ async function bootWasmDevice(why, firstBoot = false) {
     }
     if (r === '') {
         if (firstBoot) {
-            await bootBundledApp();
+            await bootBundledApp('', 'calendar');
             return;
         }
-        await bootBundledApp(`${why}: 未安装应用，显示内置设置界面；`);
+        await bootBundledApp(`${why}: 未安装应用，显示万年历；`, 'calendar');
         return;
     }
     pumpDisplay();
@@ -405,7 +414,7 @@ async function bootWasmDevice(why, firstBoot = false) {
     }
     if (r.startsWith('Error:')) {
         appendTerminalLine('error', `${why}: 开机应用启动失败: ${r}`);
-        await bootBundledApp(`${why}: 改为`);
+        await bootBundledApp(`${why}: 改为`, 'calendar');
         return;
     }
     appActive = true;
@@ -1139,19 +1148,26 @@ if (simLightRemote) {
 // Quick Toolbar Actions & Application Loaders
 // =========================================================================
 
-/* The bundled app (the system settings, the interface the firmware embeds): booted
+/* The bundled app (the system settings or calendar): booted
  * on the WASM device with its app loop, or sent to the linked board */
-async function bootBundledApp(prefix = '') {
+async function bootBundledApp(prefix = '', preferredApp = 'calendar') {
     stopPcMonitor();
     try {
-        let res = await fetch('apps/settings.msbc', { cache: 'no-store' });
-        if (!res.ok) {
-            res = await fetch('settings.msbc', { cache: 'no-store' });
+        const candidates = preferredApp === 'calendar'
+            ? ['apps/calendar.msbc', 'calendar.msbc', 'apps/settings.msbc', 'settings.msbc', 'apps/settings/app.msbc']
+            : ['apps/settings.msbc', 'settings.msbc', 'apps/calendar.msbc', 'calendar.msbc', 'apps/settings/app.msbc'];
+        let res = null;
+        let chosen = '';
+        for (const path of candidates) {
+            try {
+                res = await fetch(path, { cache: 'no-store' });
+                if (res && res.ok) {
+                    chosen = path;
+                    break;
+                }
+            } catch (e) {}
         }
-        if (!res.ok) {
-            res = await fetch('apps/settings/app.msbc', { cache: 'no-store' });
-        }
-        if (!res.ok) throw new Error(`settings.msbc: HTTP ${res.status}`);
+        if (!res || !res.ok) throw new Error(`No bundled app found: HTTP ${res ? res.status : 'fetch failed'}`);
         const bytes = new Uint8Array(await res.arrayBuffer());
         if (activeLink) {
             await installOnDevice(bytes, 'app.msbc');
@@ -1159,9 +1175,10 @@ async function bootBundledApp(prefix = '') {
         }
         const r = startAppOnWasmDevice(bytes);
         if (r.startsWith('Error:')) throw new Error(r);
-        appendTerminalLine('output', `=> ${prefix}已启动内置系统设置 (${bytes.length} 字节): ${r}`);
+        const name = chosen.includes('calendar') ? '万年历' : '内置系统设置';
+        appendTerminalLine('output', `=> ${prefix}已启动${name} (${bytes.length} 字节): ${r}`);
     } catch (e) {
-        appendTerminalLine('error', `启动内置系统设置失败: ${e.message || e}`);
+        appendTerminalLine('error', `启动应用失败: ${e.message || e}`);
     }
 }
 
@@ -1309,6 +1326,14 @@ function readAppImageId(bytes) {
 /* Boot an app image on the WASM device and run its loop, as after a reboot */
 function startAppOnWasmDevice(bytes) {
     stopPcMonitor();
+    const appId = readAppImageId(bytes);
+    if (appId === 'pcmonitor') {
+        setSimulatorResolution(480, 320);
+        if (simResolutionSelect) simResolutionSelect.value = '480x320';
+    } else if (appId && appId !== 'custom') {
+        setSimulatorResolution(320, 480);
+        if (simResolutionSelect) simResolutionSelect.value = '320x480';
+    }
     const r = bootAppOnWasmDevice(bytes);
     if (r.startsWith('Error:')) return r;
     appActive = true;

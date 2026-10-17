@@ -24,6 +24,7 @@
                 </select>
             </div>
             <span class="status-indicator online" id="status-dot"></span>
+            <span id="device-status-text" style="display:none;"></span>
             <button class="pill-btn highlight" id="btn-local-server" title="设置后端服务连接 (IP / 端口 / 本地 EXE 服务端)">⚙️ 后端设置</button>
         </div>
     </header>
@@ -264,7 +265,7 @@
                 </div>
 
                 <!-- 虚拟屏幕外壳与 LCD 屏幕 (默认 320x480 竖屏) -->
-                <div class="lcd-enclosure" id="lcd-enclosure">
+                <div class="lcd-enclosure portrait" id="lcd-enclosure">
                     <div class="lcd-bezel-top">
                         <span class="lcd-brand" id="lcd-brand-text" title="当前连接目标">WASM emulator</span>
                     </div>

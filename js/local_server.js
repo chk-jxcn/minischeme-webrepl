@@ -175,7 +175,19 @@ class LocalServerManager {
 
     async registerSimulator(uuid) {
         if (!uuid) return;
-        const targetBase = window.LOCAL_SERVER_BASE || (window.location.origin && window.location.origin.startsWith('http') ? window.location.origin : 'http://127.0.0.1:8087');
+        let targetBase = window.LOCAL_SERVER_BASE;
+        if (!targetBase) {
+            const savedHost = (localStorage.getItem('webrepl_server_host') || '').trim();
+            const savedPort = (localStorage.getItem('webrepl_server_port') || '').trim();
+            if (savedHost) {
+                const cleanHost = savedHost.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+                targetBase = `http://${cleanHost}:${savedPort || '8087'}`;
+            } else if (window.location.hostname && !window.location.hostname.includes('github.io') && window.location.protocol.startsWith('http')) {
+                // When hosted directly by local server.py / MiniScheme-WebREPL.exe
+                targetBase = window.location.origin;
+            }
+        }
+        if (!targetBase) return; // Avoid POSTing to static hosts like GitHub Pages
         try {
             await fetch(`${targetBase}/api/user/sim_register`, {
                 method: 'POST',
@@ -559,6 +571,11 @@ class LocalServerManager {
 
             if (typeof window.syncWasmProxyUrl === 'function') {
                 window.syncWasmProxyUrl(window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087');
+            }
+
+            if (found && found.baseUrl) {
+                const simUuid = localStorage.getItem('minischeme_sim_uuid');
+                if (simUuid) this.registerSimulator(simUuid);
             }
 
             this._updateUI();
