@@ -100,6 +100,16 @@
   (and (>= (string-length s) (string-length prefix))
        (string=? (substring s 0 (string-length prefix)) prefix)))
 
+(define (str-contains? s sub)
+  (let ((n (string-length s)) (m (string-length sub)))
+    (if (> m n)
+        #f
+        (let loop ((i 0))
+          (cond
+            ((> (+ i m) n) #f)
+            ((string=? (substring s i (+ i m)) sub) #t)
+            (else (loop (+ i 1))))))))
+
 ;; Percent-encodes a query value byte by byte (strings are UTF-8 bytes)
 (define (url-encode s)
   (let ((hex "0123456789ABCDEF") (n (string-length s)))
@@ -373,6 +383,25 @@
       (if (and app-subtitle-proc items) (app-subtitle-proc items) #f)
       (vector-ref (app-cur) 0)))
 
+(define (app-demo-data? items)
+  (and (pair? items)
+       (or (items-find items "demo")
+           (let ((loc (items-find items "loc")))
+             (and loc (or (string=? (it-b loc) "MiniScheme-Proxy")
+                          (string=? (it-b loc) "和风天气(回退)")
+                          (str-contains? (it-b loc) "演示")))))))
+
+(define (app-header-title items)
+  (let ((t-it (items-find items "title")))
+    (cond
+      ((and t-it (not (str-empty? (it-a t-it))))
+       (it-a t-it))
+      ((app-demo-data? items)
+       (if (str-contains? app-title "【演示数据】")
+           app-title
+           (string-append app-title "【演示数据】")))
+      (else app-title))))
+
 ;; 2 px per second, 1 px for pages shown longer than 30 s (at most 90 px)
 (define (carousel-px secs) (if (> secs 30) 1 2))
 (define (carousel-bar-w secs) (min 90 (* secs (carousel-px secs))))
@@ -405,8 +434,10 @@
         (begin
           (gui-round-rect badge 5 iw 22 6 theme-accent-dark #t)
           (txt (+ badge 6) 8 ind theme-accent)))
-    (let ((sub (app-header-sub items)) (title-w (txt-w app-title)))
-      (txt-fit 8 8 (- right 14) app-title theme-text-main)
+    (let* ((title (app-header-title items))
+           (sub (app-header-sub items))
+           (title-w (txt-w title)))
+      (txt-fit 8 8 (- right 14) title theme-text-main)
       (if (and (not (str-empty? sub)) (< (+ 8 title-w 10) (- right 20)))
           (txt-fit (+ 8 title-w 10) 8 (- right 14 title-w 10) sub theme-accent)))))
 

@@ -9,9 +9,9 @@
   "kind": "app",
   "web": true,
   "file": "album.msbc",
-  "size": 55481,
+  "size": 56300,
   "scm": "album.allinone.scm",
-  "hash": "630f9e2a"
+  "hash": "c97f4c7f"
  },
  {
   "id": "calendar",
@@ -23,9 +23,9 @@
   "kind": "app",
   "web": false,
   "file": "calendar.msbc",
-  "size": 49842,
+  "size": 50661,
   "scm": "calendar.allinone.scm",
-  "hash": "f0e59aeb"
+  "hash": "02f7eed0"
  },
  {
   "id": "crypto",
@@ -37,9 +37,9 @@
   "kind": "app",
   "web": false,
   "file": "crypto.msbc",
-  "size": 40158,
+  "size": 40977,
   "scm": "crypto.allinone.scm",
-  "hash": "b0bfcbb6"
+  "hash": "6b95c5eb"
  },
  {
   "id": "futures",
@@ -51,9 +51,9 @@
   "kind": "app",
   "web": false,
   "file": "futures.msbc",
-  "size": 40191,
+  "size": 41010,
   "scm": "futures.allinone.scm",
-  "hash": "89739d51"
+  "hash": "699a7c26"
  },
  {
   "id": "memo",
@@ -65,9 +65,9 @@
   "kind": "app",
   "web": true,
   "file": "memo.msbc",
-  "size": 50116,
+  "size": 50935,
   "scm": "memo.allinone.scm",
-  "hash": "0628161c"
+  "hash": "cba9908e"
  },
  {
   "id": "news",
@@ -79,9 +79,9 @@
   "kind": "app",
   "web": false,
   "file": "news.msbc",
-  "size": 38353,
+  "size": 39172,
   "scm": "news.allinone.scm",
-  "hash": "6723c51f"
+  "hash": "c61beb8e"
  },
  {
   "id": "notifier",
@@ -93,9 +93,9 @@
   "kind": "app",
   "web": true,
   "file": "notifier.msbc",
-  "size": 52107,
+  "size": 52926,
   "scm": "notifier.allinone.scm",
-  "hash": "468c8dad"
+  "hash": "00d22b20"
  },
  {
   "id": "pcmonitor",
@@ -121,9 +121,9 @@
   "kind": "system",
   "web": false,
   "file": "settings.msbc",
-  "size": 30332,
+  "size": 30437,
   "scm": "settings.allinone.scm",
-  "hash": "4644296d"
+  "hash": "5e1680fb"
  },
  {
   "id": "stocks",
@@ -135,9 +135,9 @@
   "kind": "app",
   "web": false,
   "file": "stocks.msbc",
-  "size": 42798,
+  "size": 43617,
   "scm": "stocks.allinone.scm",
-  "hash": "f04d6f1e"
+  "hash": "d60a24d9"
  },
  {
   "id": "usage",
@@ -149,9 +149,9 @@
   "kind": "app",
   "web": false,
   "file": "usage.msbc",
-  "size": 43579,
+  "size": 44398,
   "scm": "usage.allinone.scm",
-  "hash": "0c2a02f4"
+  "hash": "d4cec9a7"
  },
  {
   "id": "weather",
@@ -163,9 +163,9 @@
   "kind": "app",
   "web": false,
   "file": "weather.msbc",
-  "size": 50223,
+  "size": 51042,
   "scm": "weather.allinone.scm",
-  "hash": "2e49ffcd"
+  "hash": "7269d316"
  },
  {
   "id": "wxpusher",
@@ -177,8 +177,8 @@
   "kind": "app",
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 55441,
+  "size": 56260,
   "scm": "wxpusher.allinone.scm",
-  "hash": "0dfe1a6c"
+  "hash": "be6a9f15"
  }
 ]

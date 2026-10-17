@@ -362,6 +362,10 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("day", types)
         self.assertIn("hours", types)
         self.assertIn("idx", types)
+        # When token is invalid or unauthenticated, fallback weather must indicate demo data
+        self.assertTrue(data.get("is_demo"))
+        self.assertEqual(data.get("title"), "天气【演示数据】")
+        self.assertIn("demo", types)
         conn.close()
 
     def test_09b_market_endpoints(self):
