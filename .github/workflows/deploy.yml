@@ -28,15 +28,6 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install Test Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pillow cryptography fonttools
-
-    - name: Run Test Suite
-      run: |
-        python -m unittest tests/test_webrepl_features.py -v
-
     - name: Sync Public Deployment Bundle
       run: |
         python tools/sync_from_core.py

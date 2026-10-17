@@ -283,6 +283,101 @@ class LocalServerManager {
         return null;
     }
 
+    showMixedContentModal(targetUrl) {
+        let modal = document.getElementById('mixed-content-modal');
+        if (!modal) {
+            modal = document.createElement('dialog');
+            modal.id = 'mixed-content-modal';
+            modal.className = 'modal-dialog flasher-modal';
+            modal.style.maxWidth = '580px';
+            modal.style.border = '1px solid rgba(245, 158, 11, 0.4)';
+            modal.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.6)';
+            modal.innerHTML = `
+                <div class="modal-header" style="border-bottom:1px solid rgba(245,158,11,0.25); padding:12px 16px;">
+                    <h3 style="display:flex; align-items:center; gap:8px; color:#fbbf24; font-size:15px; margin:0;">
+                        <span>🛡️</span> 浏览器混合内容 (Mixed Content) 拦截提示与解除指引
+                    </h3>
+                    <button class="modal-close-btn" id="mixed-content-close-btn" style="background:none; border:none; font-size:20px; color:var(--text-secondary); cursor:pointer;">&times;</button>
+                </div>
+                <div class="modal-body" style="padding:16px 20px; font-size:12.5px; line-height:1.6; color:var(--text-primary);">
+                    <div style="background:rgba(245,158,11,0.12); border-left:4px solid #f59e0b; padding:10px 14px; border-radius:4px; margin-bottom:14px;">
+                        <b>为什么会提示 (blocked:mixed-content)？</b><br>
+                        您当前正通过安全协议 (<b>HTTPS</b>) 访问 WebREPL，而测试的目标服务器 (<code id="mixed-content-target-text">${targetUrl}</code>) 为 <b>HTTP</b> 协议。<br>
+                        现代浏览器出于传输安全机制，<b>默认拦截</b> HTTPS 网页向 HTTP 接口发起的所有数据通信。
+                    </div>
+
+                    <div style="font-weight:700; color:var(--accent-cyan); margin-bottom:6px; font-size:13.5px;">
+                        👉 方案一：在浏览器中允许本站加载不安全内容（仅需开启一次）
+                    </div>
+                    <div style="margin-bottom:14px; padding-left:4px;">
+                        <ol style="margin:4px 0 0 18px; padding:0; line-height:1.8;">
+                            <li>点击浏览器顶部地址栏最左侧的 <b>站点控制图标</b>（🔒 锁形图标 或 ⚙️ 调谐设置图标）。</li>
+                            <li>在展开的弹出菜单中，点击 <b>「网站设置」(Site settings)</b> 或 <b>「权限」</b>。</li>
+                            <li>在权限列表中找到 <b>「不安全内容」(Insecure content)</b>。</li>
+                            <li>将右侧状态从 <b>「屏蔽 (默认)」</b> 修改为 <b>「允许」(Allow)</b>。</li>
+                            <li>修改后返回本页面，按 <b>F5 刷新页面</b>，即可畅通测试与连接！</li>
+                        </ol>
+                        <div style="margin-top:6px; font-size:11.5px; color:var(--text-secondary);">
+                            💡 提示：在部分 Chrome/Edge 浏览器中，地址栏右侧也会直接出现带有红叉的“已拦截不安全脚本”盾牌图标，点击后可直接选择“允许加载不安全脚本”。
+                        </div>
+                    </div>
+
+                    <div style="font-weight:700; color:var(--accent-cyan); margin-bottom:6px; font-size:13.5px;">
+                        👉 方案二：在新标签页直接验证公网服务是否正常
+                    </div>
+                    <div style="margin-bottom:14px; padding-left:4px;">
+                        浏览器独立新标签页不受混合内容限制。您可以点击下方按钮直接访问公网测试接口：
+                        <div style="margin-top:8px;">
+                            <a id="mixed-content-link-btn" href="${targetUrl}/health" target="_blank" rel="noopener" class="action-btn highlight" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:6px 14px; font-size:12.5px;">
+                                🌐 在新标签页打开 ${targetUrl}/health
+                            </a>
+                        </div>
+                    </div>
+
+                    <div style="font-weight:700; color:var(--accent-cyan); margin-bottom:6px; font-size:13.5px;">
+                        👉 方案三：使用本地桌面客户端 (无任何混合内容限制)
+                    </div>
+                    <div style="padding-left:4px; font-size:12px; color:var(--text-secondary);">
+                        使用下方“方式一”下载的 <b>MiniScheme-WebREPL.exe</b> 桌面客户端，页面本身运行在本地 HTTP (127.0.0.1) 下，连接任何本地或公网 HTTP 服务均开箱即用，无任何拦截。
+                    </div>
+
+                    <div style="margin-top:16px; text-align:right;">
+                        <button class="pill-btn highlight" id="mixed-content-ok-btn" style="padding:6px 20px;">我知道了</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.close();
+            });
+            const closeBtn = modal.querySelector('#mixed-content-close-btn');
+            if (closeBtn) closeBtn.addEventListener('click', () => modal.close());
+            const okBtn = modal.querySelector('#mixed-content-ok-btn');
+            if (okBtn) okBtn.addEventListener('click', () => modal.close());
+        } else {
+            const linkBtn = modal.querySelector('#mixed-content-link-btn');
+            if (linkBtn) {
+                linkBtn.href = `${targetUrl}/health`;
+                linkBtn.textContent = `🌐 在新标签页打开 ${targetUrl}/health`;
+            }
+            const targetText = modal.querySelector('#mixed-content-target-text');
+            if (targetText) {
+                targetText.textContent = targetUrl;
+            }
+        }
+
+        try {
+            if (typeof modal.showModal === 'function') {
+                modal.showModal();
+            } else {
+                modal.hidden = false;
+            }
+        } catch (e) {
+            modal.hidden = false;
+        }
+    }
+
     async testConnection() {
         const hostInput = document.getElementById('server-host-input');
         const portInput = document.getElementById('server-port-input');
@@ -303,6 +398,9 @@ class LocalServerManager {
         const isLoopbackTarget = (host === '127.0.0.1' || host === 'localhost');
         const currentHostname = window.location.hostname || '';
         const currentIsNonLoopback = (currentHostname && currentHostname !== '127.0.0.1' && currentHostname !== 'localhost');
+        const isHttpsPage = (window.location.protocol === 'https:');
+        const isHttpTarget = targetUrl.startsWith('http://');
+        const isMixedContentBlocked = isHttpsPage && isHttpTarget;
 
         const t0 = performance.now();
         const res = await this._tryEndpoint(targetUrl);
@@ -315,16 +413,42 @@ class LocalServerManager {
                     `<span style="font-size:11.5px; color:var(--text-secondary);">服务地址: ${targetUrl} &nbsp;|&nbsp; 协议模式: ${res.protocol_mode || 'both'}</span>`;
             } else {
                 let extraHint = '';
-                if (isLoopbackTarget && currentIsNonLoopback) {
+                if (isMixedContentBlocked) {
+                    extraHint = `
+                    <div style="margin-top:10px; padding:10px 12px; border-radius:8px; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#fef3c7; font-size:12px; text-align:left; line-height:1.6;">
+                        <div style="font-weight:700; color:#fbbf24; display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                            <span>🛡️</span> 浏览器阻止了混合内容 (Blocked Mixed Content)
+                        </div>
+                        <div>当前页面通过 <b>HTTPS</b> 访问，测试的目标服务为 <b>HTTP</b> (<code>${targetUrl}</code>)。现代浏览器默认拦截此类跨协议请求。</div>
+                        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="pill-btn highlight" id="btn-show-mixed-content-guide" style="padding:4px 10px; font-size:11.5px; cursor:pointer;">
+                                📖 允许访问不安全内容指引
+                            </button>
+                            <a href="${targetUrl}/health" target="_blank" rel="noopener" class="pill-btn" style="padding:4px 10px; font-size:11.5px; text-decoration:none; color:inherit; display:inline-flex; align-items:center; gap:4px;">
+                                🔗 在新标签页直接打开测试
+                            </a>
+                        </div>
+                    </div>`;
+                } else if (isLoopbackTarget && currentIsNonLoopback) {
                     extraHint = `<div style="margin-top:8px; padding:8px 10px; border-radius:6px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.25); color:#fca5a5; font-size:11.5px; text-align:left; line-height:1.5;">` +
                         `💡 <strong>为什么测试 127.0.0.1 会失败？</strong><br>` +
                         `您当前是从 <code>${currentHostname}</code> 打开 WebREPL 的。浏览器执行的所有网络请求都在<strong>您当前的客户端设备</strong>（如手机、平板或其他电脑）上发起。<br>` +
                         `测试 <code>127.0.0.1</code> 访问的是<strong>该客户端自身</strong>，而不是运行 MiniScheme 服务的主机！<br>` +
                         `👉 <strong>解决方案</strong>：请将主机 IP 改为服务端电脑的局域网 IP（例如：<code>${currentHostname}</code>），或公网服务器 IP <code>124.222.231.186</code>。</div>`;
                 }
+
                 fb.innerHTML = `<span style="color:#ef4444; font-weight:600;">✖ 连接失败 (${elapsed} ms)</span><br>` +
-                    `<span style="font-size:11.5px; color:var(--text-secondary);">未能连接到 ${targetUrl}。请检查 IP/端口是否正确，或者 server.py / MiniScheme-WebREPL.exe 是否正在运行。</span>` +
+                    `<span style="font-size:11.5px; color:var(--text-secondary);">未能连接到 ${targetUrl}。` +
+                    (isMixedContentBlocked ? '已受浏览器混合内容安全策略拦截。' : '请检查 IP/端口是否正确，或者 server.py / MiniScheme-WebREPL.exe 是否正在运行。') + `</span>` +
                     extraHint;
+
+                if (isMixedContentBlocked) {
+                    const btnGuide = document.getElementById('btn-show-mixed-content-guide');
+                    if (btnGuide) {
+                        btnGuide.addEventListener('click', () => this.showMixedContentModal(targetUrl));
+                    }
+                    this.showMixedContentModal(targetUrl);
+                }
             }
         }
         return res;
@@ -515,12 +639,15 @@ class LocalServerManager {
                 btnHeader.title = `未能连接到指定服务 ${customUrl}，点击检查或重新配置`;
             }
             if (statusBox) {
+                const isMixedWarning = (window.location.protocol === 'https:' && customUrl.startsWith('http://'));
                 statusBox.innerHTML =
                     `<div style="color:#ef4444; font-weight:600; margin-bottom:4px;">` +
                     `🔴 无法连接到配置的后端服务 (${customUrl})` +
                     `</div>` +
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
-                    `请检查 IP 与端口是否填写正确，并确保该机器上的 server.py 或 MiniScheme-WebREPL.exe 正在运行。` +
+                    (isMixedWarning
+                        ? `当前运行在 HTTPS 安全连接下，该 HTTP 接口可能已被浏览器混合内容安全策略拦截。可点击下方“测试连接”查看解除拦截指引，或在新标签页直接打开。`
+                        : `请检查 IP 与端口是否填写正确，并确保该机器上的 server.py 或 MiniScheme-WebREPL.exe 正在运行。`) +
                     `</div>`;
             }
             if (btnJump) {
