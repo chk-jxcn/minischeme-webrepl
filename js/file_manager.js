@@ -501,7 +501,7 @@ class FileManager {
     async _delete(path) {
         const name = fmBaseName(path);
         let warn = '';
-        if (name === 'app.msbc' || name === 'app.fasl') warn = '\n删除后，下次开机会重新安装固件内嵌的应用。';
+        if (name === 'app.msbc' || name === 'app.fasl') warn = '\n删除后，下次开机若未安装其他应用将显示内置设置界面。';
         if (name === 'config.ini') warn = '\n删除后，下次开机会按模板重新生成默认配置。';
         if (!confirm(`删除 ${name}？${warn}`)) return;
         const ok = await this._run(`删除 ${name}…`, async () => {

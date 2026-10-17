@@ -157,7 +157,8 @@ class DeviceSetupWizard {
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center;">
                             <label for="ds-boot-app" style="font-size: 13px;">启动应用:</label>
                             <select id="ds-boot-app" class="mode-dropdown" style="width: 100%; padding: 6px 10px;">
-                                <option value="apps/calendar/app.msbc" selected>万年历 (Calendar - 默认自带)</option>
+                                <option value="" selected>内置系统设置 (Settings - 默认)</option>
+                                <option value="apps/calendar/app.msbc">万年历 (Calendar)</option>
                                 <option value="apps/weather/app.msbc">天气预报 (Weather)</option>
                                 <option value="apps/stocks/app.msbc">股票行情 (Stocks)</option>
                                 <option value="apps/news/app.msbc">热点新闻 (News)</option>
@@ -168,7 +169,7 @@ class DeviceSetupWizard {
                                 <option value="apps/album/app.msbc">电子相册 (Album)</option>
                                 <option value="apps/usage/app.msbc">Token 用量 (Usage)</option>
                                 <option value="apps/pcmonitor/app.msbc">PC 监视器 (PC Monitor)</option>
-                                <option value="apps/settings/app.msbc">系统设置 (Settings)</option>
+                                <option value="apps/settings/app.msbc">系统设置独立版 (Settings)</option>
                             </select>
                         </div>
                     </div>

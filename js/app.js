@@ -375,7 +375,7 @@ async function bootWasmDevice(why, firstBoot = false) {
             await bootBundledApp();
             return;
         }
-        await bootBundledApp(`${why}: 未安装开机应用，`);
+        await bootBundledApp(`${why}: 未安装应用，显示内置设置界面；`);
         return;
     }
     pumpDisplay();
@@ -1120,19 +1120,25 @@ if (simLightRemote) {
 // Quick Toolbar Actions & Application Loaders
 // =========================================================================
 
-/* The bundled app.msbc (the calendar, the image the firmware embeds): booted
+/* The bundled app (the system settings, the interface the firmware embeds): booted
  * on the WASM device with its app loop, or sent to the linked board */
 async function bootBundledApp(prefix = '') {
     stopPcMonitor();
     try {
-        let res = await fetch('apps/calendar.msbc', { cache: 'no-store' });
+        let res = await fetch('apps/settings.msbc', { cache: 'no-store' });
+        if (!res.ok) {
+            res = await fetch('settings.msbc', { cache: 'no-store' });
+        }
+        if (!res.ok) {
+            res = await fetch('apps/calendar.msbc', { cache: 'no-store' });
+        }
         if (!res.ok) {
             res = await fetch('app.msbc', { cache: 'no-store' });
         }
         if (!res.ok) {
             res = await fetch('apps/app.msbc', { cache: 'no-store' });
         }
-        if (!res.ok) throw new Error(`app.msbc: HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`settings.msbc: HTTP ${res.status}`);
         const bytes = new Uint8Array(await res.arrayBuffer());
         if (activeLink) {
             await installOnDevice(bytes, 'app.msbc');
@@ -1140,9 +1146,9 @@ async function bootBundledApp(prefix = '') {
         }
         const r = startAppOnWasmDevice(bytes);
         if (r.startsWith('Error:')) throw new Error(r);
-        appendTerminalLine('output', `=> ${prefix}已启动自带的万年历 app.msbc (${bytes.length} 字节，与固件内置的同一字节码): ${r}`);
+        appendTerminalLine('output', `=> ${prefix}已启动内置系统设置 (${bytes.length} 字节): ${r}`);
     } catch (e) {
-        appendTerminalLine('error', `启动自带的万年历失败: ${e.message || e}`);
+        appendTerminalLine('error', `启动内置系统设置失败: ${e.message || e}`);
     }
 }
 
