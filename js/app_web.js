@@ -188,18 +188,15 @@ class AppWebPanel {
                     <!-- Tab 3: 应用配置 -->
                     <div class="aw-pane" id="aw-pane-config" hidden>
                         <section class="aw-section">
-                            <h3 class="aw-sec-title" id="aw-cfg-app-title">📝 当前应用参数配置</h3>
-                            <div style="margin-bottom: 10px;">
-                                <label style="display:flex; flex-direction:row; align-items:center; gap:8px;">
-                                    <span>选择配置应用:</span>
-                                    <select id="aw-cfg-app-select" style="max-width:240px;"></select>
-                                </label>
+                            <h3 class="aw-sec-title" id="aw-cfg-runhead">▶ 正在运行的应用</h3>
+                            <div id="aw-cfg-runcfg">读取中...</div>
+                        </section>
+                        <section class="aw-section">
+                            <h3 class="aw-sec-title">📦 其他应用配置</h3>
+                            <div style="color:var(--text-secondary); font-size:12px; margin-bottom:10px;">
+                                点“配置”展开该应用的配置项和配置文件；每个应用拥有独立卡片。保存后，应用下次启动或重启时生效。
                             </div>
-                            <div id="aw-cfg-app-form">读取中...</div>
-                            <div style="margin-top: 14px; display:flex; gap:10px; align-items:center;">
-                                <button class="pill-btn highlight" id="aw-cfg-save-btn">💾 保存应用配置</button>
-                                <span id="aw-cfg-save-status" style="font-size: 13px;"></span>
-                            </div>
+                            <div id="aw-cfg-othercfg">读取中...</div>
                         </section>
                     </div>
 
@@ -255,10 +252,9 @@ class AppWebPanel {
             sysRawIni: root.querySelector('#aw-sys-raw-ini'),
             sysSaveRawBtn: root.querySelector('#aw-sys-save-raw-btn'),
             // App config tab elements
-            cfgAppSelect: root.querySelector('#aw-cfg-app-select'),
-            cfgAppForm: root.querySelector('#aw-cfg-app-form'),
-            cfgSaveBtn: root.querySelector('#aw-cfg-save-btn'),
-            cfgSaveStatus: root.querySelector('#aw-cfg-save-status'),
+            cfgRunHead: root.querySelector('#aw-cfg-runhead'),
+            cfgRunBox: root.querySelector('#aw-cfg-runcfg'),
+            cfgOtherBox: root.querySelector('#aw-cfg-othercfg'),
             // Manage tab
             manageAppsList: root.querySelector('#aw-manage-apps-list'),
             // Info tab
@@ -307,13 +303,16 @@ class AppWebPanel {
             this.el.sysSaveRawBtn.addEventListener('click', () => this.saveRawConfigIni());
         }
 
-        // App config select
-        if (this.el.cfgAppSelect) {
-            this.el.cfgAppSelect.addEventListener('change', () => this.renderAppConfigForm());
-        }
-
-        if (this.el.cfgSaveBtn) {
-            this.el.cfgSaveBtn.addEventListener('click', () => this.saveAppConfig());
+        // App config events delegation
+        if (this.el.cfgOtherBox) {
+            this.el.cfgOtherBox.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-cfg-act="toggle"]');
+                if (btn) {
+                    const k = btn.dataset.key;
+                    const a = this.configApps && this.configApps.find(x => (x.key === k || x.id === k));
+                    if (a) this.openAppConfig(a);
+                }
+            });
         }
     }
 
@@ -701,73 +700,406 @@ class AppWebPanel {
         }
     }
 
-    loadConfigTab() {
-        const files = this._fsList();
-        const appFiles = files.filter(f => f.path.startsWith('apps/') || f.path.startsWith('/spiffs/apps/'));
-        const appIds = new Set();
-        appFiles.forEach(f => {
-            const m = f.path.match(/apps\/([a-zA-Z0-9_-]+)/);
-            if (m) appIds.add(m[1]);
-        });
-        if (appIds.size === 0) {
-            appIds.add('weather');
-            appIds.add('news');
-            appIds.add('stocks');
-        }
-
-        if (this.el.cfgAppSelect) {
-            this.el.cfgAppSelect.innerHTML = Array.from(appIds).map(id => `<option value="${id}">${id}</option>`).join('');
-        }
-        this.renderAppConfigForm();
+    _cfgId(key) {
+        return String(key || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     }
 
-    renderAppConfigForm() {
-        const appId = this.el.cfgAppSelect ? this.el.cfgAppSelect.value : 'weather';
-        if (this.el.cfgAppForm) {
-            if (appId === 'weather') {
-                this.el.cfgAppForm.innerHTML = `
-                    <div class="aw-grid-2">
-                        <label>城市位置 (location)
-                            <input type="text" id="aw-cfg-weather-loc" value="auto" placeholder="auto 或 城市名(如 深圳) 或 经度,纬度">
-                        </label>
-                        <label>和风天气 Token (qweather_token)
-                            <input type="text" id="aw-cfg-weather-token" value="" placeholder="和风 API Token/Key (每个硬件独立配置，代理端不存储)">
-                        </label>
-                        <label>和风 API Host (qweather_host)
-                            <input type="text" id="aw-cfg-weather-host" value="" placeholder="留空默认 devapi.qweather.com">
-                        </label>
-                        <label>自动翻页 (carousel)
-                            <select id="aw-cfg-weather-car">
-                                <option value="0" selected>关闭 (0)</option>
-                                <option value="1">开启 (1)</option>
-                            </select>
-                        </label>
-                        <label>每页秒数 (carousel_seconds)
-                            <input type="text" id="aw-cfg-weather-secs" value="10" placeholder="如 10 或 15,10,10">
-                        </label>
-                    </div>`;
-            } else {
-                this.el.cfgAppForm.innerHTML = `
-                    <div class="aw-grid-2">
-                        <label>自动翻页 (carousel)
-                            <select id="aw-cfg-generic-car">
-                                <option value="0" selected>关闭 (0)</option>
-                                <option value="1">开启 (1)</option>
-                            </select>
-                        </label>
-                        <label>每页秒数 (carousel_seconds)
-                            <input type="text" id="aw-cfg-generic-secs" value="10" placeholder="10">
-                        </label>
-                    </div>`;
+    _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    }
+
+    _extractMeta(bytes) {
+        if (!bytes || bytes.length < 16) return '';
+        const n = bytes.length;
+        if (String.fromCharCode(...bytes.subarray(n - 4)) !== 'MSMD') return '';
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, n);
+        const len = dv.getUint32(n - 12, true);
+        if (len === 0 || len > n - 12) return '';
+        const metaBytes = bytes.subarray(n - 12 - len, n - 12);
+        return new TextDecoder('utf-8').decode(metaBytes);
+    }
+
+    _renderFieldHtml(p, f, value) {
+        if ((f.key === 'proxy_url' && value === 'http://proxy.local:8087') ||
+            (f.key === 'converter_url' && value === 'http://converter.local:8087')) {
+            value = '';
+        }
+        const id = `${p}-${f.key}`;
+        const help = f.help ? `<div style="color:var(--text-secondary); font-size:11.5px; margin-top:2px;">${this._esc(f.help)}</div>` : '';
+        if (f.type === 'bool') {
+            const on = value === '1' || value === 'true' || value === 'on';
+            return `<div style="margin:8px 0 4px;">
+                <label style="display:flex; flex-direction:row; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="checkbox" id="${id}"${on ? ' checked' : ''} style="width:16px; height:16px; accent-color:var(--accent-cyan); cursor:pointer;">
+                    <span style="font-size:13px; font-weight:500; color:#fff;">${this._esc(f.label)}</span>
+                </label>${help}
+            </div>`;
+        }
+        let input;
+        if (f.type.startsWith('select:')) {
+            const opts = f.type.slice(7).split(',').map((o) => o.split('='));
+            if (!opts.some(([v]) => v === value)) opts.unshift([value, value]);
+            input = `<select id="${id}" style="width:100%; max-width:480px; padding:6px 10px; border-radius:5px; background:#0b1118; border:1px solid var(--border-color); color:#fff; font-size:13px;">${opts.map(([v, l]) =>
+                `<option value="${this._esc(v)}"${v === value ? ' selected' : ''}>${this._esc(l || v)}</option>`).join('')}</select>`;
+        } else if (f.type.startsWith('number')) {
+            const [lo, hi] = (f.type.split(':')[1] || '').split('-');
+            input = `<input type="number" id="${id}" value="${this._esc(value)}"${lo ? ` min="${lo}"` : ''}${hi ? ` max="${hi}"` : ''} style="width:100%; max-width:480px; padding:6px 10px; border-radius:5px; background:#0b1118; border:1px solid var(--border-color); color:#fff; font-size:13px;">`;
+        } else {
+            const ph = (f.key === 'proxy_url' || f.key === 'converter_url' || f.def === '') ? ' placeholder="留空默认使用系统配置"' : '';
+            input = `<input type="text" id="${id}" value="${this._esc(value)}"${ph} style="width:100%; max-width:480px; padding:6px 10px; border-radius:5px; background:#0b1118; border:1px solid var(--border-color); color:#fff; font-size:13px;">`;
+        }
+        return `<div style="margin:8px 0 4px;">
+            <label style="display:block; color:var(--text-secondary); font-size:12px; margin-bottom:4px;" for="${id}">${this._esc(f.label)}</label>
+            ${input}${help}
+        </div>`;
+    }
+
+    async loadConfigTab() {
+        if (!this.target && this.getTarget) {
+            try { this.target = this.getTarget(); } catch (e) {}
+        }
+        const runCfgBox = this.el.cfgRunBox;
+        const otherCfgBox = this.el.cfgOtherBox;
+        if (!runCfgBox || !otherCfgBox) return;
+
+        runCfgBox.innerHTML = '<div style="color:var(--text-secondary); font-size:13px; padding:6px 0;">正在读取应用列表与状态...</div>';
+        otherCfgBox.innerHTML = '<div style="color:var(--text-secondary); font-size:13px; padding:6px 0;">正在读取应用列表与状态...</div>';
+
+        let appList = [];
+        let bootKey = '';
+
+        if (this.target && this.target.kind === 'wasm') {
+            const ex = this.target.exports();
+            if (ex && ex.wasm_apps_json) {
+                try {
+                    const jsonStr = this._str(ex.wasm_apps_json());
+                    const parsed = JSON.parse(jsonStr);
+                    if (parsed && Array.isArray(parsed.apps)) {
+                        appList = parsed.apps;
+                        bootKey = parsed.boot || '';
+                    }
+                } catch (e) {}
+            }
+            if (appList.length === 0 && window.appManager && Array.isArray(window.appManager.bundled)) {
+                appList = window.appManager.bundled.map(b => ({
+                    key: `apps/${b.id}/app.msbc`,
+                    id: b.id,
+                    name: b.name,
+                    description: b.description,
+                    path: `/spiffs/apps/${b.id}/app.msbc`,
+                    dir: `/spiffs/apps/${b.id}`,
+                    ini: `/spiffs/apps/${b.id}/config.ini`,
+                    size: b.size,
+                    version: b.version,
+                    running: false,
+                    boot: false,
+                    meta: '',
+                    source: 'market'
+                }));
+            }
+        } else if (window.activeLink && typeof window.activeLink.apps === 'function') {
+            try {
+                const res = await window.activeLink.apps();
+                if (res && Array.isArray(res.apps)) {
+                    appList = res.apps;
+                    bootKey = res.boot || '';
+                }
+            } catch (e) {}
+        }
+
+        this.configApps = appList;
+        this.cfgOpen = this.cfgOpen || {};
+
+        const run = appList.find(a => a.running || a.boot || (bootKey && a.path && a.path.includes(bootKey)));
+        if (this.el.cfgRunHead) {
+            this.el.cfgRunHead.textContent = run ? `▶ 正在运行：${run.name}` : '▶ 正在运行的应用';
+        }
+
+        if (!run) {
+            runCfgBox.innerHTML = `<div style="color:var(--text-secondary); font-size:12.5px; padding:6px 0;">当前没有应用在运行（处于内置系统设置或待机状态）。</div>`;
+        } else {
+            runCfgBox.innerHTML = `
+                <div class="am-app" style="border:1px solid rgba(56, 189, 248, 0.35); border-radius:8px; padding:12px 14px; background:rgba(56, 189, 248, 0.05);">
+                    <div class="am-name" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="color:var(--accent-cyan); font-weight:600; font-size:14px;">${this._esc(run.name)} <span class="am-tag">正在运行</span></span>
+                        <span style="font-size:12px; color:var(--text-secondary);">${this._esc(run.dir || run.path || '')}</span>
+                    </div>
+                    <div class="am-desc" style="margin-bottom:8px;">${this._esc(run.description || '')}</div>
+                    <div id="aw-cfg-box-${this._cfgId(run.key || run.id)}"></div>
+                </div>
+            `;
+            await this.openAppConfig(run, true);
+        }
+
+        const others = appList.filter(a => !run || (a.key !== run.key && a.id !== run.id));
+        if (others.length === 0) {
+            otherCfgBox.innerHTML = '<div style="color:var(--text-secondary); font-size:12.5px; padding:6px 0;">没有其他应用。</div>';
+        } else {
+            otherCfgBox.innerHTML = others.map(a => `
+                <div class="am-app" style="margin-bottom:12px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px 14px; background:rgba(0,0,0,0.18);">
+                    <div class="am-name" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-weight:600; font-size:14px;">${this._esc(a.name)} <span class="am-tag">${a.source === 'builtin' ? '内置' : (a.boot ? '启动应用' : '已安装')}</span></span>
+                        <button class="pill-btn compact" data-cfg-act="toggle" data-key="${this._esc(a.key || a.id)}">⚙️ 配置</button>
+                    </div>
+                    <div class="am-desc" style="margin-bottom:8px;">${this._esc(a.description || a.dir || a.path || '')}</div>
+                    <div id="aw-cfg-box-${this._cfgId(a.key || a.id)}"></div>
+                </div>
+            `).join('');
+
+            for (const o of others) {
+                const k = o.key || o.id;
+                if (this.cfgOpen[k]) {
+                    this.renderAppConfigCard(o);
+                }
             }
         }
     }
 
-    saveAppConfig() {
-        const appId = this.el.cfgAppSelect ? this.el.cfgAppSelect.value : 'weather';
-        if (this.el.cfgSaveStatus) {
-            this.el.cfgSaveStatus.textContent = `✅ [${appId}] 应用配置已保存`;
-            this.el.cfgSaveStatus.style.color = '#72d696';
+    async openAppConfig(app, forceOpen = false) {
+        const k = app.key || app.id;
+        const box = document.getElementById(`aw-cfg-box-${this._cfgId(k)}`);
+        if (!box) return;
+
+        if (!forceOpen && this.cfgOpen && this.cfgOpen[k]) {
+            delete this.cfgOpen[k];
+            box.innerHTML = '';
+            return;
+        }
+
+        box.innerHTML = '<div style="color:var(--text-secondary); font-size:12px; padding:6px 0;">正在读取应用配置与元数据...</div>';
+        this.cfgOpen = this.cfgOpen || {};
+
+        let meta = app.meta || '';
+        let ini = '';
+        let exists = false;
+        const iniPath = app.ini || `/spiffs/apps/${app.id}/config.ini`;
+
+        if (this.target && this.target.kind === 'wasm') {
+            const bytes = this._fsRead(iniPath);
+            if (bytes && bytes.length > 0) {
+                ini = new TextDecoder('utf-8').decode(bytes);
+                exists = true;
+            }
+            if (!meta) {
+                const msbcBytes = this._fsRead(app.path || `/spiffs/apps/${app.id}/app.msbc`);
+                if (msbcBytes) {
+                    meta = this._extractMeta(msbcBytes);
+                }
+            }
+        } else if (window.activeLink && window.activeLink.base) {
+            try {
+                const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`);
+                if (res.ok) {
+                    const r = await res.json();
+                    meta = r.meta || meta;
+                    ini = r.ini || '';
+                    exists = !!r.exists;
+                }
+            } catch (e) {}
+        }
+
+        if (!meta && window.appManager && window.appManager.bundled) {
+            const b = window.appManager.bundled.find(x => x.id === app.id);
+            if (b && b.meta) meta = b.meta;
+        }
+
+        this.cfgOpen[k] = { meta, ini, exists, path: iniPath };
+        this.renderAppConfigCard(app);
+    }
+
+    renderAppConfigCard(app) {
+        const k = app.key || app.id;
+        const c = this.cfgOpen && this.cfgOpen[k];
+        const box = document.getElementById(`aw-cfg-box-${this._cfgId(k)}`);
+        if (!c || !box) return;
+
+        const p = `aw-c-${this._cfgId(k)}`;
+        const fields = typeof amAppFields === 'function' ? amAppFields(c.meta) : [];
+        const defIni = typeof amDefaultIni === 'function' ? amDefaultIni(app) : (c.meta || '');
+        const values = typeof amIniValues === 'function' ? amIniValues(c.exists ? c.ini : defIni) : {};
+
+        let fieldsHtml = '';
+        if (fields.length > 0) {
+            fieldsHtml = `<div class="am-form" style="border-left:2px solid var(--accent-cyan); padding-left:12px; margin-top:10px;">` +
+                fields.map(f => this._renderFieldHtml(p, f, (f.key in values) ? values[f.key] : f.def)).join('') +
+                `</div>`;
+        } else {
+            fieldsHtml = `<div style="color:var(--text-secondary); font-size:12px; margin:8px 0;">该应用暂无可配置的高级项（可在下方直接查看/编辑配置文件）。</div>`;
+        }
+
+        box.innerHTML = `
+            ${fieldsHtml}
+            <div class="am-actions" style="margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button class="pill-btn highlight compact" data-cfg-act="save" data-key="${this._esc(k)}">💾 保存配置</button>
+                <button class="pill-btn compact" data-cfg-act="reset" data-key="${this._esc(k)}">🔄 恢复默认配置</button>
+                <button class="pill-btn compact" data-cfg-act="raw" data-key="${this._esc(k)}">📄 编辑原文件</button>
+                <span id="aw-cfg-status-${this._cfgId(k)}" style="font-size:12px;"></span>
+            </div>
+            <div id="aw-cfg-raw-${this._cfgId(k)}" style="margin-top:8px;"></div>
+            <div class="am-help" style="margin-top:8px; font-size:11.5px; color:var(--text-secondary);">
+                ${c.exists ? '已配置，配置文件路径：' : '尚未保存独立文件，当前显示默认值；保存后写入：'}<code>${this._esc(c.path)}</code>${app.running ? '，重启或重新载入后生效' : '，应用下次启动时生效'}
+            </div>
+        `;
+
+        const btnSave = box.querySelector('[data-cfg-act="save"]');
+        if (btnSave) btnSave.addEventListener('click', () => this.saveAppConfigItem(app));
+
+        const btnReset = box.querySelector('[data-cfg-act="reset"]');
+        if (btnReset) btnReset.addEventListener('click', () => this.resetAppConfigItem(app));
+
+        const btnRaw = box.querySelector('[data-cfg-act="raw"]');
+        if (btnRaw) btnRaw.addEventListener('click', () => this.toggleRawAppConfig(app));
+    }
+
+    async saveAppConfigItem(app) {
+        const k = app.key || app.id;
+        const c = this.cfgOpen && this.cfgOpen[k];
+        const statusEl = document.getElementById(`aw-cfg-status-${this._cfgId(k)}`);
+        if (!c) return;
+
+        const p = `aw-c-${this._cfgId(k)}`;
+        let text = c.exists ? c.ini : (typeof amDefaultIni === 'function' ? amDefaultIni(app) : (c.meta || ''));
+        const values = typeof amIniValues === 'function' ? amIniValues(text) : {};
+        const fields = typeof amAppFields === 'function' ? amAppFields(c.meta) : [];
+
+        for (const f of fields) {
+            const el = document.getElementById(`${p}-${f.key}`);
+            if (!el) continue;
+            const v = f.type === 'bool' ? (el.checked ? '1' : '0') : el.value.trim();
+            if (/[;#\n]/.test(v)) {
+                if (statusEl) {
+                    statusEl.textContent = `❌ ${f.label}：不能含有 ; 或 #`;
+                    statusEl.style.color = '#ef4444';
+                }
+                return;
+            }
+            if (values[f.key] !== v) {
+                if (typeof amIniSet === 'function') {
+                    text = amIniSet(text, 'config', f.key, v);
+                } else {
+                    text += `\n${f.key} = ${v}`;
+                }
+            }
+        }
+
+        let ok = false;
+        if (this.target && this.target.kind === 'wasm') {
+            const bytes = new TextEncoder().encode(text);
+            ok = this._fsWrite(c.path, bytes);
+        } else if (window.activeLink && window.activeLink.base) {
+            try {
+                const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: text
+                });
+                ok = res.ok;
+            } catch (e) {}
+        }
+
+        if (ok) {
+            c.ini = text;
+            c.exists = true;
+            if (statusEl) {
+                statusEl.textContent = `✅ [${app.name}] 配置已保存`;
+                statusEl.style.color = '#72d696';
+            }
+            this.log('info', `📝 [${app.name}] 应用配置已保存至 ${c.path}`);
+        } else {
+            if (statusEl) {
+                statusEl.textContent = `❌ 保存失败`;
+                statusEl.style.color = '#ef4444';
+            }
+        }
+    }
+
+    async resetAppConfigItem(app) {
+        if (!confirm(`确定将 ${app.name} 的所有配置恢复为默认值吗？`)) return;
+        const k = app.key || app.id;
+        const c = this.cfgOpen && this.cfgOpen[k];
+        if (!c) return;
+
+        const defIni = typeof amDefaultIni === 'function' ? amDefaultIni(app) : (c.meta || '');
+        let ok = false;
+        if (this.target && this.target.kind === 'wasm') {
+            const bytes = new TextEncoder().encode(defIni);
+            ok = this._fsWrite(c.path, bytes);
+        } else if (window.activeLink && window.activeLink.base) {
+            try {
+                const res = await fetch(`${window.activeLink.base}/api/apps/reset?key=${encodeURIComponent(k)}`, { method: 'POST' });
+                ok = res.ok;
+            } catch (e) {}
+        }
+
+        if (ok) {
+            c.ini = defIni;
+            c.exists = true;
+            this.renderAppConfigCard(app);
+            const statusEl = document.getElementById(`aw-cfg-status-${this._cfgId(k)}`);
+            if (statusEl) {
+                statusEl.textContent = `🔄 [${app.name}] 已恢复默认配置`;
+                statusEl.style.color = '#72d696';
+            }
+        }
+    }
+
+    toggleRawAppConfig(app) {
+        const k = app.key || app.id;
+        const c = this.cfgOpen && this.cfgOpen[k];
+        const rawBox = document.getElementById(`aw-cfg-raw-${this._cfgId(k)}`);
+        if (!c || !rawBox) return;
+
+        if (rawBox.innerHTML) {
+            rawBox.innerHTML = '';
+            return;
+        }
+
+        const curText = c.exists ? c.ini : (typeof amDefaultIni === 'function' ? amDefaultIni(app) : (c.meta || ''));
+        rawBox.innerHTML = `
+            <div style="margin-top:8px; background:#0b1118; border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:10px;">
+                <label style="color:var(--text-secondary); font-size:12px; margin-bottom:6px; display:block;">编辑 <code>${this._esc(c.path)}</code> 配置文件：</label>
+                <textarea id="aw-cfg-raw-txt-${this._cfgId(k)}" style="width:100%; min-height:140px; font-family:var(--font-mono); font-size:12px; background:#000; color:#e6ecf3; border:1px solid var(--border-color); border-radius:4px; padding:8px; box-sizing:border-box;" spellcheck="false"></textarea>
+                <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+                    <button class="pill-btn compact highlight" id="aw-cfg-raw-save-${this._cfgId(k)}">💾 保存配置文件</button>
+                    <span id="aw-cfg-raw-status-${this._cfgId(k)}" style="font-size:12px;"></span>
+                </div>
+            </div>
+        `;
+
+        const txt = document.getElementById(`aw-cfg-raw-txt-${this._cfgId(k)}`);
+        if (txt) txt.value = curText;
+
+        const btnSaveRaw = document.getElementById(`aw-cfg-raw-save-${this._cfgId(k)}`);
+        if (btnSaveRaw) {
+            btnSaveRaw.addEventListener('click', async () => {
+                const newText = txt.value;
+                let ok = false;
+                if (this.target && this.target.kind === 'wasm') {
+                    ok = this._fsWrite(c.path, new TextEncoder().encode(newText));
+                } else if (window.activeLink && window.activeLink.base) {
+                    try {
+                        const res = await fetch(`${window.activeLink.base}/api/apps/config?key=${encodeURIComponent(k)}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                            body: newText
+                        });
+                        ok = res.ok;
+                    } catch (e) {}
+                }
+                const rawStatus = document.getElementById(`aw-cfg-raw-status-${this._cfgId(k)}`);
+                if (ok) {
+                    c.ini = newText;
+                    c.exists = true;
+                    if (rawStatus) {
+                        rawStatus.textContent = '✅ 原文件已保存';
+                        rawStatus.style.color = '#72d696';
+                    }
+                    this.renderAppConfigCard(app);
+                } else if (rawStatus) {
+                    rawStatus.textContent = '❌ 保存失败';
+                    rawStatus.style.color = '#ef4444';
+                }
+            });
         }
     }
 
