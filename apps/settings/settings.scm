@@ -279,7 +279,7 @@
   (let* ((st (setup-mode-status))
          (ssid (if setup (car setup) "-"))
          (ip (if setup (cadr setup) "-"))
-         (pass (if (and setup (pair? (cddr setup))) (caddr setup) (or (ref st 'ap-pass) "12345678")))
+         (pass (if (and setup (pair? (cddr setup))) (caddr setup) (or (ref st 'ap-pass) "-")))
          (sta? (ref st 'sta-connected))
          (y (+ HDR-H 8)))
     (if (not setup)

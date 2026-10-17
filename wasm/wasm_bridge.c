@@ -174,8 +174,55 @@ static Value prim_mock_wifi_connect(MiniVM *vm, int argc, Value *argv) {
 /* The simulated setup access point (the firmware's setup_portal.c) */
 static bool g_mock_ap = false;
 static char g_mock_ap_ssid[33] = "";
-static char g_mock_ap_pass[64] = "12345678";
+static char g_mock_ap_pass[64] = "";
 static int g_mock_ap_preset = 0;
+static uint32_t s_mock_rand_state = 0;
+
+static uint32_t mock_rand_u32(void) {
+    if (s_mock_rand_state == 0) {
+        s_mock_rand_state = (uint32_t)js_now_ms() ^ 0x9e3779b9u;
+        if (s_mock_rand_state == 0) s_mock_rand_state = 123456789u;
+    }
+    s_mock_rand_state ^= s_mock_rand_state << 13;
+    s_mock_rand_state ^= s_mock_rand_state >> 17;
+    s_mock_rand_state ^= s_mock_rand_state << 5;
+    return s_mock_rand_state;
+}
+
+static void mock_gen_random_letters(char *buf, size_t count) {
+    if (count == 0) return;
+    while (1) {
+        for (size_t i = 0; i < count; i++) {
+            buf[i] = (char)('A' + (mock_rand_u32() % 26));
+        }
+        buf[count] = '\0';
+        if (count >= 4 && strncmp(buf, "MINI", 4) == 0) continue;
+        break;
+    }
+}
+
+static void mock_gen_random_digits(char *buf, size_t len) {
+    if (len < 2) {
+        if (len == 1) buf[0] = '\0';
+        return;
+    }
+    size_t digits = len - 1;
+    while (1) {
+        bool all_same = true;
+        bool asc = true;
+        bool desc = true;
+        for (size_t i = 0; i < digits; i++) {
+            buf[i] = (char)('0' + (mock_rand_u32() % 10));
+            if (i > 0) {
+                if (buf[i] != buf[0]) all_same = false;
+                if (buf[i] != buf[i - 1] + 1) asc = false;
+                if (buf[i] != buf[i - 1] - 1) desc = false;
+            }
+        }
+        buf[digits] = '\0';
+        if (!all_same && !asc && !desc) break;
+    }
+}
 
 /* Configurable server / proxy base URL (defaults to http://127.0.0.1:8087) */
 static char g_mock_proxy_url[128] = "http://127.0.0.1:8087";
@@ -287,13 +334,14 @@ static Value prim_mock_setup_mode_start(MiniVM *vm, int argc, Value *argv) {
     } else {
         g_mock_ap_preset = 0;
     }
+    char prefix[5];
+    mock_gen_random_letters(prefix, 4);
     if (g_mock_ap_preset == 0) {
-        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "Desk-51AB");
-        snprintf(g_mock_ap_pass, sizeof(g_mock_ap_pass), "12345678");
+        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "%s-51AB", prefix);
     } else {
-        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "MiniScheme-51AB");
-        snprintf(g_mock_ap_pass, sizeof(g_mock_ap_pass), "88888888");
+        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "%s-AP", prefix);
     }
+    mock_gen_random_digits(g_mock_ap_pass, 9);
     g_mock_ap = true;
     Value list = mini_nil(), tmp = mini_nil();
     mini_push_root(vm, &list);
@@ -311,6 +359,14 @@ static Value prim_mock_setup_mode_start(MiniVM *vm, int argc, Value *argv) {
 
 static Value prim_mock_setup_mode_status(MiniVM *vm, int argc, Value *argv) {
     (void)argc; (void)argv;
+    if (g_mock_ap_ssid[0] == '\0') {
+        char prefix[5];
+        mock_gen_random_letters(prefix, 4);
+        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "%s-51AB", prefix);
+    }
+    if (g_mock_ap_pass[0] == '\0') {
+        mock_gen_random_digits(g_mock_ap_pass, 9);
+    }
     Value lst = mini_nil();
     mini_push_root(vm, &lst);
     lst = mock_alist_put(vm, lst, "saved", mini_make_fixnum(0));

@@ -703,6 +703,53 @@ theme = dark # Slate theme`;
         await mgr.probeLocalServer(true);
     });
 
+    // 34. WiFi Setup Mode: Random SSID & 8-digit numeric password
+    addTest("WiFi Setup Mode: Random SSID (no minischeme) and 8-digit numeric password", async () => {
+        const inst = await initWasmCompiler();
+        const mem = wasmMemory;
+
+        function runScm(code) {
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(code + "\0");
+            const ptr = inst.exports.malloc(bytes.length);
+            new Uint8Array(mem.buffer).set(bytes, ptr);
+            const resPtr = inst.exports.wasm_eval(ptr);
+            inst.exports.free(ptr);
+            if (!resPtr) return "";
+            const buf = new Uint8Array(mem.buffer);
+            let end = resPtr;
+            while (buf[end] !== 0) end++;
+            return new TextDecoder().decode(buf.subarray(resPtr, end));
+        }
+
+        // Test Preset 0
+        const res1 = runScm("(setup-mode-start)");
+        assert(res1.startsWith("(") && res1.endsWith(")"), "setup-mode-start must return a list: " + res1);
+        const matches1 = res1.match(/"([^"]+)"/g).map(s => s.replace(/"/g, ""));
+        assertEqual(matches1.length, 3, "setup-mode-start must return (ssid ip pass)");
+        const [ssid1, ip1, pass1] = matches1;
+
+        assertEqual(ip1, "192.168.4.1", "AP IP must be 192.168.4.1");
+        assert(!ssid1.toLowerCase().includes("minischeme"), "SSID must not contain minischeme: " + ssid1);
+        assert(!ssid1.toLowerCase().includes("desk"), "SSID must not contain desk: " + ssid1);
+        assert(/^[A-Z]{4}-51AB$/.test(ssid1), "Preset 0 SSID must match [A-Z]{4}-51AB: " + ssid1);
+
+        assert(/^\d{8}$/.test(pass1), "Password must be exactly 8 digits: " + pass1);
+        assert(pass1 !== "12345678", "Password must not be static 12345678");
+        assert(pass1 !== "88888888", "Password must not be static 88888888");
+
+        // Test Preset 1 (switch)
+        const res2 = runScm("(setup-mode-start #t)");
+        const matches2 = res2.match(/"([^"]+)"/g).map(s => s.replace(/"/g, ""));
+        const [ssid2, ip2, pass2] = matches2;
+
+        assertEqual(ip2, "192.168.4.1", "AP IP must be 192.168.4.1");
+        assert(!ssid2.toLowerCase().includes("minischeme"), "Preset 1 SSID must not contain minischeme: " + ssid2);
+        assert(/^[A-Z]{4}-AP$/.test(ssid2), "Preset 1 SSID must match [A-Z]{4}-AP: " + ssid2);
+        assert(/^\d{8}$/.test(pass2), "Password must be exactly 8 digits: " + pass2);
+        assert(pass2 !== "12345678" && pass2 !== "88888888", "Password must not be default: " + pass2);
+    });
+
     // -----------------------------------------------------------------------
     // Test Runner Execution
     // -----------------------------------------------------------------------
