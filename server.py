@@ -87,7 +87,8 @@ def get_primary_ip():
 
 
 class ReusableThreadingHTTPServer(http.server.ThreadingHTTPServer):
-    allow_reuse_address = False  # Strict check on Windows so busy ports trigger fallback
+    # Strict check on Windows so busy ports trigger fallback; allow reuse on Linux/Unix for service restarts
+    allow_reuse_address = (os.name != "nt")
 
 
 def create_server_with_fallback(host, preferred_port, handler_cls, max_tries=50):
@@ -205,14 +206,69 @@ vm_node = PersistentVM()
 
 
 # ---------------------------------------------------------------------------
-# 3. Integrated App Proxy & Protocol Converter Context
+# 3. Integrated App Proxy & Protocol Converter Context & Server Configuration
 # ---------------------------------------------------------------------------
+
+ALL_COMPONENTS = {"webrepl", "proxy", "channel", "portal", "font", "vm"}
+
+
+class ServerConfig:
+    def __init__(self):
+        self.protocol_mode = "unencrypted"
+        self.components = set(ALL_COMPONENTS)
+        self.admin_login_delay = 0
+        self.config_file = os.path.join(DATA_DIR, "config.ini")
+        self.init_defaults()
+
+    def init_defaults(self):
+        cfg = configparser.ConfigParser()
+        if os.path.exists(self.config_file):
+            try:
+                cfg.read(self.config_file, encoding="utf-8")
+            except Exception:
+                pass
+        self.protocol_mode = (
+            os.getenv("MINISCHEME_PROTOCOL_MODE")
+            or cfg.get("security", "protocol_mode", fallback="")
+            or cfg.get("server", "protocol_mode", fallback="")
+            or "unencrypted"
+        ).lower().strip()
+        if self.protocol_mode not in ("unencrypted", "encrypted", "both"):
+            self.protocol_mode = "unencrypted"
+
+        comp_str = (
+            os.getenv("MINISCHEME_COMPONENTS")
+            or cfg.get("server", "components", fallback="")
+            or "all"
+        )
+        self.set_components_from_str(comp_str)
+
+        try:
+            self.admin_login_delay = int(
+                os.getenv("MINISCHEME_ADMIN_LOGIN_DELAY")
+                or cfg.get("security", "admin_login_delay", fallback="")
+                or 0
+            )
+        except Exception:
+            self.admin_login_delay = 0
+
+    def set_components_from_str(self, comp_str):
+        if not comp_str or comp_str.lower().strip() in ("all", "*"):
+            self.components = set(ALL_COMPONENTS)
+        else:
+            comps = {c.strip().lower() for c in comp_str.split(",") if c.strip()}
+            self.components = comps.intersection(ALL_COMPONENTS)
+
+
+server_config = ServerConfig()
+
 
 class IntegratedProxyContext:
     def __init__(self):
         self.db = None
         self.master_key_1 = None
         self.admin_password = "admin"
+        self.admin_login_delay = 0
         self.recovery_challenges = {}
         self._lock = threading.Lock()
 
@@ -224,7 +280,7 @@ class IntegratedProxyContext:
                 return
             try:
                 from proxy.database import Database
-                cfg_path = os.path.join(DATA_DIR, "config.ini")
+                cfg_path = server_config.config_file
                 cfg = configparser.ConfigParser()
                 if os.path.exists(cfg_path):
                     try:
@@ -241,6 +297,7 @@ class IntegratedProxyContext:
                     or cfg.get("security", "admin_password", fallback="")
                     or "admin"
                 )
+                self.admin_login_delay = server_config.admin_login_delay
                 db_path = os.path.join(DATA_DIR, "minischeme_proxy.db")
                 self.db = Database(db_path)
             except Exception as e:
@@ -435,11 +492,26 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 "lan_url": f"http://{primary_ip}:{ACTIVE_PORT}",
                 "proxy_url": f"http://{primary_ip}:{ACTIVE_PORT}",
                 "converter_url": f"http://{primary_ip}:{ACTIVE_PORT}",
+                "protocol_mode": server_config.protocol_mode,
+                "components": sorted(list(server_config.components)),
+                "admin_login_delay": server_config.admin_login_delay,
                 "frozen": bool(getattr(sys, "frozen", False)),
             })
             return
 
+        if req_path == "/health":
+            self._json_reply({
+                "status": "ok",
+                "protocol_mode": server_config.protocol_mode,
+                "components": sorted(list(server_config.components)),
+                "time": int(time.time()),
+            })
+            return
+
         if req_path == "/api/preset_fonts":
+            if "font" not in server_config.components:
+                self.send_error(404, "Font component is disabled on this server")
+                return
             idx_path = os.path.join(BASE_DIR, "fonts", "index.json")
             if os.path.exists(idx_path):
                 try:
@@ -474,13 +546,21 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        # 2. Direct App Proxy & Market endpoints (/app/*, /health, /market/*, /fetch)
+        # 2. Direct App Proxy & Market endpoints (/app/*, /market/*, /fetch)
         if (
             req_path.startswith("/app/")
-            or req_path == "/health"
             or req_path.startswith("/market/")
             or req_path == "/fetch"
         ):
+            if "proxy" not in server_config.components:
+                self.send_error(404, "Proxy component is disabled on this server")
+                return
+            if server_config.protocol_mode == "encrypted":
+                self._json_reply({
+                    "success": False,
+                    "error": "Plaintext protocol is disabled on this server. Encrypted channel protocol (MSC1) is required."
+                }, status=403)
+                return
             status, ctype, body = handle_proxy_endpoint(self.path)
             self.send_response(status)
             self.send_header("Content-Type", ctype)
@@ -492,6 +572,15 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
 
         # 3. Simulator CORS proxy (/api/fetch?url=... or /api/lhm?url=...)
         if self.path.startswith("/api/fetch?") or self.path.startswith("/api/lhm?"):
+            if "proxy" not in server_config.components:
+                self.send_error(404, "Proxy component is disabled on this server")
+                return
+            if server_config.protocol_mode == "encrypted":
+                self._json_reply({
+                    "success": False,
+                    "error": "Plaintext simulator proxy is disabled on this server. Encrypted channel protocol is required."
+                }, status=403)
+                return
             query = urllib.parse.parse_qs(parsed_self.query)
             url = (query.get("url") or [""])[0]
             parsed = urllib.parse.urlparse(url)
@@ -536,14 +625,20 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
 
         # 4. Font Generator API
         if req_path == "/api/font/faces":
+            if "font" not in server_config.components:
+                self.send_error(404, "Font component is disabled on this server")
+                return
             self._json_reply(self._font_call(font_faces))
             return
 
         # 5. User & Admin Portals from Proxy
         if req_path in ("/user", "/user/", "/admin", "/admin/") or req_path.startswith(("/api/user/", "/api/admin/")):
+            if "portal" not in server_config.components:
+                self.send_error(404, "Portal component is disabled on this server")
+                return
             proxy_ctx.ensure_initialized()
             from proxy.user_portal import USER_HTML, generate_user_nonce, check_user_session
-            from proxy.admin_portal import ADMIN_HTML, verify_admin_session
+            from proxy.admin_portal import ADMIN_HTML, create_admin_session, verify_admin_session
             qs = urllib.parse.parse_qs(parsed_self.query)
             if req_path in ("/user", "/user/"):
                 body = USER_HTML.encode("utf-8")
@@ -572,6 +667,14 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 if not check_user_session(token, mac):
                     return self._json_reply({"success": False, "error": "unauthorized"}, 401)
                 return self._json_reply({"success": True, "items": proxy_ctx.db.get_app_data(mac, masked=True)})
+            if req_path == "/api/admin/status":
+                mode = server_config.protocol_mode
+                pwd = proxy_ctx.admin_password
+                auth_req = (mode == "encrypted" or pwd != "admin")
+                resp = {"success": True, "auth_required": auth_req, "protocol_mode": mode}
+                if not auth_req:
+                    resp["token"] = create_admin_session()
+                return self._json_reply(resp)
             if req_path == "/api/admin/devices":
                 token = qs.get("token", [""])[0]
                 if not verify_admin_session(token):
@@ -589,6 +692,24 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 if not check_user_session(token, mac):
                     return self._json_reply({"success": False, "error": "unauthorized"}, 401)
                 return self._json_reply({"success": True, "items": proxy_ctx.db.get_device_logs(mac)})
+
+        if "webrepl" not in server_config.components:
+            body = (
+                b"<!DOCTYPE html><html><head><meta charset='utf-8'><title>MiniScheme Proxy</title></head>"
+                b"<body style='font-family:-apple-system,sans-serif;padding:40px;line-height:1.6;color:#1e293b;background:#f8fafc;'>"
+                b"<h2>MiniScheme App Proxy &amp; Protocol Converter</h2>"
+                b"<p>WebREPL static web interface is disabled on this server (Proxy-only mode).</p>"
+                b"<p>WebREPL is officially hosted on GitHub Pages: "
+                b"<a href='https://chk-jxcn.github.io/minischeme-webrepl/'>https://chk-jxcn.github.io/minischeme-webrepl/</a></p>"
+                b"<p><a href='/admin'>Admin Portal</a> &middot; <a href='/user'>User Portal</a></p>"
+                b"</body></html>"
+            )
+            self.send_response(404)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         super().do_GET()
 
@@ -614,6 +735,9 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         req_path = parsed_self.path
 
         if req_path == "/api/font/make":
+            if "font" not in server_config.components:
+                self.send_error(404, "Font component is disabled on this server")
+                return
             body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             try:
                 req = json.loads(body.decode("utf-8"))
@@ -627,6 +751,9 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if req_path == "/api/execute_bytecode":
+            if "vm" not in server_config.components:
+                self.send_error(404, "VM component is disabled on this server")
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
             try:
@@ -639,9 +766,21 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if req_path.startswith(("/api/user/", "/api/admin/")):
+            if "portal" not in server_config.components:
+                self.send_error(404, "Portal component is disabled on this server")
+                return
             proxy_ctx.ensure_initialized()
-            from proxy.user_portal import verify_user_login
-            from proxy.admin_portal import create_admin_session, verify_admin_session
+            from proxy.user_portal import (
+                verify_user_login,
+                verify_simulator_login,
+                check_user_session,
+                remove_user_session,
+            )
+            from proxy.admin_portal import (
+                create_admin_session,
+                verify_admin_session,
+                remove_admin_session,
+            )
             content_length = int(self.headers.get("Content-Length", 0))
             raw_body = self.rfile.read(content_length) if content_length > 0 else b""
             try:
@@ -650,11 +789,34 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 return self._json_reply({"success": False, "error": f"invalid json: {e}"}, 400)
 
             if req_path == "/api/admin/login":
+                if server_config.admin_login_delay > 0:
+                    time.sleep(server_config.admin_login_delay)
                 pwd = payload.get("password", "")
                 if pwd == proxy_ctx.admin_password:
                     token = create_admin_session()
                     return self._json_reply({"success": True, "token": token})
                 return self._json_reply({"success": False, "error": "password incorrect"}, 403)
+
+            if req_path == "/api/admin/logout":
+                token = payload.get("token", "")
+                remove_admin_session(token)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/admin/device/clear":
+                token = payload.get("token", "")
+                if not verify_admin_session(token):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                mac = payload.get("mac", "")
+                proxy_ctx.db.clear_all_app_data(mac)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/admin/device/delete":
+                token = payload.get("token", "")
+                if not verify_admin_session(token):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                mac = payload.get("mac", "")
+                proxy_ctx.db.delete_device_account(mac)
+                return self._json_reply({"success": True})
 
             if req_path == "/api/admin/preset":
                 token = payload.get("token", "")
@@ -667,6 +829,24 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 proxy_ctx.db.set_app_data(mac, app_id, key, val)
                 return self._json_reply({"success": True})
 
+            if req_path == "/api/user/sim_register":
+                uuid = payload.get("uuid", "")
+                if not uuid:
+                    return self._json_reply({"success": False, "error": "missing uuid"}, 400)
+                client_ip = self.client_address[0]
+                proxy_ctx.db.register_simulator(uuid, client_ip)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/user/sim_login":
+                uuid = payload.get("uuid", "")
+                if not uuid:
+                    return self._json_reply({"success": False, "error": "missing uuid"}, 400)
+                client_ip = self.client_address[0]
+                ok, res = verify_simulator_login(uuid, proxy_ctx.db, client_ip)
+                if ok:
+                    return self._json_reply({"success": True, "token": res, "mac": uuid.upper()})
+                return self._json_reply({"success": False, "error": res}, 400)
+
             if req_path == "/api/user/login":
                 mac = payload.get("mac", "")
                 client_hash = payload.get("hash", "")
@@ -676,7 +856,43 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                     return self._json_reply({"success": True, "token": res})
                 return self._json_reply({"success": False, "error": res}, 403)
 
+            if req_path == "/api/user/data/clear":
+                qs = urllib.parse.parse_qs(parsed_self.query)
+                mac = payload.get("mac") or qs.get("mac", [""])[0]
+                token = payload.get("token") or qs.get("token", [""])[0]
+                app_id = payload.get("app_id") or qs.get("app_id", [""])[0]
+                if not check_user_session(token, mac):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                if not app_id or app_id == "all":
+                    proxy_ctx.db.clear_all_app_data(mac)
+                else:
+                    proxy_ctx.db.clear_app_data(mac, app_id)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/user/account/delete":
+                qs = urllib.parse.parse_qs(parsed_self.query)
+                mac = payload.get("mac") or qs.get("mac", [""])[0]
+                token = payload.get("token") or qs.get("token", [""])[0]
+                if not check_user_session(token, mac):
+                    return self._json_reply({"success": False, "error": "unauthorized"}, 401)
+                proxy_ctx.db.delete_device_account(mac)
+                remove_user_session(token)
+                return self._json_reply({"success": True})
+
+            if req_path == "/api/user/logout":
+                token = payload.get("token", "")
+                remove_user_session(token)
+                return self._json_reply({"success": True})
+
         if req_path.startswith("/channel"):
+            if "channel" not in server_config.components:
+                self.send_error(404, "Channel component is disabled on this server")
+                return
+            if server_config.protocol_mode == "unencrypted":
+                return self._json_reply({
+                    "success": False,
+                    "error": "Encrypted channel protocol is disabled on this server. Plaintext protocol is required."
+                }, status=403)
             proxy_ctx.ensure_initialized()
             from proxy.crypto import (
                 derive_master_key_2,
@@ -1030,7 +1246,27 @@ def main():
     parser.add_argument("--proxy-port", type=int, default=8087, help="Standalone App Proxy port")
     parser.add_argument("--no-tray", action="store_true", help="Run without system tray icon (headless/CLI mode)")
     parser.add_argument("--open-browser", action="store_true", help="Automatically open WebREPL in default browser on startup")
+    parser.add_argument("--protocol", "--protocol-mode", "-P", dest="protocol_mode", choices=["unencrypted", "encrypted", "both"], default=None, help="Protocol encryption mode: unencrypted (default locally), encrypted (public server), or both")
+    parser.add_argument("--components", default=None, help="Comma-separated components to enable (choices: all, webrepl, proxy, channel, portal, font, vm)")
+    parser.add_argument("--proxy-only", action="store_true", help="Shorthand for --components proxy,channel,portal (disables static WebREPL files, fonts, and VM)")
+    parser.add_argument("--admin-login-delay", type=int, default=None, help="Delay in seconds before returning admin login responses (anti-bruteforce, default: 0)")
+    parser.add_argument("--config", default=None, help="Path to config.ini file")
     args = parser.parse_args()
+
+    if args.config:
+        server_config.config_file = os.path.abspath(args.config)
+        server_config.init_defaults()
+
+    if args.proxy_only:
+        server_config.components = {"proxy", "channel", "portal"}
+    elif args.components is not None:
+        server_config.set_components_from_str(args.components)
+
+    if args.protocol_mode is not None:
+        server_config.protocol_mode = args.protocol_mode.lower().strip()
+
+    if args.admin_login_delay is not None:
+        server_config.admin_login_delay = max(0, args.admin_login_delay)
 
     os.chdir(BASE_DIR)
     httpd, bound_port = create_server_with_fallback(args.host, args.port, WebReplHandler)
@@ -1049,11 +1285,19 @@ def main():
     if sys.stdout is not None:
         try:
             print("=" * 64)
-            print("  MiniScheme WASM WebREPL & App Proxy Local Server Started!")
+            print("  MiniScheme Server Started!")
             if bound_port != args.port:
                 print(f"  [Note] Port {args.port} was busy -> automatically switched to {bound_port}")
-            print(f"  Local WebREPL URL:   http://127.0.0.1:{bound_port}")
-            print(f"  LAN IP / Proxy URL:  http://{primary_ip}:{bound_port}")
+            print(f"  Protocol Mode:       {server_config.protocol_mode.upper()}")
+            print(f"  Enabled Components:  {', '.join(sorted(server_config.components))}")
+            if server_config.admin_login_delay > 0:
+                print(f"  Admin Login Delay:   {server_config.admin_login_delay}s")
+            if "webrepl" in server_config.components:
+                print(f"  Local WebREPL URL:   http://127.0.0.1:{bound_port}")
+            if "proxy" in server_config.components or "channel" in server_config.components:
+                print(f"  LAN / Proxy URL:     http://{primary_ip}:{bound_port}")
+            if "portal" in server_config.components:
+                print(f"  Admin Portal:        http://{primary_ip}:{bound_port}/admin")
             print(f"  Listening Port:      {bound_port}")
             print("=" * 64, flush=True)
         except Exception:

@@ -609,7 +609,7 @@ class AppWebPanel {
     saveSystemConfig() {
         const proxyUrl = (this.el.sysProxyUrl ? this.el.sysProxyUrl.value : '').trim();
         if (proxyUrl && window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(proxyUrl)) {
-            alert('本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力。');
+            alert('本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)');
             return;
         }
 

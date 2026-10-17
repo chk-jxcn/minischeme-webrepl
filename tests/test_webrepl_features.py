@@ -15,6 +15,9 @@ import sys
 import threading
 import time
 import unittest
+import urllib.request
+import urllib.parse
+import urllib.error
 
 import shutil
 
@@ -46,7 +49,12 @@ def find_browser_executable():
 
 
 def find_free_port():
+    import struct
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        except Exception:
+            pass
         s.bind(("", 0))
         return s.getsockname()[1]
 
@@ -71,18 +79,21 @@ class WebReplServerFixture:
             env=env,
             text=True
         )
-        # Wait until server accepts connections
+        # Wait until server accepts connections with port fallback tolerance
         t0 = time.time()
-        while time.time() - t0 < 5.0:
-            try:
-                conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=1)
-                conn.request("GET", "/")
-                res = conn.getresponse()
-                if res.status == 200:
-                    return
-            except Exception:
-                time.sleep(0.1)
-        raise RuntimeError("WebREPL server failed to start within 5s")
+        while time.time() - t0 < 6.0:
+            for p in (self.port, self.port + 1, self.port + 2):
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", p, timeout=1)
+                    conn.request("GET", "/health")
+                    res = conn.getresponse()
+                    if res.status == 200:
+                        self.port = p
+                        return
+                except Exception:
+                    pass
+            time.sleep(0.1)
+        raise RuntimeError("WebREPL server failed to start within 6s")
 
     def stop(self):
         if self.proc:
@@ -99,6 +110,7 @@ class TestWebReplFeatures(unittest.TestCase):
         cls.port = find_free_port()
         cls.server = WebReplServerFixture(cls.port)
         cls.server.start()
+        cls.port = cls.server.port
 
     @classmethod
     def tearDownClass(cls):
@@ -636,6 +648,162 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertTrue(verify_pwd("mySecret926"))
         self.assertTrue(verify_pwd("scheme_2026"))
         self.assertTrue(verify_pwd("83910294"))
+
+    def test_16_proxy_components_and_encryption_modes(self):
+        """Verify server component enablement, protocol encryption mode enforcement, and device setup rules"""
+        # 1. Start ephemeral server in proxy-only & encrypted mode
+        test_port = find_free_port()
+        cmd = [
+            sys.executable, "server.py",
+            "--port", str(test_port),
+            "--proxy-only",
+            "--protocol", "encrypted",
+            "--no-tray"
+        ]
+        env = dict(os.environ)
+        env["MINISCHEME_ADMIN_PASSWORD"] = "testadmin"
+        proc = subprocess.Popen(cmd, cwd=ROOT_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        actual_port = test_port
+        try:
+            # Wait for startup
+            t0 = time.time()
+            started = False
+            while time.time() - t0 < 8.0:
+                for p in (test_port, test_port + 1, test_port + 2):
+                    try:
+                        with urllib.request.urlopen(f"http://127.0.0.1:{p}/health", timeout=1.0) as res:
+                            if res.status == 200:
+                                data = json.loads(res.read().decode("utf-8"))
+                                if data.get("protocol_mode") == "encrypted":
+                                    self.assertIn("proxy", data.get("components", []))
+                                    self.assertNotIn("webrepl", data.get("components", []))
+                                    actual_port = p
+                                    started = True
+                                    break
+                    except Exception:
+                        pass
+                if started:
+                    break
+                time.sleep(0.1)
+            self.assertTrue(started, "Encrypted proxy server failed to start")
+
+            # 2. Plaintext request /app/weather must be rejected with 403 Forbidden
+            req_plain = urllib.request.Request(f"http://127.0.0.1:{actual_port}/app/weather")
+            try:
+                with urllib.request.urlopen(req_plain, timeout=2) as res:
+                    self.assertEqual(res.status, 403)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 403)
+                err_body = json.loads(e.read().decode("utf-8"))
+                self.assertIn("Plaintext protocol is disabled", err_body.get("error", ""))
+
+            # 3. Static WebREPL files must return 404 in proxy-only mode
+            req_static = urllib.request.Request(f"http://127.0.0.1:{actual_port}/")
+            try:
+                with urllib.request.urlopen(req_static, timeout=2) as res:
+                    self.assertEqual(res.status, 404)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 404)
+
+            # 4. Portal route (/admin) is enabled in proxy-only mode
+            with urllib.request.urlopen(f"http://127.0.0.1:{actual_port}/admin", timeout=2) as res:
+                self.assertEqual(res.status, 200)
+
+            # 5. Encrypted server /api/admin/status requires password
+            with urllib.request.urlopen(f"http://127.0.0.1:{actual_port}/api/admin/status", timeout=2) as res:
+                self.assertEqual(res.status, 200)
+                st = json.loads(res.read().decode("utf-8"))
+                self.assertTrue(st.get("auth_required"))
+
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+
+        # 6. Verify local server allows passwordless admin auto-login
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/admin/status", timeout=2) as res:
+            self.assertEqual(res.status, 200)
+            local_st = json.loads(res.read().decode("utf-8"))
+            self.assertFalse(local_st.get("auth_required"))
+            self.assertTrue(bool(local_st.get("token")))
+
+        # 7. Simulator registration and passwordless login on local server
+        test_sim_uuid = "SIM-9A8B-7C6D"
+        req_reg = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/user/sim_register",
+            data=json.dumps({"uuid": test_sim_uuid}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_reg, timeout=2) as res:
+            self.assertEqual(res.status, 200)
+            self.assertTrue(json.loads(res.read().decode("utf-8")).get("success"))
+
+        req_sim_login = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/user/sim_login",
+            data=json.dumps({"uuid": test_sim_uuid}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_sim_login, timeout=2) as res:
+            self.assertEqual(res.status, 200)
+            sim_login_data = json.loads(res.read().decode("utf-8"))
+            self.assertTrue(sim_login_data.get("success"))
+            sim_token = sim_login_data.get("token")
+            self.assertTrue(bool(sim_token))
+
+        # 8. Preset secret data and verify sensitive masking in user portal
+        admin_tok = local_st.get("token")
+        req_preset = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/preset",
+            data=json.dumps({
+                "token": admin_tok,
+                "mac": test_sim_uuid,
+                "app_id": "weather",
+                "key": "qweather_token",
+                "value": "super_secret_qweather_token_9999"
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_preset, timeout=2) as res:
+            self.assertTrue(json.loads(res.read().decode("utf-8")).get("success"))
+
+        # User portal fetch data: value must be masked with asterisks!
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/user/data?mac={test_sim_uuid}&token={sim_token}", timeout=2) as res:
+            user_data = json.loads(res.read().decode("utf-8"))
+            self.assertTrue(user_data.get("success"))
+            items = user_data.get("items", [])
+            self.assertTrue(len(items) > 0)
+            for it in items:
+                if it.get("key") == "qweather_token":
+                    self.assertIn("****", it.get("value"))
+                    self.assertNotIn("super_secret", it.get("value"))
+
+        # 9. User portal clear app data
+        req_clear = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/user/data/clear",
+            data=json.dumps({
+                "mac": test_sim_uuid,
+                "token": sim_token,
+                "app_id": "weather"
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req_clear, timeout=2) as res:
+            self.assertTrue(json.loads(res.read().decode("utf-8")).get("success"))
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/user/data?mac={test_sim_uuid}&token={sim_token}", timeout=2) as res:
+            cleared_data = json.loads(res.read().decode("utf-8"))
+            self.assertEqual(len(cleared_data.get("items", [])), 0)
+
+        # 10. Verify js/device_setup.js includes public proxy defaults and simulator unencrypted restrictions
+        setup_js_path = os.path.join(ROOT_DIR, "js", "device_setup.js")
+        with open(setup_js_path, "r", encoding="utf-8") as f:
+            setup_js = f.read()
+        self.assertIn("isPublicWebRepl", setup_js)
+        self.assertIn("getPublicProxyServer", setup_js)
+        self.assertIn("124.222.231.186:8087", setup_js)
+        self.assertIn("仅支持非加密协议", setup_js)
 
 
 if __name__ == "__main__":

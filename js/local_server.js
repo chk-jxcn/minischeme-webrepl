@@ -100,9 +100,73 @@ class LocalServerManager {
             });
         }
 
+        // Initialize WASM Simulator UUID Card
+        this.initSimulatorUUID();
+
         // Probe local server and resolve latest GitHub Release on load
         this.probeLocalServer(false);
         this.resolveLatestRelease();
+    }
+
+    initSimulatorUUID() {
+        let simUuid = localStorage.getItem('minischeme_sim_uuid');
+        if (!simUuid || !simUuid.startsWith('SIM-')) {
+            const hex = () => Math.random().toString(16).substring(2, 6).toUpperCase();
+            simUuid = `SIM-${hex()}-${hex()}-${hex()}`;
+            localStorage.setItem('minischeme_sim_uuid', simUuid);
+        }
+
+        const inputDisplay = document.getElementById('sim-uuid-display');
+        if (inputDisplay) {
+            inputDisplay.value = simUuid;
+        }
+
+        const btnCopy = document.getElementById('sim-uuid-copy-btn');
+        if (btnCopy) {
+            btnCopy.addEventListener('click', () => {
+                const val = inputDisplay ? inputDisplay.value : simUuid;
+                navigator.clipboard.writeText(val).catch(() => {});
+                btnCopy.textContent = '✔ 已复制 UUID';
+                setTimeout(() => { btnCopy.textContent = '📋 复制 UUID'; }, 2000);
+            });
+        }
+
+        const btnRegen = document.getElementById('sim-uuid-regen-btn');
+        if (btnRegen) {
+            btnRegen.addEventListener('click', () => {
+                if (!confirm('确定重新生成模拟器 UUID 吗？这将在代理端作为一个全新的模拟器实例。')) return;
+                const hex = () => Math.random().toString(16).substring(2, 6).toUpperCase();
+                const newUuid = `SIM-${hex()}-${hex()}-${hex()}`;
+                localStorage.setItem('minischeme_sim_uuid', newUuid);
+                if (inputDisplay) inputDisplay.value = newUuid;
+                this.registerSimulator(newUuid);
+            });
+        }
+
+        const btnJump = document.getElementById('sim-portal-jump-btn');
+        if (btnJump) {
+            btnJump.addEventListener('click', () => {
+                const targetBase = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+                const curUuid = (inputDisplay && inputDisplay.value) || simUuid;
+                window.open(`${targetBase}/user?uuid=${encodeURIComponent(curUuid)}`, '_blank');
+            });
+        }
+
+        this.registerSimulator(simUuid);
+    }
+
+    async registerSimulator(uuid) {
+        if (!uuid) return;
+        const targetBase = window.LOCAL_SERVER_BASE || (window.location.origin && window.location.origin.startsWith('http') ? window.location.origin : 'http://127.0.0.1:8087');
+        try {
+            await fetch(`${targetBase}/api/user/sim_register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uuid: uuid })
+            });
+        } catch (e) {
+            // Server offline or not reachable yet
+        }
     }
 
     async resolveLatestRelease() {

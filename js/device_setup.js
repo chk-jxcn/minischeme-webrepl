@@ -64,6 +64,28 @@ class DeviceSetupWizard {
     }
 
     /**
+     * Check if WebREPL is hosted on a public domain/IP (e.g. GitHub Pages).
+     */
+    static isPublicWebRepl() {
+        if (typeof window === 'undefined' || !window.location) return false;
+        const h = (window.location.hostname || '').toLowerCase().trim();
+        if (!h) return false;
+        if (h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '0.0.0.0') return false;
+        if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return false;
+        if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(h)) return false;
+        const m172 = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h);
+        if (m172 && parseInt(m172[1], 10) >= 16 && parseInt(m172[1], 10) <= 31) return false;
+        return true;
+    }
+
+    /**
+     * Dedicated public proxy & protocol converter address.
+     */
+    static getPublicProxyServer() {
+        return 'http://124.222.231.186:8087';
+    }
+
+    /**
      * Built-in password security filter:
      * - Minimum length of 6 characters
      * - Blocks all-identical characters (e.g. 88888888, 00000000)
@@ -378,12 +400,18 @@ class DeviceSetupWizard {
         }
         const defaultLocalProxy = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
         if (isSim) {
-            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理)`;
-            this.el.converterUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理)`;
+            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
+            this.el.converterUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
             this._applyHwPasswordLockState('');
         } else {
-            this.el.proxyUrl.placeholder = 'http://192.168.1.100:8087';
-            this.el.converterUrl.placeholder = 'http://192.168.1.100:8087';
+            if (DeviceSetupWizard.isPublicWebRepl()) {
+                const pubProxy = DeviceSetupWizard.getPublicProxyServer();
+                this.el.proxyUrl.placeholder = `${pubProxy} (公网加密代理)`;
+                this.el.converterUrl.placeholder = `${pubProxy} (公网加密代理)`;
+            } else {
+                this.el.proxyUrl.placeholder = 'http://192.168.1.100:8087';
+                this.el.converterUrl.placeholder = 'http://192.168.1.100:8087';
+            }
         }
     }
 
@@ -445,9 +473,14 @@ class DeviceSetupWizard {
     }
 
     _setDefault() {
-        const defaultProxy = this._isSimulator()
-            ? (window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087')
-            : (window.LOCAL_SERVER_BASE || 'http://192.168.1.100:8087');
+        let defaultProxy;
+        if (this._isSimulator()) {
+            defaultProxy = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+        } else if (DeviceSetupWizard.isPublicWebRepl()) {
+            defaultProxy = DeviceSetupWizard.getPublicProxyServer();
+        } else {
+            defaultProxy = window.LOCAL_SERVER_BASE || 'http://192.168.1.100:8087';
+        }
         if (this.el.wifiEnable) {
             this.el.wifiEnable.checked = true;
         }
@@ -511,15 +544,24 @@ class DeviceSetupWizard {
             let pUrl = kv['server.proxy_url'];
             if (this._isSimulator() && (pUrl === 'http://proxy.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(pUrl))) {
                 pUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl() && (!pUrl || pUrl === 'http://proxy.local:8087')) {
+                pUrl = DeviceSetupWizard.getPublicProxyServer();
             }
             this.el.proxyUrl.value = pUrl;
+        } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl()) {
+            this.el.proxyUrl.value = DeviceSetupWizard.getPublicProxyServer();
         }
+
         if (kv['server.converter_url'] !== undefined) {
             let cUrl = kv['server.converter_url'];
             if (this._isSimulator() && (cUrl === 'http://converter.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(cUrl))) {
                 cUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl() && (!cUrl || cUrl === 'http://converter.local:8087')) {
+                cUrl = DeviceSetupWizard.getPublicProxyServer();
             }
             this.el.converterUrl.value = cUrl;
+        } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl()) {
+            this.el.converterUrl.value = DeviceSetupWizard.getPublicProxyServer();
         }
 
         const existingHwPass = kv['server.hardware_password'] || '';
@@ -577,7 +619,7 @@ class DeviceSetupWizard {
 
         if (isSim) {
             if (!DeviceSetupWizard.isLocalProxyUrl(proxy) || !DeviceSetupWizard.isLocalProxyUrl(conv)) {
-                const msg = '本地模拟设备仅允许连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)，避免对远程服务器造成压力';
+                const msg = '本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)';
                 this._status(msg, 'error');
                 this.log('error', `⚙️ ${msg}`);
                 return;
@@ -643,8 +685,10 @@ class DeviceSetupWizard {
 
     static buildConfigIni(opts = {}) {
         const isSim = !!opts.isSimulator;
-        const defaultProxy = isSim ? 'http://127.0.0.1:8087' : 'http://proxy.local:8087';
-        const defaultConv = isSim ? 'http://127.0.0.1:8087' : 'http://converter.local:8087';
+        const isPublic = DeviceSetupWizard.isPublicWebRepl();
+        const defaultHardwareProxy = isPublic ? DeviceSetupWizard.getPublicProxyServer() : 'http://proxy.local:8087';
+        const defaultProxy = isSim ? 'http://127.0.0.1:8087' : defaultHardwareProxy;
+        const defaultConv = isSim ? 'http://127.0.0.1:8087' : defaultHardwareProxy;
         const {
             wifiSsid = '',
             wifiPassword = '',
@@ -655,7 +699,7 @@ class DeviceSetupWizard {
         } = opts;
 
         if (isSim && (!DeviceSetupWizard.isLocalProxyUrl(proxyUrl) || !DeviceSetupWizard.isLocalProxyUrl(converterUrl))) {
-            throw new Error('本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)');
+            throw new Error('本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)');
         }
 
         return [

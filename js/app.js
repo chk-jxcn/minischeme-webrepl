@@ -132,7 +132,10 @@ async function initWasm() {
 
         window.syncWasmProxyUrl = function(customUrl) {
             if (!wasmInstance || !wasmInstance.exports) return;
-            const url = customUrl || window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            let url = customUrl || window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(url)) {
+                url = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            }
             if (typeof wasmInstance.exports.wasm_set_proxy_url === 'function' && typeof wasmInstance.exports.wasm_alloc_buffer === 'function') {
                 const bytes = new TextEncoder().encode(url + '\0');
                 const ptr = wasmInstance.exports.wasm_alloc_buffer(bytes.length);
@@ -1218,7 +1221,7 @@ async function feedFetch(ex, url) {
     if (window.isSimWifiOnline && !window.isSimWifiOnline()) {
         problem = 'WiFi已断开 (WASM 模拟器网络开关已关闭)';
     } else if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(effectiveUrl)) {
-        problem = '本地模拟设备仅允许使用本地代理连接 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力';
+        problem = '本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)';
     } else {
         try {
             const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl), { cache: 'no-store' });
