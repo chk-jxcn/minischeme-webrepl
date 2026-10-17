@@ -276,29 +276,6 @@ class DeviceSetupWizard {
                             ⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与身份验证；一旦设置将以明文显示且禁止修改。
                         </div>
                     </div>
-
-                    <!-- System Boot App Section -->
-                    <div class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
-                        <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-green);">🚀 3. 开机默认启动应用 [system]</h4>
-                        <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center;">
-                            <label for="ds-boot-app" style="font-size: 13px;">启动应用:</label>
-                            <select id="ds-boot-app" class="mode-dropdown" style="width: 100%; padding: 6px 10px;">
-                                <option value="" selected>内置系统设置 (Settings - 默认)</option>
-                                <option value="apps/calendar/app.msbc">万年历 (Calendar)</option>
-                                <option value="apps/weather/app.msbc">天气预报 (Weather)</option>
-                                <option value="apps/stocks/app.msbc">股票行情 (Stocks)</option>
-                                <option value="apps/news/app.msbc">热点新闻 (News)</option>
-                                <option value="apps/crypto/app.msbc">加密货币 (Crypto)</option>
-                                <option value="apps/futures/app.msbc">大宗期货 (Futures)</option>
-                                <option value="apps/memo/app.msbc">电子备忘录 (Memo)</option>
-                                <option value="apps/notifier/app.msbc">消息提示 (Notifier)</option>
-                                <option value="apps/album/app.msbc">电子相册 (Album)</option>
-                                <option value="apps/usage/app.msbc">Token 用量 (Usage)</option>
-                                <option value="apps/pcmonitor/app.msbc">PC 监视器 (PC Monitor)</option>
-                                <option value="apps/settings/app.msbc">系统设置独立版 (Settings)</option>
-                            </select>
-                        </div>
-                    </div>
                 </div>
                 <div class="fm-toolbar" style="padding: 12px 24px; border-top: 1px solid var(--border-color); display: flex; gap: 10px; justify-content: flex-end;">
                     <button class="pill-btn" data-act="read">⟳ 读取设备配置</button>
@@ -333,7 +310,6 @@ class DeviceSetupWizard {
             hwPassRow: q('#ds-hw-password-row'),
             hwPass: q('#ds-hw-password'),
             hwPassHint: q('#ds-hw-password-hint'),
-            bootApp: q('#ds-boot-app'),
             fillPublicBtn: q('#ds-fill-public-proxy'),
             fillLocalBtn: q('#ds-fill-local-proxy'),
         };
@@ -522,13 +498,14 @@ class DeviceSetupWizard {
         if (!this._isSimulator() && !this.lockedHwPassword) {
             this.el.hwPass.value = '';
         }
-        this.el.bootApp.value = '';
         this._status('已填入推荐默认设置', 'ok');
     }
 
     async _readFromDevice(autoTriggered = false) {
         this._status('正在读取设备 /spiffs/config.ini…');
         this._applyHwPasswordLockState('');
+        this.existingIniText = '';
+        this.existingBootApp = '';
         if (this.el.wifiEnable) {
             this.el.wifiEnable.checked = typeof window.isSimWifiOnline === 'function' ? window.isSimWifiOnline() : true;
         }
@@ -541,6 +518,7 @@ class DeviceSetupWizard {
             }
 
             if (!bytes || !bytes.length) {
+                this.existingIniText = '';
                 this._setDefault();
                 if (autoTriggered) {
                     this._status('⚠️ 检测到串口设备尚未配置 WiFi，请填写下方初始配置并保存重启', 'ok');
@@ -551,6 +529,7 @@ class DeviceSetupWizard {
             }
 
             const text = new TextDecoder().decode(bytes);
+            this.existingIniText = text;
             this._parseToForm(text);
             if (autoTriggered) {
                 this._status('⚠️ 检测到串口设备尚未配置 WiFi 网络，请完成初始配置并保存重启', 'ok');
@@ -599,13 +578,7 @@ class DeviceSetupWizard {
         this._applyHwPasswordLockState(existingHwPass);
 
         if (kv['system.boot_app']) {
-            let b = kv['system.boot_app'].replace(/^\/spiffs\//, '');
-            for (let opt of this.el.bootApp.options) {
-                if (opt.value === b || opt.value.includes(b)) {
-                    this.el.bootApp.value = opt.value;
-                    break;
-                }
-            }
+            this.existingBootApp = kv['system.boot_app'];
         }
     }
 
@@ -615,7 +588,6 @@ class DeviceSetupWizard {
         const pass = isSim ? '' : this.el.wifiPass.value.trim();
         const proxy = this.el.proxyUrl.value.trim();
         const conv = this.el.converterUrl.value.trim() || proxy;
-        const bootApp = this.el.bootApp.value.trim();
 
         let hwPass = '';
         if (!isSim) {
@@ -657,37 +629,18 @@ class DeviceSetupWizard {
             }
         }
 
-        this._status('正在写入配置并上传基础应用…');
+        this._status('正在写入配置到设备…');
         try {
-            // 1. Ensure default calendar app is present on the board
-            if (bootApp.includes('calendar')) {
-                try {
-                    const check = await this.backend.fsRead(`/spiffs/${bootApp}`);
-                    if (!check || !check.length) throw new Error('not found');
-                } catch (e) {
-                    this._status('正在部署万年历默认应用到设备…');
-                    try {
-                        const res = await fetch('apps/calendar.msbc');
-                        if (res.ok) {
-                            const calBytes = new Uint8Array(await res.arrayBuffer());
-                            await this.backend.fsWrite(`/spiffs/${bootApp}`, calBytes);
-                            this.log('info', `📦 已安装默认应用: ${bootApp}`);
-                        }
-                    } catch (calErr) {
-                        this.log('warn', `无法自动部署 calendar.msbc: ${calErr.message}`);
-                    }
-                }
-            }
-
-            // 2. Generate config.ini
+            // Generate full valid config.ini with version = 3, matching firmware specification
             const configContent = this.buildConfigIni({
                 wifiSsid: ssid,
                 wifiPassword: pass,
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
-                bootApp: bootApp,
+                bootApp: this.existingBootApp || '',
                 isSimulator: isSim,
+                existingIni: this.existingIniText || '',
             });
 
             const configBytes = new TextEncoder().encode(configContent);
@@ -698,7 +651,7 @@ class DeviceSetupWizard {
                 this._applyHwPasswordLockState(hwPass);
             }
 
-            // 3. Reboot device
+            // Reboot device
             if (typeof this.backend.reset === 'function') {
                 this._status('配置保存成功！设备正在重启…', 'ok');
                 this.log('info', '⏻ 正在重启设备以应用新设置…');
@@ -726,33 +679,165 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
-            bootApp = ''
+            bootApp = '',
+            existingIni = ''
         } = opts;
 
         if (isSim && (!DeviceSetupWizard.isSupportedProxyUrl(proxyUrl) || !DeviceSetupWizard.isSupportedProxyUrl(converterUrl))) {
             throw new Error('本地模拟设备 (WASM) 仅支持非加密协议，请连接本地代理服务器 (127.0.0.1 / 局域网 IP) 或已部署的公网服务器 (124.222.231.186:8087)');
         }
 
+        const effectiveSsid = isSim ? '' : wifiSsid;
+        const effectivePass = isSim ? '' : wifiPassword;
+        const effectiveHwPass = isSim ? '' : hwPassword;
+
+        // If existing INI text is provided and non-empty, merge into it
+        if (existingIni && existingIni.trim().length > 0) {
+            let lines = existingIni.split(/\r?\n/);
+            // Ensure config_version = 3 is at the top
+            let hasVersion = false;
+            for (let i = 0; i < lines.length; i++) {
+                if (/^\s*config_version\s*=/i.test(lines[i])) {
+                    lines[i] = 'config_version = 3';
+                    hasVersion = true;
+                    break;
+                }
+            }
+            if (!hasVersion) {
+                lines.unshift('config_version = 3');
+            }
+
+            function setSectionKey(sectionName, key, value) {
+                let secHeaderIdx = -1;
+                let nextSecIdx = -1;
+                const secRegex = new RegExp(`^\\s*\\[${sectionName}\\]`, 'i');
+                for (let i = 0; i < lines.length; i++) {
+                    if (secRegex.test(lines[i])) {
+                        secHeaderIdx = i;
+                        break;
+                    }
+                }
+                if (secHeaderIdx === -1) {
+                    lines.push('', `[${sectionName}]`, `${key} = ${value}`);
+                    return;
+                }
+                for (let i = secHeaderIdx + 1; i < lines.length; i++) {
+                    if (/^\s*\[.+\]/.test(lines[i])) {
+                        nextSecIdx = i;
+                        break;
+                    }
+                }
+                const endIdx = nextSecIdx !== -1 ? nextSecIdx : lines.length;
+                const keyRegex = new RegExp(`^\\s*${key}\\s*=`, 'i');
+                for (let i = secHeaderIdx + 1; i < endIdx; i++) {
+                    if (keyRegex.test(lines[i])) {
+                        lines[i] = `${key} = ${value}`;
+                        return;
+                    }
+                }
+                lines.splice(endIdx, 0, `${key} = ${value}`);
+            }
+
+            setSectionKey('wifi', 'wifi_ssid', effectiveSsid);
+            setSectionKey('wifi', 'wifi_password', effectivePass);
+            setSectionKey('wifi', 'ssid', effectiveSsid);
+            setSectionKey('wifi', 'password', effectivePass);
+
+            if (effectiveHwPass) {
+                setSectionKey('http', 'http_password', effectiveHwPass);
+            }
+            setSectionKey('server', 'proxy_url', proxyUrl);
+            setSectionKey('server', 'converter_url', converterUrl);
+            if (effectiveHwPass) {
+                setSectionKey('server', 'hardware_password', effectiveHwPass);
+            }
+
+            setSectionKey('app', 'proxy', proxyUrl);
+            setSectionKey('app', 'https_proxy', converterUrl);
+            setSectionKey('channel', 'channel_server', converterUrl);
+            setSectionKey('channel', 'proxy_via_channel', '1');
+
+            if (bootApp !== undefined && bootApp !== null) {
+                setSectionKey('system', 'boot_app', bootApp);
+            }
+
+            return lines.join('\n');
+        }
+
         return [
-            '; MiniScheme Hardware Initial Configuration',
+            '; Device configuration (read at boot)',
+            '; \';\' or \'#\' starts a comment; unknown keys are ignored.',
+            'config_version = 3',
+            '',
+            '[system]',
+            `boot_app = ${bootApp || ''}`,
+            'device_name = 桌面屏',
+            'app_storage_kb = 256',
+            'button_long_ms = 800',
+            'button_mid_ms = 3500',
+            'button_hold_ms = 8000',
+            'web_in_app = 1',
+            'factory_reset_key = 1',
+            '',
             '[wifi]',
-            `ssid = ${isSim ? '' : wifiSsid}`,
-            `password = ${isSim ? '' : wifiPassword}`,
+            `wifi_ssid = ${effectiveSsid}`,
+            `wifi_password = ${effectivePass}`,
+            `ssid = ${effectiveSsid}`,
+            `password = ${effectivePass}`,
+            '',
+            '[http]',
+            `http_password = ${effectiveHwPass}`,
             '',
             '[server]',
             `proxy_url = ${proxyUrl}`,
             `converter_url = ${converterUrl}`,
-            `hardware_password = ${isSim ? '' : hwPassword}`,
+            `hardware_password = ${effectiveHwPass}`,
             '',
             '[app]',
             `proxy = ${proxyUrl}`,
             `https_proxy = ${converterUrl}`,
             '',
-            '[system]',
-            `boot_app = ${bootApp}`,
-            'button_long_ms = 800',
-            'button_mid_ms = 3500',
-            'button_hold_ms = 8000',
+            '[channel]',
+            `channel_server = ${converterUrl}`,
+            'proxy_via_channel = 1',
+            'market_via_channel = 0',
+            '',
+            '[display]',
+            'mode = band',
+            'band_lines = 13',
+            'color_bits = 16',
+            'palette = color',
+            'auto_backlight = 1',
+            'backlight = 220',
+            'color_format = rgb565',
+            'width = 320',
+            'height = 480',
+            'lcd_dma = 1',
+            'lcd_dma_lines = 0',
+            'lcd_clock_hz = 20000000',
+            '',
+            '[memory]',
+            'reserved_heap = 65536',
+            'max_heap = 131072',
+            'vm_eden = 4096',
+            'vm_stack = 1024',
+            'vm_frames = 256',
+            'app_xip = 1',
+            'http_stack = 6144',
+            '',
+            '[text]',
+            'marquee = pixel',
+            'marquee_fps = 20',
+            'marquee_step = 1',
+            'marquee_hold = 1',
+            'wrap_marquee = line',
+            'wrap_marquee_fps = 0.5',
+            'wrap_marquee_step = 1',
+            'wrap_marquee_hold = 1',
+            '',
+            '[fonts]',
+            'font_order = app, fontrom, spiffs',
+            'font_override = ',
             ''
         ].join('\n');
     }
