@@ -76,7 +76,7 @@ class LocalServerManager {
 
         const btnReset = document.getElementById('server-cfg-reset-btn');
         if (btnReset) {
-            btnReset.addEventListener('click', () => this.resetConfig());
+            btnReset.addEventListener('click', () => this.fillPublicTestIP());
         }
 
         const hostInput = document.getElementById('server-host-input');
@@ -358,6 +358,19 @@ class LocalServerManager {
         await this.probeLocalServer(true);
     }
 
+    fillPublicTestIP() {
+        const hostInput = document.getElementById('server-host-input');
+        const portInput = document.getElementById('server-port-input');
+        const fb = document.getElementById('server-cfg-feedback');
+        if (hostInput) hostInput.value = '124.222.231.186';
+        if (portInput) portInput.value = '8087';
+        if (fb) {
+            fb.hidden = false;
+            fb.style.display = 'block';
+            fb.innerHTML = `<span style="color:var(--accent-cyan);">🌐 已填入测试公网 IP (124.222.231.186:8087)，可点击【🔍 测试连接】验证或【💾 保存并应用】生效</span>`;
+        }
+    }
+
     async resetConfig() {
         localStorage.removeItem('webrepl_server_host');
         localStorage.removeItem('webrepl_server_port');
@@ -515,8 +528,8 @@ class LocalServerManager {
             }
         } else {
             if (btnHeader) {
-                btnHeader.textContent = '🖥️ 本地服务端 (Exe)';
-                btnHeader.title = '一键下载安装并运行本地服务端 (MiniScheme-WebREPL.exe)';
+                btnHeader.textContent = '⚙️ 后端设置';
+                btnHeader.title = '设置后端服务连接 (IP / 端口 / 本地 EXE 服务端)';
             }
             if (statusBox) {
                 statusBox.innerHTML =
