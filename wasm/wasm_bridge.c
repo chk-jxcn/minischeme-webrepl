@@ -174,6 +174,8 @@ static Value prim_mock_wifi_connect(MiniVM *vm, int argc, Value *argv) {
 /* The simulated setup access point (the firmware's setup_portal.c) */
 static bool g_mock_ap = false;
 static char g_mock_ap_ssid[33] = "";
+static char g_mock_ap_pass[64] = "12345678";
+static int g_mock_ap_preset = 0;
 
 static Value prim_mock_wifi_ap(MiniVM *vm, int argc, Value *argv) {
     (void)vm;
@@ -262,15 +264,28 @@ static Value mock_alist_put(MiniVM *vm, Value lst, const char *key, Value v) {
     return lst;
 }
 
-/* (setup-mode-start) => (ssid ip), as the firmware's access point */
+/* (setup-mode-start [switch?]) => (ssid ip pass), as the firmware's access point */
 static Value prim_mock_setup_mode_start(MiniVM *vm, int argc, Value *argv) {
     if (!mini_access_privileged(vm, "setup-mode-start")) return mini_void();
-    (void)argc; (void)argv;
-    snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "MiniScheme-51AB");
+    bool do_switch = (argc > 0 && mini_is_true(argv[0]));
+    if (do_switch) {
+        g_mock_ap_preset = (g_mock_ap_preset + 1) % 2;
+    } else {
+        g_mock_ap_preset = 0;
+    }
+    if (g_mock_ap_preset == 0) {
+        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "Desk-51AB");
+        snprintf(g_mock_ap_pass, sizeof(g_mock_ap_pass), "12345678");
+    } else {
+        snprintf(g_mock_ap_ssid, sizeof(g_mock_ap_ssid), "MiniScheme-51AB");
+        snprintf(g_mock_ap_pass, sizeof(g_mock_ap_pass), "88888888");
+    }
     g_mock_ap = true;
     Value list = mini_nil(), tmp = mini_nil();
     mini_push_root(vm, &list);
     mini_push_root(vm, &tmp);
+    tmp = mini_make_string(vm, g_mock_ap_pass);
+    list = mini_make_cons(vm, tmp, list);
     tmp = mini_make_string(vm, "192.168.4.1");
     list = mini_make_cons(vm, tmp, list);
     tmp = mini_make_string(vm, g_mock_ap_ssid);
@@ -289,6 +304,7 @@ static Value prim_mock_setup_mode_status(MiniVM *vm, int argc, Value *argv) {
     lst = mock_alist_put(vm, lst, "sta-ssid", mini_make_string(vm, g_mock_wifi_ssid));
     lst = mock_alist_put(vm, lst, "sta-connected", mini_make_bool(g_mock_wifi_connected));
     lst = mock_alist_put(vm, lst, "clients", mini_make_fixnum(0));
+    lst = mock_alist_put(vm, lst, "ap-pass", mini_make_string(vm, g_mock_ap_pass));
     lst = mock_alist_put(vm, lst, "ap-ip", mini_make_string(vm, "192.168.4.1"));
     lst = mock_alist_put(vm, lst, "ap-ssid", mini_make_string(vm, g_mock_ap_ssid));
     lst = mock_alist_put(vm, lst, "ap", mini_make_bool(g_mock_ap));
@@ -777,14 +793,14 @@ static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
     mock_fs_seed();
     char val[160];
     const char *key = mini_string_data(argv[0]);
-    if ((mock_ini_value(g_app_ini, key, val, sizeof(val)) && val[0]) ||
+    if (mock_ini_value(g_app_ini, key, val, sizeof(val)) ||
         (mini_app_config_key_ok(key) && mock_ini_value("/spiffs/config.ini", key, val, sizeof(val)))) {
         /* the simulator's requests go through server.py on the PC that runs
          * the app proxy: an unset proxy is that PC's */
-        if (!val[0] && (strcmp(key, "proxy") == 0 || strcmp(key, "proxy_url") == 0)) return mini_make_string(vm, "http://127.0.0.1:8087");
+        if (!val[0] && strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
         return mini_make_string(vm, val);
     }
-    if (strcmp(key, "proxy") == 0 || strcmp(key, "proxy_url") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
+    if (strcmp(key, "proxy") == 0) return mini_make_string(vm, "http://127.0.0.1:8087");
     return mini_false();
 }
 
