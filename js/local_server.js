@@ -36,6 +36,10 @@ class LocalServerManager {
         if (btnClose) {
             btnClose.addEventListener('click', () => this.close());
         }
+        const btnFooterClose = document.getElementById('local-server-footer-close-btn');
+        if (btnFooterClose) {
+            btnFooterClose.addEventListener('click', () => this.close());
+        }
 
         const btnProbe = document.getElementById('local-server-probe-btn');
         if (btnProbe) {
@@ -88,14 +92,6 @@ class LocalServerManager {
         }
         if (portInput) {
             portInput.value = savedPort || (window.location.port || '8087');
-        }
-
-        const btnOpenLocalUrl = document.getElementById('local-server-jump-btn');
-        if (btnOpenLocalUrl) {
-            btnOpenLocalUrl.addEventListener('click', () => {
-                const targetUrl = (this.info && this.info.local_url) || (window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087');
-                window.location.href = targetUrl;
-            });
         }
 
         const btnCopyPs1 = document.getElementById('local-server-copy-ps1-btn');
@@ -575,7 +571,6 @@ class LocalServerManager {
     _updateUI() {
         const btnHeader = document.getElementById('btn-local-server');
         const statusBox = document.getElementById('local-server-status-box');
-        const btnJump = document.getElementById('local-server-jump-btn');
         const hostInput = document.getElementById('server-host-input');
         const portInput = document.getElementById('server-port-input');
         const savedHost = (localStorage.getItem('webrepl_server_host') || '').trim();
@@ -589,14 +584,14 @@ class LocalServerManager {
         }
 
         if (this.info) {
-            const { ip, port, lan_url, local_url } = this.info;
+            const { ip, port, lan_url } = this.info;
             const isSameOrigin = this.info.baseUrl === '' || (window.location.origin && this.info.baseUrl === window.location.origin);
             const activeHost = savedHost || ip || '127.0.0.1';
             const activePort = savedPort || port || '8087';
 
             if (btnHeader) {
                 btnHeader.textContent = `🟢 服务 ${activeHost}:${activePort}`;
-                btnHeader.title = `MiniScheme 后端服务运行中 | 地址: ${this.info.baseUrl || local_url} (点击查看或修改 IP/端口)`;
+                btnHeader.title = `MiniScheme 后端服务运行中 | 地址: ${this.info.baseUrl || lan_url} (点击查看或修改 IP/端口)`;
             }
 
             const btnProxyAdmin = document.getElementById('btn-proxy-admin');
@@ -614,11 +609,6 @@ class LocalServerManager {
                     `端口: <b style="color:var(--accent-cyan);">${activePort}</b> &nbsp;|&nbsp; ` +
                     `ESP32 代理地址: <code style="color:#38bdf8;">${lan_url || `http://${activeHost}:${activePort}`}</code>` +
                     `</div>`;
-            }
-
-            if (btnJump) {
-                btnJump.hidden = isSameOrigin;
-                btnJump.textContent = `🚀 切换到服务运行页面 (${local_url || this.info.baseUrl})`;
             }
 
             // Sync detected LAN proxy URL to DeviceSetupWizard defaults
@@ -650,9 +640,6 @@ class LocalServerManager {
                         : `请检查 IP 与端口是否填写正确，并确保该机器上的 server.py 或 MiniScheme-WebREPL.exe 正在运行。`) +
                     `</div>`;
             }
-            if (btnJump) {
-                btnJump.hidden = true;
-            }
         } else {
             if (btnHeader) {
                 btnHeader.textContent = '⚙️ 后端设置';
@@ -666,9 +653,6 @@ class LocalServerManager {
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
                     `可点击下方按钮一键下载并运行最新 Release <b>MiniScheme-WebREPL.exe</b>，或在上方配置已有的服务 IP 和端口。` +
                     `</div>`;
-            }
-            if (btnJump) {
-                btnJump.hidden = true;
             }
         }
 

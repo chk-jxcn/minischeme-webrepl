@@ -506,7 +506,6 @@
                 <h2>WebREPL 后端服务连接与管理设置</h2>
                 <span class="arch-badge">支持自定义 IP / 端口 · 默认 8087 · 本地代理</span>
             </div>
-            <button class="modal-close-btn" id="local-server-close-btn" title="关闭">&times;</button>
         </div>
         <div class="modal-body flasher-body">
             <!-- 当前服务连接状态 -->
@@ -514,7 +513,6 @@
                 <div id="local-server-status-box">正在检测服务状态...</div>
                 <div style="display:flex; gap:8px;">
                     <button class="pill-btn" id="local-server-probe-btn">🔄 重新检测</button>
-                    <button class="action-btn highlight" id="local-server-jump-btn" hidden>🚀 切换到服务运行页面</button>
                 </div>
             </div>
 
@@ -594,6 +592,10 @@
                     <input type="text" class="device-host-input" style="flex:1; font-family:monospace;" value="curl -fsSL https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.sh | bash" readonly>
                     <button class="pill-btn" id="local-server-copy-sh-btn">📋 复制 Bash 命令</button>
                 </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                <button class="pill-btn" id="local-server-footer-close-btn" style="padding:6px 20px;">关闭</button>
             </div>
         </div>
     </dialog>
