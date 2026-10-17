@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <base href="/">
+    <title>WASM All Apps Automated Verification</title>
+</head>
+<body style="background:#111; color:#eee; font-family:monospace; padding:20px;">
+    <h2>MiniScheme All Apps WASM Test Suite</h2>
+    <div id="status">Initializing WASM VM...</div>
+    <div id="results" style="margin-top:20px;"></div>
+
+    <script type="module">
+    const statusDiv = document.getElementById('status');
+    const resultsDiv = document.getElementById('results');
+
+    const APPS = [
+        "album", "calendar", "crypto", "futures", "memo", "news",
+        "notifier", "pcmonitor", "settings", "stocks", "usage",
+        "weather", "wxpusher"
+    ];
+
+    let wasmInst = null;
+    let wasmMem = null;
+    let stdoutLog = [];
+
+    async function initWasm() {
+        const importObject = {
+            env: {
+                sin: Math.sin, cos: Math.cos, tan: Math.tan,
+                asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+                pow: Math.pow, log: Math.log, exp: Math.exp, sqrt: Math.sqrt,
+                floor: Math.floor, ceil: Math.ceil, round: Math.round, fabs: Math.abs,
+                js_now_ms: () => performance.now(),
+                js_print: (ptr, len) => {
+                    const bytes = new Uint8Array(wasmMem.buffer, ptr, len);
+                    const s = new TextDecoder('utf-8').decode(bytes);
+                    stdoutLog.push(s);
+                }
+            }
+        };
+
+        const res = await fetch('wasm/minischeme_vm.wasm');
+        const bytes = await res.arrayBuffer();
+        const { instance } = await WebAssembly.instantiate(bytes, importObject);
+        wasmInst = instance;
+        wasmMem = instance.exports.memory;
+        if (wasmInst.exports.wasm_init) {
+            wasmInst.exports.wasm_init();
+        }
+        if (wasmInst.exports.wasm_set_display_resolution) {
+            wasmInst.exports.wasm_set_display_resolution(320, 480);
+        }
+    }
+
+    function readStringFromWasm(ptr) {
+        if (!ptr) return "";
+        const mem = new Uint8Array(wasmMem.buffer);
+        let end = ptr;
+        while (end < mem.length && mem[end] !== 0) end++;
+        return new TextDecoder('utf-8').decode(mem.subarray(ptr, end));
+    }
+
+    function passStringToWasm(str) {
+        const enc = new TextEncoder().encode(str + '\0');
+        const ptr = wasmInst.exports.malloc(enc.length);
+        new Uint8Array(wasmMem.buffer, ptr, enc.length).set(enc);
+        return ptr;
+    }
+
+    function evalScheme(code) {
+        const ptr = passStringToWasm(code);
+        const resPtr = wasmInst.exports.wasm_eval(ptr);
+        const res = readStringFromWasm(resPtr);
+        wasmInst.exports.free(ptr);
+        return res;
+    }
+
+    function runPayload(bytes) {
+        const ptr = wasmInst.exports.wasm_alloc_buffer(bytes.length);
+        new Uint8Array(wasmMem.buffer, ptr, bytes.length).set(bytes);
+        const resPtr = wasmInst.exports.wasm_run_payload(ptr, bytes.length);
+        const resStr = readStringFromWasm(resPtr);
+        wasmInst.exports.wasm_free_buffer(ptr);
+        return resStr;
+    }
+
+    async function runAll() {
+        try {
+            await initWasm();
+            statusDiv.innerText = "WASM VM Ready. Configuring system and testing apps...";
+
+            // Setup system config with proxy and previous token
+            const sysCfg = `[system]\\nproxy_url = http://127.0.0.1:8087\\nconverter_url = http://127.0.0.1:8087\\n\\n[weather]\\nqweather_token = f303e9850b6a4a368d7d76f9d27589e3\\nqweather_host = nb7jpkge2v.re.qweatherapi.com\\nlocation = Shanghai\\n`;
+            evalScheme(`(config-set! "proxy_url" "http://127.0.0.1:8087")`);
+            evalScheme(`(config-set! "converter_url" "http://127.0.0.1:8087")`);
+            evalScheme(`(config-set! "qweather_token" "f303e9850b6a4a368d7d76f9d27589e3")`);
+            evalScheme(`(config-set! "qweather_host" "nb7jpkge2v.re.qweatherapi.com")`);
+
+            const testResults = [];
+
+            for (const appId of APPS) {
+                const msbcUrl = `apps/${appId}.msbc`;
+                try {
+                    // Reset/reboot VM to ensure isolated clean environment for each app
+                    if (wasmInst.exports.wasm_reboot) {
+                        wasmInst.exports.wasm_reboot();
+                    } else if (wasmInst.exports.wasm_init) {
+                        wasmInst.exports.wasm_init();
+                    }
+
+                    // Apply config settings
+                    evalScheme(`(config-set! "proxy_url" "http://127.0.0.1:8087")`);
+                    evalScheme(`(config-set! "converter_url" "http://127.0.0.1:8087")`);
+                    evalScheme(`(config-set! "qweather_token" "f303e9850b6a4a368d7d76f9d27589e3")`);
+                    evalScheme(`(config-set! "qweather_host" "nb7jpkge2v.re.qweatherapi.com")`);
+                    evalScheme(`(config-set! "location" "Shanghai")`);
+
+                    const resp = await fetch(msbcUrl);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const buf = await resp.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+
+                    stdoutLog = [];
+                    const t0 = performance.now();
+                    const resStr = runPayload(bytes);
+                    const dur = Math.round(performance.now() - t0);
+
+                    // Pump 3 display frames
+                    for (let f = 0; f < 3; f++) {
+                        if (wasmInst.exports.wasm_render_vfb) {
+                            wasmInst.exports.wasm_render_vfb();
+                        }
+                    }
+
+                    // Check error state
+                    const isError = resStr.startsWith("Error:") || resStr.startsWith("Exception:");
+                    testResults.push({
+                        app: appId,
+                        size: bytes.length,
+                        durMs: dur,
+                        passed: !isError,
+                        output: resStr.trim().split('\\n')[0]
+                    });
+                } catch (err) {
+                    testResults.push({
+                        app: appId,
+                        size: 0,
+                        durMs: 0,
+                        passed: false,
+                        output: "EXCEPTION: " + err.message
+                    });
+                }
+            }
+
+            const allPassed = testResults.every(r => r.passed);
+            statusDiv.innerHTML = `<b style="color:${allPassed ? '#4ade80' : '#f87171'}">` +
+                (allPassed ? "ALL 13 WASM APPS PASSED (100%)" : "SOME WASM APPS FAILED") + "</b>";
+
+            resultsDiv.innerHTML = testResults.map(r => 
+                `<div>[${r.passed ? 'PASS' : 'FAIL'}] <b>${r.app.padEnd(12)}</b> (${(r.size/1024).toFixed(1)} KB, ${r.durMs} ms) => ${r.output}</div>`
+            ).join('');
+
+            // Flag completion for headless scraping
+            document.body.setAttribute('data-completed', 'true');
+            document.body.setAttribute('data-passed', allPassed ? 'true' : 'false');
+        } catch (e) {
+            statusDiv.innerHTML = `<b style="color:#f87171">Fatal error: ${e.message}</b>`;
+            document.body.setAttribute('data-completed', 'true');
+            document.body.setAttribute('data-passed', 'false');
+        }
+    }
+
+    runAll();
+    </script>
+</body>
+</html>
