@@ -173,6 +173,35 @@ class AppWebPanel {
                             </div>
                         </section>
 
+                        <section class="aw-section">
+                            <h3 class="aw-sec-title">💡 屏幕亮度与光感调节</h3>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                <label style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                                    <input type="checkbox" id="aw-sys-fixed-bl-enable" style="width: 16px; height: 16px; accent-color: var(--accent-cyan); cursor: pointer;">
+                                    <span style="font-weight: 500;">固定亮度模式 (开启则锁定亮度；关闭则启用环境光感动态调节)</span>
+                                </label>
+                            </div>
+                            <div class="aw-grid-2">
+                                <label>固定亮度值 (0~255)
+                                    <input type="number" id="aw-sys-fixed-bl-val" min="0" max="255" step="1" placeholder="180">
+                                </label>
+                                <label>亮度偏移指数 (-10~10)
+                                    <input type="number" id="aw-sys-bl-offset" min="-10" max="10" step="1" placeholder="0">
+                                </label>
+                            </div>
+                            <div class="aw-grid-2" style="margin-top: 8px;">
+                                <label>最低亮度 (0~255, 动态调节下限)
+                                    <input type="number" id="aw-sys-bl-min" min="0" max="255" step="1" placeholder="30">
+                                </label>
+                                <label>最高亮度 (0~255, 动态调节上限)
+                                    <input type="number" id="aw-sys-bl-max" min="0" max="255" step="1" placeholder="255">
+                                </label>
+                            </div>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-top: 6px; line-height: 1.4;">
+                                💡 动态算法根据光敏传感器 ADC 读数 (0~4095) 结合亮度偏移指数在最低和最高值之间平滑换算。
+                            </div>
+                        </section>
+
                         <div style="margin: 12px 0; display: flex; gap: 10px; align-items: center;">
                             <button class="pill-btn highlight" id="aw-sys-save-btn">💾 保存系统配置</button>
                             <button class="pill-btn" id="aw-sys-reload-btn">⟳ 重新读取配置</button>
@@ -253,6 +282,11 @@ class AppWebPanel {
             sysPalette: root.querySelector('#aw-sys-palette'),
             sysDevName: root.querySelector('#aw-sys-dev-name'),
             sysBootApp: root.querySelector('#aw-sys-boot-app'),
+            sysFixedBlEnable: root.querySelector('#aw-sys-fixed-bl-enable'),
+            sysFixedBlVal: root.querySelector('#aw-sys-fixed-bl-val'),
+            sysBlOffset: root.querySelector('#aw-sys-bl-offset'),
+            sysBlMin: root.querySelector('#aw-sys-bl-min'),
+            sysBlMax: root.querySelector('#aw-sys-bl-max'),
             sysSaveBtn: root.querySelector('#aw-sys-save-btn'),
             sysReloadBtn: root.querySelector('#aw-sys-reload-btn'),
             sysSaveStatus: root.querySelector('#aw-sys-save-status'),
@@ -315,6 +349,10 @@ class AppWebPanel {
             this.el.sysSaveRawBtn.addEventListener('click', () => this.saveRawConfigIni());
         }
 
+        if (this.el.sysFixedBlEnable) {
+            this.el.sysFixedBlEnable.addEventListener('change', () => this._updateBacklightUI());
+        }
+
         // App config events delegation
         if (this.el.cfgOtherBox) {
             this.el.cfgOtherBox.addEventListener('click', (e) => {
@@ -326,6 +364,18 @@ class AppWebPanel {
                 }
             });
         }
+    }
+
+    _updateBacklightUI() {
+        const fixed = this.el.sysFixedBlEnable ? this.el.sysFixedBlEnable.checked : false;
+        if (this.el.sysFixedBlVal) {
+            this.el.sysFixedBlVal.disabled = !fixed;
+            this.el.sysFixedBlVal.style.opacity = fixed ? '1' : '0.5';
+        }
+        const dynOpacity = fixed ? '0.6' : '1';
+        if (this.el.sysBlOffset) this.el.sysBlOffset.style.opacity = dynOpacity;
+        if (this.el.sysBlMin) this.el.sysBlMin.style.opacity = dynOpacity;
+        if (this.el.sysBlMax) this.el.sysBlMax.style.opacity = dynOpacity;
     }
 
     _fsRead(path) {
@@ -655,6 +705,15 @@ class AppWebPanel {
         if (this.el.sysDevName) this.el.sysDevName.value = sys['device_name'] || 'MiniScheme-Sim';
         if (this.el.sysBootApp) this.el.sysBootApp.value = sys['boot_app'] || '';
 
+        // Backlight & Brightness parameters
+        const autoBl = disp['auto_backlight'] !== undefined ? (disp['auto_backlight'] !== '0') : true;
+        if (this.el.sysFixedBlEnable) this.el.sysFixedBlEnable.checked = !autoBl;
+        if (this.el.sysFixedBlVal) this.el.sysFixedBlVal.value = disp['backlight'] !== undefined ? disp['backlight'] : '180';
+        if (this.el.sysBlOffset) this.el.sysBlOffset.value = disp['backlight_offset'] !== undefined ? disp['backlight_offset'] : '0';
+        if (this.el.sysBlMin) this.el.sysBlMin.value = disp['backlight_min'] !== undefined ? disp['backlight_min'] : '30';
+        if (this.el.sysBlMax) this.el.sysBlMax.value = disp['backlight_max'] !== undefined ? disp['backlight_max'] : '255';
+        this._updateBacklightUI();
+
         // 6. Raw INI
         if (this.el.sysRawIni) this.el.sysRawIni.value = iniText;
         if (this.el.sysSaveStatus) this.el.sysSaveStatus.textContent = '';
@@ -691,6 +750,22 @@ class AppWebPanel {
             hwPassToSave = rawHwPass;
         }
 
+        const fixedBl = this.el.sysFixedBlEnable ? this.el.sysFixedBlEnable.checked : false;
+        const fixedValRaw = parseInt(this.el.sysFixedBlVal ? this.el.sysFixedBlVal.value : '180', 10);
+        const offsetRaw = parseInt(this.el.sysBlOffset ? this.el.sysBlOffset.value : '0', 10);
+        let minRaw = parseInt(this.el.sysBlMin ? this.el.sysBlMin.value : '30', 10);
+        let maxRaw = parseInt(this.el.sysBlMax ? this.el.sysBlMax.value : '255', 10);
+
+        const fixedVal = Math.max(0, Math.min(255, isNaN(fixedValRaw) ? 180 : fixedValRaw));
+        const blOffset = Math.max(-10, Math.min(10, isNaN(offsetRaw) ? 0 : offsetRaw));
+        let blMin = Math.max(0, Math.min(255, isNaN(minRaw) ? 30 : minRaw));
+        let blMax = Math.max(0, Math.min(255, isNaN(maxRaw) ? 255 : maxRaw));
+        if (blMin > blMax) {
+            const tmp = blMin;
+            blMin = blMax;
+            blMax = tmp;
+        }
+
         const rawText = this.readConfigIni();
         const parsed = this._parseIni(rawText);
         const serverSec = parsed['server'] ? 'server' : 'system';
@@ -701,7 +776,12 @@ class AppWebPanel {
             'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
             'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
             'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
-            'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0'
+            'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0',
+            'display.auto_backlight': fixedBl ? '0' : '1',
+            'display.backlight': String(fixedVal),
+            'display.backlight_offset': String(blOffset),
+            'display.backlight_min': String(blMin),
+            'display.backlight_max': String(blMax)
         };
 
         const ssid = (this.el.sysWifiSsid ? this.el.sysWifiSsid.value : '').trim();
@@ -732,6 +812,15 @@ class AppWebPanel {
             if (this.el.sysSaveStatus) {
                 this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';
                 this.el.sysSaveStatus.style.color = '#72d696';
+            }
+            if (typeof window.updateSimBrightnessConfig === 'function') {
+                window.updateSimBrightnessConfig({
+                    autoBacklight: !fixedBl,
+                    backlight: fixedVal,
+                    offset: blOffset,
+                    min: blMin,
+                    max: blMax
+                });
             }
             this.loadSystemTab();
             this.log('info', '⚙️ [WASM 模拟器] 系统配置已更新并保存至 IndexedDB');

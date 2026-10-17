@@ -721,3 +721,7 @@ int remove(const char *path) { (void)path; return -1; }
 void exit(int code) { (void)code; while (1) {} }
 int system(const char *cmd) { (void)cmd; return -1; }
 
+double exp2(double x) {
+    return exp(x * 0.693147180559945309417232121458);
+}
+

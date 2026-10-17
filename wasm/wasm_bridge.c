@@ -1118,13 +1118,20 @@ static void mock_backlight_config(void) {
     char v[16];
     bool auto_on = true;
     int level = 220;
+    int offset = 0;
+    int min_val = 30;
+    int max_val = 255;
     if (slot >= 0) {
         const char *text = (const char *)g_mock_fs[slot].data;
         if (mini_device_config_value(text, "auto_backlight", v, sizeof(v))) auto_on = v[0] != '0';
         if (mini_device_config_value(text, "backlight", v, sizeof(v))) level = (int)strtoll(v, NULL, 10);
+        if (mini_device_config_value(text, "backlight_offset", v, sizeof(v))) offset = (int)strtoll(v, NULL, 10);
+        if (mini_device_config_value(text, "backlight_min", v, sizeof(v))) min_val = (int)strtoll(v, NULL, 10);
+        if (mini_device_config_value(text, "backlight_max", v, sizeof(v))) max_val = (int)strtoll(v, NULL, 10);
     }
     if (level < 0 || level > 255) level = 220;
     mini_backlight_set((uint8_t)level);
+    mini_backlight_set_params(offset, min_val, max_val);
     mini_backlight_auto_set(auto_on);
     mini_backlight_set_hook(mock_backlight_save);
 }
@@ -2675,6 +2682,37 @@ int wasm_get_ws2812_b(void) { uint8_t r, g, b; mini_ws2812_get(&r, &g, &b); retu
 __attribute__((visibility("default"))) int wasm_get_light_sensor(void) { return mini_light_read(); }
 __attribute__((visibility("default"))) void wasm_set_light_sensor(int val) { mini_light_set(val); }
 __attribute__((visibility("default"))) int wasm_get_backlight(void) { return mini_backlight_get(); }
+__attribute__((visibility("default")))
+void wasm_set_backlight(int val) {
+    if (val < 0) val = 0;
+    if (val > 255) val = 255;
+    mini_backlight_set((uint8_t)val);
+}
+__attribute__((visibility("default")))
+void wasm_set_backlight_auto(int on) {
+    mini_backlight_auto_set(on != 0);
+    if (on) mini_backlight_auto_step();
+}
+__attribute__((visibility("default")))
+int wasm_get_backlight_auto(void) {
+    return mini_backlight_auto() ? 1 : 0;
+}
+__attribute__((visibility("default")))
+void wasm_set_backlight_params(int offset, int min_val, int max_val) {
+    mini_backlight_set_params(offset, min_val, max_val);
+}
+__attribute__((visibility("default")))
+int wasm_get_backlight_offset(void) {
+    return mini_backlight_get_offset();
+}
+__attribute__((visibility("default")))
+int wasm_get_backlight_min(void) {
+    return mini_backlight_get_min();
+}
+__attribute__((visibility("default")))
+int wasm_get_backlight_max(void) {
+    return mini_backlight_get_max();
+}
 __attribute__((visibility("default"))) void wasm_set_button_k18(int pressed) { mini_button_set(pressed != 0); }
 __attribute__((visibility("default"))) int wasm_get_button_k18(void) { return mini_button_read() ? 1 : 0; }
 

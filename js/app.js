@@ -599,6 +599,40 @@ if (ledWifiEl) {
     });
 }
 
+// Dynamic brightness calculation algorithm
+// Bounded within [0, 255] and [minVal, maxVal], dynamically calculated from raw photoresistor reading (0~4095)
+// combined with brightness offset exponent gamma = 0.5 * 2^(-offset / 5.0).
+window.calcDynamicBacklight = function(lightRaw, minVal = 30, maxVal = 255, offset = 0) {
+    let minB = Math.max(0, Math.min(255, parseInt(minVal, 10) || 0));
+    let maxB = Math.max(0, Math.min(255, parseInt(maxVal, 10) || 255));
+    if (minB > maxB) { const t = minB; minB = maxB; maxB = t; }
+    const off = Math.max(-10, Math.min(10, parseInt(offset, 10) || 0));
+    const raw = Math.max(0, Math.min(4095, parseInt(lightRaw, 10) || 0));
+    const x = raw / 4095.0;
+    if (x <= 0) return minB;
+    if (x >= 1) return maxB;
+    const gamma = 0.5 * Math.pow(2.0, -off / 5.0);
+    const ratio = Math.pow(x, gamma);
+    const target = Math.round(minB + (maxB - minB) * ratio);
+    return Math.max(minB, Math.min(maxB, Math.max(0, Math.min(255, target))));
+};
+
+window.updateSimBrightnessConfig = function(cfg) {
+    if (!cfg) return;
+    if (!wasmInstance || !wasmInstance.exports) return;
+    const ex = wasmInstance.exports;
+    if (ex.wasm_set_backlight_params && cfg.offset !== undefined) {
+        ex.wasm_set_backlight_params(cfg.offset, cfg.min, cfg.max);
+    }
+    if (ex.wasm_set_backlight_auto && cfg.autoBacklight !== undefined) {
+        ex.wasm_set_backlight_auto(cfg.autoBacklight ? 1 : 0);
+    }
+    if (!cfg.autoBacklight && ex.wasm_set_backlight && cfg.backlight !== undefined) {
+        ex.wasm_set_backlight(cfg.backlight);
+    }
+    syncHardwareTelemetry();
+};
+
 /** The board when linked over HTTP (display, button and light go to it), else null */
 function httpDevice() {
     return activeLink && activeLink.kind === 'http' && typeof activeLink.input === 'function' ? activeLink : null;

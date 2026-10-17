@@ -89,6 +89,7 @@ __attribute__((import_module("env"), import_name("atan2"))) double atan2(double 
 __attribute__((import_module("env"), import_name("pow"))) double pow(double x, double y);
 __attribute__((import_module("env"), import_name("log"))) double log(double x);
 __attribute__((import_module("env"), import_name("exp"))) double exp(double x);
+double exp2(double x);
 
 #define SEEK_SET 0
 #define SEEK_CUR 1

@@ -440,6 +440,7 @@ class TestWebReplFeatures(unittest.TestCase):
         body = res.read().decode("utf-8")
         self.assertIn('id="sim-wifi-toggle"', body, "WASM WiFi toggle switch missing in index.html")
         self.assertIn('id="btn-app-web"', body, "Device Web button missing in index.html")
+        self.assertIn('data-code="(light-read)"', body, "☀️ 读取光感 button missing in index.html")
 
         # Verify app_web.js contains all 5 tabs and config handlers via both clean /js/ and legacy / URL
         for url in ("/js/app_web.js", "/app_web.js"):
@@ -455,11 +456,25 @@ class TestWebReplFeatures(unittest.TestCase):
             self.assertIn('data-tab="info"', content_aw)
             self.assertIn("aw-sys-wifi-online", content_aw)
             self.assertIn("aw-sys-enter-settings-btn", content_aw)
+            self.assertIn("aw-sys-fixed-bl-enable", content_aw)
+            self.assertIn("aw-sys-fixed-bl-val", content_aw)
+            self.assertIn("aw-sys-bl-offset", content_aw)
+            self.assertIn("aw-sys-bl-min", content_aw)
+            self.assertIn("aw-sys-bl-max", content_aw)
             self.assertIn("enterSettingsMode", content_aw)
             self.assertIn("saveSystemConfig", content_aw)
             self.assertIn("saveRawConfigIni", content_aw)
             self.assertIn("isSimWifiOnline", content_aw)
             self.assertIn("setSimWifiOnline", content_aw)
+
+        # Verify app.js contains dynamic backlight calculation
+        for url in ("/js/app.js", "/app.js"):
+            conn.request("GET", url)
+            res_app = conn.getresponse()
+            self.assertEqual(res_app.status, 200, f"Failed to get {url}")
+            content_app = res_app.read().decode("utf-8")
+            self.assertIn("calcDynamicBacklight", content_app)
+            self.assertIn("updateSimBrightnessConfig", content_app)
 
         # Verify device_setup.js contains ds-wifi-enable
         for url in ("/js/device_setup.js", "/device_setup.js"):
