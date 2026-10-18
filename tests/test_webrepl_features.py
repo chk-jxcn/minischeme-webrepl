@@ -961,7 +961,13 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("arraybuffer", hw_js)
 
         # 2. Test TcpMirrorClient against a mock TCP mirror streaming server
-        from tools.test_mirror_tcp import TcpMirrorClient
+        tools_dir = os.path.join(ROOT_DIR, "tools")
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        try:
+            from tools.test_mirror_tcp import TcpMirrorClient
+        except ImportError:
+            from test_mirror_tcp import TcpMirrorClient
         import struct
 
         mock_port = find_free_port()
