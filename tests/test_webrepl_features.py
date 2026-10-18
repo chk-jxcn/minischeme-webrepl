@@ -970,10 +970,10 @@ class TestWebReplFeatures(unittest.TestCase):
             from test_mirror_tcp import TcpMirrorClient
         import struct
 
-        mock_port = find_free_port()
         mock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         mock_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        mock_server.bind(("127.0.0.1", mock_port))
+        mock_server.bind(("127.0.0.1", 0))
+        mock_port = mock_server.getsockname()[1]
         mock_server.listen(1)
 
         server_running = [True]
