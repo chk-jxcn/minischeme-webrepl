@@ -293,6 +293,19 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertTrue(len(info["ip"]) >= 7)
         conn.close()
 
+        # Verify /api/server_info when accessed via public host header
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/api/server_info", headers={"Host": "124.222.231.186:8087"})
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        pub_info = json.loads(res.read().decode("utf-8"))
+        self.assertTrue(pub_info.get("is_public"))
+        self.assertEqual(pub_info.get("ip"), "124.222.231.186")
+        self.assertEqual(pub_info.get("lan_url"), f"http://124.222.231.186:{self.port}")
+        for ip in pub_info.get("ips", []):
+            self.assertFalse(ip.startswith("10."), f"Cloud VPC IP {ip} should be filtered out on public server")
+        conn.close()
+
         # Verify automatic fallback when self.port is already bound
         proc2 = subprocess.Popen(
             [sys.executable, "server.py", "--no-tray", "--port", str(self.port)],

@@ -616,6 +616,27 @@ class LocalServerManager {
                 btnProxyAdmin.href = `http://${activeHost}:${activePort}/admin`;
             }
 
+            const isPrivateIp = (h) => {
+                if (!h || h === '127.0.0.1' || h === 'localhost') return true;
+                const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+                if (!m) return false;
+                const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+                if (a === 10) return true;
+                if (a === 172 && b >= 16 && b <= 31) return true;
+                if (a === 192 && b === 168) return true;
+                if (a === 127) return true;
+                return false;
+            };
+
+            const isPublicServer = !isPrivateIp(activeHost) || activeHost === '124.222.231.186' || Boolean(this.info && this.info.is_public);
+
+            // For public servers, never display an internal cloud private IP (such as 10.0.0.4)
+            const cleanProxyUrl = isPublicServer
+                ? `http://${activeHost}:${activePort}`
+                : ((lan_url && !lan_url.includes('10.0.0.')) ? lan_url : `http://${activeHost}:${activePort}`);
+
+            const proxyLabel = isPublicServer ? '公网代理地址' : 'ESP32 代理地址';
+
             if (statusBox) {
                 statusBox.innerHTML =
                     `<div style="color:#4ade80; font-weight:600; margin-bottom:4px;">` +
@@ -624,19 +645,22 @@ class LocalServerManager {
                     `<div style="font-size:12px; color:var(--text-secondary);">` +
                     `服务 IP: <b style="color:var(--text-primary);">${activeHost}</b> &nbsp;|&nbsp; ` +
                     `端口: <b style="color:var(--accent-cyan);">${activePort}</b> &nbsp;|&nbsp; ` +
-                    `ESP32 代理地址: <code style="color:#38bdf8;">${lan_url || `http://${activeHost}:${activePort}`}</code>` +
+                    `${proxyLabel}: <code style="color:#38bdf8;">${cleanProxyUrl}</code>` +
                     `</div>`;
             }
 
             // Sync detected LAN proxy URL to DeviceSetupWizard defaults
             if (window.MiniSchemeDeviceSetup && window.MiniSchemeDeviceSetup.el) {
                 const ds = window.MiniSchemeDeviceSetup.el;
-                const effectiveProxy = window.LOCAL_SERVER_BASE || lan_url || `http://${activeHost}:${activePort}`;
-                if (ds.proxyUrl && (!ds.proxyUrl.value || ds.proxyUrl.value === 'http://192.168.1.100:8087' || ds.proxyUrl.value === 'http://127.0.0.1:8087')) {
+                const effectiveProxy = window.LOCAL_SERVER_BASE || cleanProxyUrl || `http://${activeHost}:${activePort}`;
+                if (ds.proxyUrl && (!ds.proxyUrl.value || ds.proxyUrl.value === 'http://192.168.1.100:8087' || ds.proxyUrl.value === 'http://127.0.0.1:8087' || ds.proxyUrl.value.includes('10.0.0.'))) {
                     ds.proxyUrl.value = effectiveProxy;
                 }
-                if (ds.converterUrl && (!ds.converterUrl.value || ds.converterUrl.value === 'http://192.168.1.100:8087' || ds.converterUrl.value === 'http://127.0.0.1:8087')) {
+                if (ds.converterUrl && (!ds.converterUrl.value || ds.converterUrl.value === 'http://192.168.1.100:8087' || ds.converterUrl.value === 'http://127.0.0.1:8087' || ds.converterUrl.value.includes('10.0.0.'))) {
                     ds.converterUrl.value = effectiveProxy;
+                }
+                if (typeof window.MiniSchemeDeviceSetup.populateInterfaceList === 'function') {
+                    window.MiniSchemeDeviceSetup.populateInterfaceList();
                 }
             }
         } else if (savedHost) {

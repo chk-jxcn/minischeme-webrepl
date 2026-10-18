@@ -285,6 +285,15 @@ class DeviceSetupWizard {
                     <!-- Server & Security Section -->
                     <div class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
                         <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-blue);">🛡️ 2. 应用代理与安全密码 [server]</h4>
+                        <div id="ds-interface-select-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
+                            <label for="ds-interface-select" style="font-size: 13px;">选择代理接口:</label>
+                            <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
+                                <select id="ds-interface-select" class="compact-select" style="flex: 1; height: 32px; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 2px 8px;">
+                                    <option value="">正在检测本地服务网络接口...</option>
+                                </select>
+                                <button type="button" class="pill-btn highlight" id="ds-apply-interface-btn" style="white-space: nowrap; font-size: 11.5px; padding: 4px 10px;">填入此接口</button>
+                            </div>
+                        </div>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-proxy-url" style="font-size: 13px;">应用代理地址:</label>
                             <input type="text" id="ds-proxy-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
@@ -333,6 +342,9 @@ class DeviceSetupWizard {
             wifiEnable: q('#ds-wifi-enable'),
             wifiSsid: q('#ds-wifi-ssid'),
             wifiPass: q('#ds-wifi-password'),
+            interfaceSelectRow: q('#ds-interface-select-row'),
+            interfaceSelect: q('#ds-interface-select'),
+            applyInterfaceBtn: q('#ds-apply-interface-btn'),
             proxyUrl: q('#ds-proxy-url'),
             converterUrl: q('#ds-converter-url'),
             hwPassRow: q('#ds-hw-password-row'),
@@ -342,11 +354,36 @@ class DeviceSetupWizard {
             fillLocalBtn: q('#ds-fill-local-proxy'),
         };
 
+        if (this.el.interfaceSelect) {
+            this.el.interfaceSelect.addEventListener('change', () => {
+                const val = (this.el.interfaceSelect.value || '').trim();
+                if (val) {
+                    this.el.proxyUrl.value = val;
+                    this.el.converterUrl.value = val;
+                    this._status(`已选择并填入代理接口: ${val}`, 'ok');
+                }
+            });
+        }
+
+        if (this.el.applyInterfaceBtn) {
+            this.el.applyInterfaceBtn.addEventListener('click', () => {
+                const val = (this.el.interfaceSelect.value || '').trim();
+                if (val) {
+                    this.el.proxyUrl.value = val;
+                    this.el.converterUrl.value = val;
+                    this._status(`已填入选中的代理接口: ${val}`, 'ok');
+                } else {
+                    this._status('请先从列表中选择一个网络接口', 'error');
+                }
+            });
+        }
+
         if (this.el.fillPublicBtn) {
             this.el.fillPublicBtn.addEventListener('click', () => {
                 const pub = DeviceSetupWizard.getPublicProxyServer();
                 this.el.proxyUrl.value = pub;
                 this.el.converterUrl.value = pub;
+                if (this.el.interfaceSelect) this.el.interfaceSelect.value = pub;
                 this._status('已填入公网服务器地址 (124.222.231.186:8087)', 'ok');
             });
         }
@@ -356,6 +393,7 @@ class DeviceSetupWizard {
                 const loc = DeviceSetupWizard.getConfiguredServiceUrl();
                 this.el.proxyUrl.value = loc;
                 this.el.converterUrl.value = loc;
+                if (this.el.interfaceSelect) this.el.interfaceSelect.value = loc;
                 this._status(`已读取并填入当前设置的服务地址 (${loc})`, 'ok');
             });
         }
@@ -481,6 +519,129 @@ class DeviceSetupWizard {
         return false;
     }
 
+    /**
+     * Dynamically populate the interface selection dropdown (#ds-interface-select)
+     * using network interfaces detected by the local/public server (/api/server_info).
+     * Categorizes interfaces into physical LAN (ESP32 accessible), virtual/VPN,
+     * public proxy server, and loopback.
+     */
+    async populateInterfaceList() {
+        if (!this.el || !this.el.interfaceSelect) return;
+        const select = this.el.interfaceSelect;
+        const currentProxy = (this.el.proxyUrl ? this.el.proxyUrl.value : '').trim();
+
+        let info = (window.LocalServerManager && window.LocalServerManager.info) ? window.LocalServerManager.info : null;
+        if (!info) {
+            try {
+                const res = await fetch('/api/server_info', { cache: 'no-store' });
+                if (res.ok) {
+                    info = await res.json();
+                    if (window.LocalServerManager) window.LocalServerManager.info = info;
+                }
+            } catch (e) {
+                /* ignore fetch error if server is offline */
+            }
+        }
+
+        const activePort = (info && info.port) || (window.location.port || '8087');
+        const rawIps = (info && Array.isArray(info.ips)) ? info.ips.slice() : [];
+        if (info && info.ip && !rawIps.includes(info.ip)) {
+            rawIps.unshift(info.ip);
+        }
+
+        const isPublicWebRepl = DeviceSetupWizard.isPublicWebRepl() || (info && Boolean(info.is_public));
+
+        // Filter and collect candidate interface URLs
+        const candidates = [];
+        const seenUrls = new Set();
+
+        const addCandidate = (url, label, isPhysical = false, isPublic = false, isLoopback = false) => {
+            if (!url || seenUrls.has(url)) return;
+            seenUrls.add(url);
+            candidates.push({ url, label, isPhysical, isPublic, isLoopback });
+        };
+
+        // 1. Process IPs from server_info
+        for (const ip of rawIps) {
+            if (!ip) continue;
+            // Filter cloud VPC private IP (e.g. 10.0.0.4) on public server
+            if (isPublicWebRepl && ip.startsWith('10.')) continue;
+
+            const url = `http://${ip}:${activePort}`;
+            if (ip === '127.0.0.1' || ip === 'localhost') {
+                addCandidate(url, `${url} (本机回环 / 仅限 WASM 模拟器)`, false, false, true);
+            } else if (ip === '124.222.231.186') {
+                addCandidate(url, `${url} (公网测试服务器 / 推荐外网环境)`, false, true, false);
+            } else if (ip.startsWith('192.168.')) {
+                const parts = ip.split('.');
+                const third = parseInt(parts[2], 10);
+                // Common router physical LAN subnets (0..32, 50, 68, 88, 100, 123) vs virtual/VPN subnets (195, 137, 200+)
+                const isPhysical = (third <= 32 || third === 50 || third === 68 || third === 88 || third === 100 || third === 123);
+                if (isPhysical) {
+                    addCandidate(url, `${url} (物理局域网 / 推荐: ESP32可访问)`, true, false, false);
+                } else {
+                    addCandidate(url, `${url} (虚拟网卡/VPN: ESP32通常无法直连)`, false, false, false);
+                }
+            } else if (ip.startsWith('172.')) {
+                // 172.16..31 usually Docker/WSL2/Hyper-V virtual switch
+                addCandidate(url, `${url} (虚拟网卡/WSL: ESP32通常无法直连)`, false, false, false);
+            } else if (ip.startsWith('10.')) {
+                addCandidate(url, `${url} (私有网络/内网地址)`, false, false, false);
+            } else {
+                addCandidate(url, `${url} (公网服务地址)`, false, true, false);
+            }
+        }
+
+        // 2. Always ensure public proxy is available in list
+        const pubUrl = DeviceSetupWizard.getPublicProxyServer();
+        if (!seenUrls.has(pubUrl)) {
+            addCandidate(pubUrl, `${pubUrl} (公网测试服务器 / 推荐外网环境)`, false, true, false);
+        }
+
+        // 3. Ensure 127.0.0.1 is available in list
+        const loopbackUrl = `http://127.0.0.1:${activePort}`;
+        if (!seenUrls.has(loopbackUrl)) {
+            addCandidate(loopbackUrl, `${loopbackUrl} (本机回环 / 仅限 WASM 模拟器)`, false, false, true);
+        }
+
+        // Build option elements
+        select.innerHTML = '';
+        const defaultPromptOpt = document.createElement('option');
+        defaultPromptOpt.value = '';
+        defaultPromptOpt.textContent = '-- 请选择代理服务器接口 --';
+        select.appendChild(defaultPromptOpt);
+
+        let matchFound = false;
+        let recommendedUrl = '';
+
+        for (const item of candidates) {
+            const opt = document.createElement('option');
+            opt.value = item.url;
+            opt.textContent = item.label;
+            if (item.isPhysical && !recommendedUrl && !isPublicWebRepl) {
+                recommendedUrl = item.url;
+            } else if (item.isPublic && !recommendedUrl && isPublicWebRepl) {
+                recommendedUrl = item.url;
+            }
+            if (currentProxy && (item.url === currentProxy || item.url.replace(/\/+$/, '') === currentProxy.replace(/\/+$/, ''))) {
+                opt.selected = true;
+                matchFound = true;
+            }
+            select.appendChild(opt);
+        }
+
+        // If existing proxy URL isn't in list but is non-empty, add custom option
+        if (currentProxy && !matchFound) {
+            const customOpt = document.createElement('option');
+            customOpt.value = currentProxy;
+            customOpt.textContent = `${currentProxy} (当前已配置自定义地址)`;
+            customOpt.selected = true;
+            select.insertBefore(customOpt, select.firstChild.nextSibling);
+        } else if (!matchFound && recommendedUrl && (!currentProxy || currentProxy.includes('10.0.0.'))) {
+            select.value = recommendedUrl;
+        }
+    }
+
     async open(opts = {}) {
         try {
             this.backend = this.getBackend();
@@ -495,6 +656,7 @@ class DeviceSetupWizard {
         this.el.target.textContent = this.backend.label || '';
         this._updateModeUi();
         this.el.root.hidden = false;
+        await this.populateInterfaceList();
         await this._readFromDevice(opts && opts.autoTriggered);
     }
 
@@ -529,6 +691,7 @@ class DeviceSetupWizard {
         if (!this._isSimulator() && !this.lockedHwPassword) {
             this.el.hwPass.value = '';
         }
+        this.populateInterfaceList();
         this._status('已填入推荐默认设置', 'ok');
     }
 
@@ -611,6 +774,7 @@ class DeviceSetupWizard {
         if (kv['system.boot_app']) {
             this.existingBootApp = kv['system.boot_app'];
         }
+        this.populateInterfaceList();
     }
 
     async _saveAndReboot() {
