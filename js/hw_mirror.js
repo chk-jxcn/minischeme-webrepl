@@ -42,6 +42,7 @@ class HardwareMirror {
         this.lastRow = -1;     // the last row of the latest reply
         this.lastUptime = 0;
         this.bytes = 0;
+        this.ws = null;
         this.state = 'stopped';
     }
 
@@ -55,15 +56,123 @@ class HardwareMirror {
         this.lastUptime = 0;
         const gen = ++this.gen;
         this._setState('sync', '同步硬件画面…');
-        this._screenLoop(gen);
+        this._startStreamOrPolling(gen);
         this._statsLoop(gen);
     }
 
     stop() {
         this.gen++;
+        if (this.ws) {
+            try { this.ws.close(); } catch (_) {}
+            this.ws = null;
+        }
         this.link = null;
         this.image = null;
         if (this.state !== 'stopped') this._setState('stopped', '');
+    }
+
+    async _startStreamOrPolling(gen) {
+        let streamOk = false;
+        if (typeof WebSocket !== 'undefined' && this.link && this.link.base) {
+            try {
+                let host = '';
+                try {
+                    const u = new URL(this.link.base);
+                    host = u.hostname;
+                } catch (_) {
+                    host = this.link.base.replace(/^https?:\/\//, '').split(':')[0].split('/')[0];
+                }
+                if (host) {
+                    streamOk = await this._tryWebSocketStream(gen, host);
+                }
+            } catch (err) {
+                console.warn('[HardwareMirror] WebSocket stream init failed, falling back to HTTP polling:', err);
+            }
+        }
+        if (!streamOk && this._alive(gen)) {
+            this._screenLoop(gen);
+        }
+    }
+
+    _tryWebSocketStream(gen, host) {
+        return new Promise((resolve) => {
+            if (!this._alive(gen)) return resolve(false);
+            const pwd = this.link.password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
+            const wsUrl = `ws://${host}:8088/?auth=${encodeURIComponent(pwd)}`;
+            let ws = null;
+            let connected = false;
+            let timer = null;
+
+            const cleanup = () => {
+                if (timer) { clearTimeout(timer); timer = null; }
+                if (ws) {
+                    ws.onopen = null;
+                    ws.onerror = null;
+                    ws.onclose = null;
+                    ws.onmessage = null;
+                }
+            };
+
+            try {
+                ws = new WebSocket(wsUrl);
+                ws.binaryType = 'arraybuffer';
+                this.ws = ws;
+            } catch (e) {
+                return resolve(false);
+            }
+
+            timer = setTimeout(() => {
+                if (!connected) {
+                    cleanup();
+                    try { ws.close(); } catch (_) {}
+                    if (this.ws === ws) this.ws = null;
+                    resolve(false);
+                }
+            }, 1500);
+
+            ws.onopen = () => {
+                if (!this._alive(gen)) {
+                    cleanup();
+                    try { ws.close(); } catch (_) {}
+                    if (this.ws === ws) this.ws = null;
+                    return resolve(false);
+                }
+                connected = true;
+                if (timer) { clearTimeout(timer); timer = null; }
+                this._setState('live', '实时传输 (TCP/WS)');
+                resolve(true);
+            };
+
+            ws.onmessage = (evt) => {
+                if (!this._alive(gen)) return;
+                const buf = new Uint8Array(evt.data);
+                if (buf.length < 16 || String.fromCharCode(buf[0], buf[1], buf[2], buf[3]) !== 'MSCR') {
+                    return;
+                }
+                const flags = this._apply(buf);
+                if (flags & 2) {
+                    this._setState('nopixels', 'direct 模式不保存像素，无法镜像 (config.ini 中改用 band 或 full)');
+                } else if (this.state !== 'live') {
+                    this._setState('live', '实时传输 (TCP/WS)');
+                }
+            };
+
+            ws.onerror = () => {
+                if (!connected) {
+                    cleanup();
+                    if (this.ws === ws) this.ws = null;
+                    resolve(false);
+                }
+            };
+
+            ws.onclose = () => {
+                if (connected && this._alive(gen)) {
+                    if (this.ws === ws) this.ws = null;
+                    this._setState('sync', '流中断，切换为 HTTP 轮询…');
+                    this._screenLoop(gen);
+                }
+            };
+        });
     }
 
     _setState(state, detail) {

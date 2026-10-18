@@ -22,6 +22,8 @@ import urllib.error
 import shutil
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 APPS_DIR = os.path.join(ROOT_DIR, "apps")
 TEST_PORT = 8095
 
@@ -946,9 +948,120 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("devicePwdShowToggle", app_js)
         self.assertIn("deviceHttpPwd.type = devicePwdShowToggle.checked ? 'text' : 'password'", app_js)
 
+    def test_18_tcp_mirror_streaming_protocol(self):
+        """Verify T2/T3 TCP mirror streaming server protocol, authentication, and hw_mirror.js transport"""
+        # 1. Verify js/hw_mirror.js includes streaming support with fallback
+        hw_mirror_path = os.path.join(ROOT_DIR, "js", "hw_mirror.js")
+        with open(hw_mirror_path, "r", encoding="utf-8") as f:
+            hw_js = f.read()
+        self.assertIn("_startStreamOrPolling", hw_js)
+        self.assertIn("_tryWebSocketStream", hw_js)
+        self.assertIn(":8088", hw_js)
+        self.assertIn("ws://", hw_js)
+        self.assertIn("arraybuffer", hw_js)
+
+        # 2. Test TcpMirrorClient against a mock TCP mirror streaming server
+        from tools.test_mirror_tcp import TcpMirrorClient
+        import struct
+
+        mock_port = find_free_port()
+        mock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        mock_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        mock_server.bind(("127.0.0.1", mock_port))
+        mock_server.listen(1)
+
+        server_running = [True]
+
+        def run_mock():
+            while server_running[0]:
+                try:
+                    mock_server.settimeout(0.5)
+                    client_sock, _ = mock_server.accept()
+                except socket.timeout:
+                    continue
+                except Exception:
+                    break
+
+                try:
+                    req = client_sock.recv(256).decode("utf-8", errors="replace")
+                    if req.startswith("AUTH secret123"):
+                        client_sock.sendall(b"+OK\n")
+                        # Send 2 mock MSCR frames
+                        for clock in [101, 102]:
+                            # Build mock MSCR header (16 bytes)
+                            hdr = struct.pack("<4sBBHHHI", b"MSCR", 2, 0, 320, 480, 1, clock)
+                            # 1 row at y=10, 4 bytes packbits
+                            row_data = struct.pack("<HH", 10, 4) + b"\x01\x00\x00\x00"
+                            payload = hdr + row_data
+                            frame = struct.pack("<I", len(payload)) + payload
+                            client_sock.sendall(frame)
+                            time.sleep(0.02)
+                    elif req.startswith("AUTH"):
+                        client_sock.sendall(b"ERR auth failed\n")
+                        client_sock.close()
+                        continue
+
+                    # Handle command loop
+                    while True:
+                        cmd = client_sock.recv(64)
+                        if not cmd or b"QUIT" in cmd:
+                            break
+                        if b"PING" in cmd:
+                            client_sock.sendall(b"PONG\n")
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        client_sock.close()
+                    except Exception:
+                        pass
+
+        server_thread = threading.Thread(target=run_mock, daemon=True)
+        server_thread.start()
+
+        try:
+            # Test A: Wrong password rejected
+            client_bad = TcpMirrorClient("127.0.0.1", mock_port, "wrong_password")
+            client_bad.connect()
+            auth_res = client_bad.authenticate()
+            self.assertEqual(auth_res, "ERR auth failed")
+            client_bad.close()
+
+            # Test B: Correct password accepted and receives MSCR stream
+            client_good = TcpMirrorClient("127.0.0.1", mock_port, "secret123")
+            client_good.connect()
+            auth_ok = client_good.authenticate()
+            self.assertEqual(auth_ok, "+OK")
+
+            frame1 = client_good.read_frame(timeout=2.0)
+            self.assertEqual(frame1["version"], 2)
+            self.assertEqual(frame1["width"], 320)
+            self.assertEqual(frame1["height"], 480)
+            self.assertEqual(frame1["clock"], 101)
+            self.assertEqual(frame1["nrows"], 1)
+            self.assertEqual(frame1["rows"][0]["y"], 10)
+
+            frame2 = client_good.read_frame(timeout=2.0)
+            self.assertEqual(frame2["clock"], 102)
+
+            # Test C: Command PING -> PONG
+            client_good.send_command("PING")
+            pong = client_good.sock.recv(16).decode("utf-8").strip()
+            self.assertEqual(pong, "PONG")
+
+            client_good.close()
+        finally:
+            server_running[0] = False
+            try:
+                mock_server.close()
+            except Exception:
+                pass
+            server_thread.join(timeout=1.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 
 
 
