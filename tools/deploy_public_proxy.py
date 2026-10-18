@@ -83,6 +83,14 @@ def create_payload_archive():
                 full_p = os.path.join(apps_dir, f)
                 if os.path.isfile(full_p) and (f == "index.json" or f.endswith((".msbc", ".allinone.scm"))):
                     tar.add(full_p, arcname=f"apps/{f}")
+
+        # Add firmware directory (bootloader.bin, partition-table.bin, minischeme_esp32.bin, firmware-manifest.json)
+        firmware_dir = os.path.join(BASE_DIR, "firmware")
+        if os.path.isdir(firmware_dir):
+            for f in os.listdir(firmware_dir):
+                full_p = os.path.join(firmware_dir, f)
+                if os.path.isfile(full_p):
+                    tar.add(full_p, arcname=f"firmware/{f}")
     return buf.getvalue()
 
 
