@@ -11,7 +11,7 @@
   "file": "album.msbc",
   "size": 56300,
   "scm": "album.allinone.scm",
-  "hash": "c97f4c7f"
+  "hash": "211e41be"
  },
  {
   "id": "calendar",
@@ -23,9 +23,9 @@
   "kind": "app",
   "web": false,
   "file": "calendar.msbc",
-  "size": 50661,
+  "size": 52051,
   "scm": "calendar.allinone.scm",
-  "hash": "02f7eed0"
+  "hash": "952f6379"
  },
  {
   "id": "crypto",
@@ -67,7 +67,7 @@
   "file": "memo.msbc",
   "size": 50935,
   "scm": "memo.allinone.scm",
-  "hash": "cba9908e"
+  "hash": "99bf2d29"
  },
  {
   "id": "news",
@@ -95,7 +95,7 @@
   "file": "notifier.msbc",
   "size": 52926,
   "scm": "notifier.allinone.scm",
-  "hash": "00d22b20"
+  "hash": "4724262e"
  },
  {
   "id": "pcmonitor",
@@ -179,6 +179,6 @@
   "file": "wxpusher.msbc",
   "size": 56260,
   "scm": "wxpusher.allinone.scm",
-  "hash": "be6a9f15"
+  "hash": "54122328"
  }
 ]

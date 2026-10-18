@@ -431,6 +431,65 @@ class TestWebReplFeatures(unittest.TestCase):
 
         conn.close()
 
+    def test_09c_calendar_endpoints(self):
+        """Verify /app/calendar views: today, month, and sky with dynamic geolocation & astronomy"""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+
+        # 1. Today view
+        conn.request("GET", "/app/calendar?view=today")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("cdate", tags)
+        self.assertIn("lunar", tags)
+
+        # 2. Month view
+        conn.request("GET", "/app/calendar?view=month")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        tags = {it["t"] for it in data["items"]}
+        self.assertIn("month", tags)
+        self.assertIn("day", tags)
+
+        # 3. Sky view (dynamic astronomy & location from IP or query param)
+        conn.request("GET", "/app/calendar?view=sky&loc=auto")
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data = json.loads(res.read().decode("utf-8"))
+        items = {it["t"]: it for it in data["items"]}
+        self.assertIn("moon", items)
+        self.assertIn("sun", items)
+        self.assertIn("moonpos", items)
+        self.assertIn("loc", items)
+        self.assertIn("upd", items)
+
+        # Verify loc contains non-empty city name instead of static '本地' when resolved
+        loc_item = items["loc"]
+        self.assertTrue(len(loc_item.get("a", "")) > 0)
+        # Verify sun & moon position items have valid astronomical numbers
+        sun_item = items["sun"]
+        self.assertTrue(sun_item.get("a", "").isdigit())
+        self.assertIn(":", sun_item.get("c", ""))
+        self.assertIn(":", sun_item.get("d", ""))
+
+        moon_item = items["moon"]
+        self.assertIn(moon_item.get("a"), ["新月", "蛾眉月", "上弦月", "盈凸月", "满月", "亏凸月", "下弦月", "残月"])
+        self.assertTrue(moon_item.get("b", "").isdigit())
+
+        # Test specific city
+        conn.request("GET", "/app/calendar?view=sky&loc=" + urllib.parse.quote("深圳"))
+        res = conn.getresponse()
+        self.assertEqual(res.status, 200)
+        data_sz = json.loads(res.read().decode("utf-8"))
+        items_sz = {it["t"]: it for it in data_sz["items"]}
+        self.assertEqual(items_sz["loc"].get("a"), "深圳")
+        self.assertEqual(items_sz["loc"].get("b"), "22.54")
+        self.assertEqual(items_sz["loc"].get("c"), "114.06")
+
+        conn.close()
+
     def test_10_device_web_and_wifi_controller(self):
         """Verify AppWebPanel multi-tab device web page and WASM simulator WiFi controller"""
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
