@@ -939,12 +939,22 @@ async function marketService(ex) {
     let bytes = null, status = 0;
     try {
         const base = window.LOCAL_SERVER_BASE || '';
-        const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
-        if (res.ok) {
+        let res = null;
+        if (base) {
+            try {
+                res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
+            } catch (be) {}
+        }
+        if (!res || !res.ok) {
+            try {
+                res = await fetch(url, { cache: 'no-store' });
+            } catch (fe) {}
+        }
+        if (res && res.ok) {
             bytes = new Uint8Array(await res.arrayBuffer());
             status = 1;
         } else {
-            status = -res.status;
+            status = res ? -res.status : 0;
         }
     } catch (e) {
         status = 0;
@@ -1273,17 +1283,29 @@ async function feedFetch(ex, url) {
     }
     if (window.isSimWifiOnline && !window.isSimWifiOnline()) {
         problem = 'WiFi已断开 (WASM 模拟器网络开关已关闭)';
-    } else if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(effectiveUrl)) {
-        problem = '本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)';
+    } else if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isSupportedProxyUrl(effectiveUrl)) {
+        problem = '本地模拟设备 (WASM) 仅支持非加密协议，请连接本地代理服务器 (127.0.0.1 / 局域网 IP) 或公网应用代理 (124.222.231.186:8087)';
     } else {
         try {
-            const res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl), { cache: 'no-store' });
-            if (res.ok) {
+            let res = null;
+            if (base) {
+                try {
+                    res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl), { cache: 'no-store' });
+                } catch (be) {}
+            }
+            if (!res || !res.ok) {
+                try {
+                    res = await fetch(effectiveUrl, { cache: 'no-store' });
+                } catch (fe) {}
+            }
+            if (res && res.ok) {
                 bytes = new Uint8Array(await res.arrayBuffer());
-            } else if (res.status === 404) {
+            } else if (res && res.status === 404) {
                 problem = 'proxy';
-            } else {
+            } else if (res) {
                 problem = (await res.text()) || `HTTP ${res.status}`;
+            } else {
+                problem = '网络无法连接到目标服务';
             }
         } catch (e) {
             problem = e.message;
