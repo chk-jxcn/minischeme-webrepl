@@ -6,7 +6,7 @@
 ;;; id = calendar
 ;;; name = 万年历
 ;;; description = 时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度
-;;; version = 3
+;;; version = 4
 ;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
 ;;; 
 ;;; [fields]
@@ -1553,13 +1553,13 @@
                 (txt 146 (+ top 80) (string-append "满月 " (car next)) theme-text-muted)
                 (txt 146 (+ top 102) (string-append "新月 " (if (pair? (cdr next)) (cadr next) "--")) theme-text-muted)))
           (gui-line 12 (+ top 146) (- w 12) (+ top 146) theme-divider)
-          (let ((cx 90) (cy (+ top 268)) (r 60))
+          (let ((cx 84) (cy (+ top 268)) (r 56))
             (cal-dial cx cy r)
             (if sun (cal-body cx cy r (it-int sun 1) (it-fixed sun 2 1) theme-warning 7))
             (if mpos (cal-body cx cy r (it-int mpos 1) (it-fixed mpos 2 1) cal-moon-lit 6)))
-          (if sun (cal-body-text 176 (+ top 158) "太阳" theme-warning sun))
-          (if mpos (cal-body-text 176 (+ top 258) "月亮" cal-moon-lit mpos))
-          (if loc (txt-fit 176 (+ top 356) (- w 188) (it-a loc) theme-text-muted))))))
+          (if sun (cal-body-text 160 (+ top 158) "太阳" theme-warning sun))
+          (if mpos (cal-body-text 160 (+ top 258) "月亮" cal-moon-lit mpos))
+          (if loc (txt-fit 160 (+ top 356) (- w 170) (it-a loc) theme-text-muted))))))
 
 ;; 5. The app -----------------------------------------------------------------------
 

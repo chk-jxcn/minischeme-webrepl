@@ -1464,6 +1464,74 @@ def _rise_set(pos_fn, day_start: datetime.datetime, lat: float, lon: float, hori
     return fmt(rise), fmt(sett)
 
 
+def _moon_rise_set(pos_fn, day_start: datetime.datetime, lat: float, lon: float, horizon: float):
+    """Computes the continuous lunar visibility cycle (moonrise to moonset) for the given day.
+
+    Unlike the solar day (which always resets each 24h), the lunar diurnal period is
+    approximately 24h 50m. A moonrise on day D often sets after midnight (early on day D+1),
+    or a moon already in the sky at 00:00 rose late on day D-1. This function pairs the rise
+    with its true setting event and prefixes with '次日' / '前日' when crossing midnight,
+    guaranteeing a complete and closed rise-set visibility window without missing end times.
+    """
+    rise = None
+    prev = pos_fn(day_start, lat, lon)[0] - horizon
+    for k in range(1, 289):
+        t = day_start + datetime.timedelta(minutes=5 * k)
+        cur = pos_fn(t, lat, lon)[0] - horizon
+        if prev < 0 <= cur:
+            rise = t - datetime.timedelta(minutes=5 * cur / ((cur - prev) or 1))
+            break
+        prev = cur
+
+    if rise is not None:
+        # The moonset corresponding to this rise is the first set AFTER rise
+        sett = None
+        prev = pos_fn(rise, lat, lon)[0] - horizon
+        for k in range(1, 289):
+            t = rise + datetime.timedelta(minutes=5 * k)
+            cur = pos_fn(t, lat, lon)[0] - horizon
+            if prev >= 0 > cur:
+                sett = t - datetime.timedelta(minutes=5 * cur / ((cur - prev) or 1))
+                break
+            prev = cur
+    else:
+        # No moonrise on this civil day (e.g. moon was already up from previous day)
+        # Find when it sets today
+        sett = None
+        prev = pos_fn(day_start, lat, lon)[0] - horizon
+        for k in range(1, 289):
+            t = day_start + datetime.timedelta(minutes=5 * k)
+            cur = pos_fn(t, lat, lon)[0] - horizon
+            if prev >= 0 > cur:
+                sett = t - datetime.timedelta(minutes=5 * cur / ((cur - prev) or 1))
+                break
+            prev = cur
+        # And find when this moon rose (search backward before day_start)
+        cur = pos_fn(day_start, lat, lon)[0] - horizon
+        for k in range(1, 289):
+            t = day_start - datetime.timedelta(minutes=5 * k)
+            prev_b = pos_fn(t, lat, lon)[0] - horizon
+            if prev_b < 0 <= cur:
+                rise = t + datetime.timedelta(minutes=5 * (-prev_b) / ((cur - prev_b) or 1))
+                break
+            cur = prev_b
+
+    def fmt_event(dt):
+        if not dt:
+            return "--"
+        local_dt = dt.astimezone()
+        local_day_start = day_start.astimezone()
+        diff = (local_dt.date() - local_day_start.date()).days
+        hhmm = local_dt.strftime("%H:%M")
+        if diff > 0:
+            return f"次日{hhmm}"
+        elif diff < 0:
+            return f"前日{hhmm}"
+        return hhmm
+
+    return fmt_event(rise), fmt_event(sett)
+
+
 def _next_moon(now: datetime.datetime, target: float):
     prev = _rev(moon_elongation(now) - target)
     for h in range(1, 31 * 24):
@@ -1488,7 +1556,7 @@ def cal_sky(place: Dict[str, Any]) -> List[Dict[str, str]]:
     s_alt, s_az = sun_pos(now, lat, lon)
     m_alt, m_az = moon_pos(now, lat, lon)
     s_rise, s_set = _rise_set(sun_pos, day_start, lat, lon, -0.833)
-    m_rise, m_set = _rise_set(moon_pos, day_start, lat, lon, 0.125)
+    m_rise, m_set = _moon_rise_set(moon_pos, day_start, lat, lon, 0.125)
     return [
         {"t": "moon", "a": phase, "b": str(round(illum * 100)), "c": f"{elong / 360 * 29.53:.1f}",
          "d": str(round(elong)), "e": f"{fmt(nf)},{fmt(nn)}"},

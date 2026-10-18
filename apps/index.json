@@ -11,21 +11,21 @@
   "file": "album.msbc",
   "size": 56300,
   "scm": "album.allinone.scm",
-  "hash": "211e41be"
+  "hash": "c97f4c7f"
  },
  {
   "id": "calendar",
   "name": "万年历",
   "description": "时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度",
-  "version": "3",
+  "version": "4",
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "calendar.msbc",
-  "size": 52051,
+  "size": 52042,
   "scm": "calendar.allinone.scm",
-  "hash": "b93b2908"
+  "hash": "17daa04b"
  },
  {
   "id": "crypto",
@@ -67,7 +67,7 @@
   "file": "memo.msbc",
   "size": 50935,
   "scm": "memo.allinone.scm",
-  "hash": "99bf2d29"
+  "hash": "cba9908e"
  },
  {
   "id": "news",
@@ -95,7 +95,7 @@
   "file": "notifier.msbc",
   "size": 52926,
   "scm": "notifier.allinone.scm",
-  "hash": "4724262e"
+  "hash": "00d22b20"
  },
  {
   "id": "pcmonitor",
@@ -179,6 +179,6 @@
   "file": "wxpusher.msbc",
   "size": 56260,
   "scm": "wxpusher.allinone.scm",
-  "hash": "54122328"
+  "hash": "be6a9f15"
  }
 ]

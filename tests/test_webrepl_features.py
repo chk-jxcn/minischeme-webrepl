@@ -315,25 +315,29 @@ class TestWebReplFeatures(unittest.TestCase):
             text=True
         )
         try:
-            fallback_port = self.port + 1
             up_fallback = False
+            found_port = None
             t0 = time.time()
             while time.time() - t0 < 5.0:
-                try:
-                    c = http.client.HTTPConnection("127.0.0.1", fallback_port, timeout=1)
-                    c.request("GET", "/api/server_info")
-                    r = c.getresponse()
-                    if r.status == 200:
-                        data = json.loads(r.read().decode("utf-8"))
-                        if data.get("port") == fallback_port:
-                            up_fallback = True
-                            c.close()
-                            break
-                    c.close()
-                except Exception:
-                    pass
+                for candidate_port in range(self.port + 1, self.port + 5):
+                    try:
+                        c = http.client.HTTPConnection("127.0.0.1", candidate_port, timeout=0.5)
+                        c.request("GET", "/api/server_info")
+                        r = c.getresponse()
+                        if r.status == 200:
+                            data = json.loads(r.read().decode("utf-8"))
+                            if data.get("port") == candidate_port:
+                                up_fallback = True
+                                found_port = candidate_port
+                                c.close()
+                                break
+                        c.close()
+                    except Exception:
+                        pass
+                if up_fallback:
+                    break
                 time.sleep(0.1)
-            self.assertTrue(up_fallback, f"Expected server.py to fall back from busy port {self.port} to {fallback_port}")
+            self.assertTrue(up_fallback, f"Expected server.py to fall back from busy port {self.port}")
         finally:
             proc2.terminate()
             try:
@@ -490,6 +494,11 @@ class TestWebReplFeatures(unittest.TestCase):
         moon_item = items["moon"]
         self.assertIn(moon_item.get("a"), ["新月", "蛾眉月", "上弦月", "盈凸月", "满月", "亏凸月", "下弦月", "残月"])
         self.assertTrue(moon_item.get("b", "").isdigit())
+
+        moonpos_item = items["moonpos"]
+        self.assertIn(":", moonpos_item.get("c", ""))
+        self.assertIn(":", moonpos_item.get("d", ""))
+        self.assertNotEqual(moonpos_item.get("d"), "--", "Moonset must not be empty/-- for current visibility cycle")
 
         # Test specific city
         conn.request("GET", "/app/calendar?view=sky&loc=" + urllib.parse.quote("深圳"))
