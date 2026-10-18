@@ -215,7 +215,7 @@ class SerialDeviceLink {
         await this.port.open({ baudRate: this.baudRate, bufferSize: 8192 });
         this.writer = this.port.writable.getWriter();
         this._closing = false;
-        this._readLoop();
+        this._readLoopPromise = this._readLoop();
         // The board may reset when the port opens; retry until the firmware answers
         let lastErr = null;
         for (let i = 0; i < 6; i++) {
@@ -230,14 +230,37 @@ class SerialDeviceLink {
 
     async disconnect() {
         this._closing = true;
-        try { if (this.reader) await this.reader.cancel(); } catch (e) { /* ignore */ }
-        try { if (this.writer) this.writer.releaseLock(); } catch (e) { /* ignore */ }
-        try { if (this.port) await this.port.close(); } catch (e) { /* ignore */ }
-        this.port = this.reader = this.writer = null;
         if (this._pending) {
             this._pending.reject(new Error('串口已断开'));
             this._pending = null;
         }
+        try { if (this.reader) await this.reader.cancel(); } catch (e) { /* ignore */ }
+        if (this._readLoopPromise) {
+            try { await this._readLoopPromise; } catch (e) { /* ignore */ }
+            this._readLoopPromise = null;
+        }
+        try { if (this.writer) this.writer.releaseLock(); } catch (e) { /* ignore */ }
+        try { if (this.port) await this.port.close(); } catch (e) { /* ignore */ }
+        this.port = this.reader = this.writer = null;
+    }
+
+    /* Release locks and close port while returning the SerialPort instance so other tools (e.g. firmware flasher) can reuse it */
+    async releasePort() {
+        this._closing = true;
+        if (this._pending) {
+            this._pending.reject(new Error('串口已断开'));
+            this._pending = null;
+        }
+        try { if (this.reader) await this.reader.cancel(); } catch (e) { /* ignore */ }
+        if (this._readLoopPromise) {
+            try { await this._readLoopPromise; } catch (e) { /* ignore */ }
+            this._readLoopPromise = null;
+        }
+        try { if (this.writer) this.writer.releaseLock(); } catch (e) { /* ignore */ }
+        const p = this.port;
+        try { if (p) await p.close(); } catch (e) { /* ignore */ }
+        this.port = this.reader = this.writer = null;
+        return p;
     }
 
     async _readLoop() {

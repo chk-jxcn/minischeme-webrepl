@@ -352,9 +352,18 @@ class WebSerialFirmwareFlasher {
         });
 
         // Flash & Reset buttons
+        const btnFlashCurrent = document.getElementById('flasher-flash-current-btn');
+        if (btnFlashCurrent) {
+            btnFlashCurrent.addEventListener('click', () => this.startFlash(true));
+        }
+        const btnFlashCurrentCard = document.getElementById('flasher-flash-current-card-btn');
+        if (btnFlashCurrentCard) {
+            btnFlashCurrentCard.addEventListener('click', () => this.startFlash(true));
+        }
+
         const btnFlash = document.getElementById('flasher-start-btn');
         if (btnFlash) {
-            btnFlash.addEventListener('click', () => this.startFlash());
+            btnFlash.addEventListener('click', () => this.startFlash(false));
         }
 
         const btnReset = document.getElementById('flasher-reset-btn');
@@ -366,6 +375,37 @@ class WebSerialFirmwareFlasher {
         if (btnClose) {
             btnClose.addEventListener('click', () => this.close());
         }
+    }
+
+    updateCurrentDeviceUi() {
+        const link = window.activeLink;
+        const isSerial = Boolean(link && link.kind === 'serial' && link.port);
+        const card = document.getElementById('flasher-current-device-card');
+        const cardLabel = document.getElementById('flasher-current-device-label');
+        const btnCurrent = document.getElementById('flasher-flash-current-btn');
+        const btnStart = document.getElementById('flasher-start-btn');
+
+        if (isSerial) {
+            if (card) card.style.display = 'block';
+            if (cardLabel) cardLabel.textContent = link.label || 'ESP32 串口';
+            if (btnCurrent) btnCurrent.style.display = 'inline-flex';
+            if (btnStart) btnStart.textContent = '🔌 选择其他串口烧录...';
+        } else {
+            if (card) card.style.display = 'none';
+            if (btnCurrent) btnCurrent.style.display = 'none';
+            if (btnStart) btnStart.textContent = '⚡ 连接串口并开始烧写';
+        }
+    }
+
+    _setButtonsDisabled(disabled) {
+        const btnCurrent = document.getElementById('flasher-flash-current-btn');
+        const btnCurrentCard = document.getElementById('flasher-flash-current-card-btn');
+        const btnStart = document.getElementById('flasher-start-btn');
+        const btnReset = document.getElementById('flasher-reset-btn');
+        if (btnCurrent) btnCurrent.disabled = disabled;
+        if (btnCurrentCard) btnCurrentCard.disabled = disabled;
+        if (btnStart) btnStart.disabled = disabled;
+        if (btnReset) btnReset.disabled = disabled;
     }
 
     _bindFileInput(elemId, callback) {
@@ -396,8 +436,14 @@ class WebSerialFirmwareFlasher {
     open() {
         if (!this.dialog) this.init();
         if (this.dialog) {
+            this.updateCurrentDeviceUi();
             this.dialog.showModal();
-            this.log('info', 'Web Serial 固件烧录器已打开。请选择固件来源并连接 ESP32 开发板。');
+            const link = window.activeLink;
+            if (link && link.kind === 'serial' && link.port) {
+                this.log('ok', `✔ 已检测到当前连接的串口设备: ${link.label}。点击【写入当前设备】可直接复用串口进行烧写。`);
+            } else {
+                this.log('info', 'Web Serial 固件烧录器已打开。请选择固件来源并连接 ESP32 开发板。');
+            }
             if (!('serial' in navigator)) {
                 this.log('error', '⚠️ 当前浏览器不支持 Web Serial API。请使用 Google Chrome、Microsoft Edge 或 Opera 浏览器。');
             }
@@ -503,7 +549,7 @@ class WebSerialFirmwareFlasher {
         }
     }
 
-    async startFlash() {
+    async startFlash(useCurrentPort = false) {
         if (this.isFlashing) return;
         if (!('serial' in navigator)) {
             alert('当前浏览器不支持 Web Serial API，请使用 Chrome、Edge 或 Opera 浏览器。');
@@ -525,23 +571,43 @@ class WebSerialFirmwareFlasher {
         const eraseAll = eraseAllCheck && eraseAllCheck.checked;
 
         this.isFlashing = true;
-        const btnFlash = document.getElementById('flasher-start-btn');
-        if (btnFlash) btnFlash.disabled = true;
+        this._setButtonsDisabled(true);
 
         try {
             this.log('info', '正在加载 Espressif 烧录驱动模块 (esptool-js)...');
             const esptool = await loadEsptoolBundle();
             const { ESPLoader, Transport } = esptool;
 
-            this.log('info', '请在弹出窗口中选择 ESP32 开发板的 USB 串口...');
-            const port = await navigator.serial.requestPort({
-                filters: [
-                    { usbVendorId: 0x10c4 }, // CP2102
-                    { usbVendorId: 0x1a86 }, // CH340
-                    { usbVendorId: 0x0403 }, // FTDI
-                    { usbVendorId: 0x303a }  // Espressif USB
-                ]
-            });
+            let port = null;
+            if (useCurrentPort) {
+                const link = window.activeLink;
+                if (!link || link.kind !== 'serial' || !link.port) {
+                    throw new Error('未检测到已连接的串口硬件，请点击“选择其他串口烧录”选择设备。');
+                }
+                const label = link.label || 'ESP32 串口';
+                this.log('info', `正在复用当前硬件串口连接 (${label})...`);
+                if (typeof link.releasePort === 'function') {
+                    port = await link.releasePort();
+                } else {
+                    port = link.port;
+                    await link.disconnect();
+                }
+                if (typeof window.disconnectDevice === 'function') {
+                    try { await window.disconnectDevice(); } catch (_) {}
+                }
+                window.activeLink = null;
+                this.log('ok', `✔ 成功接管当前串口设备句柄 (${label})`);
+            } else {
+                this.log('info', '请在弹出窗口中选择 ESP32 开发板的 USB 串口...');
+                port = await navigator.serial.requestPort({
+                    filters: [
+                        { usbVendorId: 0x10c4 }, // CP2102
+                        { usbVendorId: 0x1a86 }, // CH340
+                        { usbVendorId: 0x0403 }, // FTDI
+                        { usbVendorId: 0x303a }  // Espressif USB
+                    ]
+                });
+            }
             this.port = port;
 
             const transport = new Transport(port);
@@ -655,14 +721,39 @@ class WebSerialFirmwareFlasher {
             alert(`烧录失败: ${err.message}`);
         } finally {
             this.isFlashing = false;
-            if (btnFlash) btnFlash.disabled = false;
+            this._setButtonsDisabled(false);
+            this.updateCurrentDeviceUi();
         }
     }
 
     async hardReset() {
         if (!('serial' in navigator)) return;
         try {
-            const port = await navigator.serial.requestPort();
+            const link = window.activeLink;
+            if (link && link.kind === 'serial' && link.port) {
+                this.log('info', `正在复用当前串口 (${link.label}) 发送硬件复位指令...`);
+                if (typeof link.reset === 'function') {
+                    await link.reset();
+                    this.log('ok', '✔ 已通过串口发送系统复位重启指令 (@RESET)');
+                    return;
+                }
+            }
+
+            let port = null;
+            if (link && link.kind === 'serial' && link.port) {
+                if (typeof link.releasePort === 'function') {
+                    port = await link.releasePort();
+                } else {
+                    port = link.port;
+                    await link.disconnect();
+                }
+                if (typeof window.disconnectDevice === 'function') {
+                    try { await window.disconnectDevice(); } catch (_) {}
+                }
+                window.activeLink = null;
+            } else {
+                port = await navigator.serial.requestPort();
+            }
             await port.open({ baudRate: 115200 });
             // Pull EN low while keeping IO0 high (DTR=false, RTS=true)
             await port.setSignals({ dataTerminalReady: false, requestToSend: true });
@@ -672,6 +763,7 @@ class WebSerialFirmwareFlasher {
             await new Promise(r => setTimeout(r, 200));
             await port.close();
             this.log('ok', '✔ 已发送硬件复位重启信号 (ESP32 Run / Reboot)');
+            this.updateCurrentDeviceUi();
         } catch (e) {
             this.log('error', `复位失败: ${e.message}`);
         }

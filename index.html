@@ -409,6 +409,23 @@
             <button class="fm-close" id="flasher-close-btn" title="关闭 (Esc)">&times;</button>
         </div>
         <div class="flasher-body">
+            <!-- 当前已连接设备快捷卡片 (复用串口) -->
+            <div id="flasher-current-device-card" class="flasher-card" style="display:none; border:1px solid rgba(16, 185, 129, 0.4); background:rgba(16, 185, 129, 0.06); margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div>
+                        <div style="font-weight:600; color:#10b981; display:flex; align-items:center; gap:6px;">
+                            <span>🔌</span> 检测到当前已连接设备: <span id="flasher-current-device-label" style="font-family:monospace; color:#34d399;">ESP32 串口</span>
+                        </div>
+                        <div class="flasher-desc" style="margin-top:2px; font-size:12px; margin-bottom:0;">
+                            可以直接复用此串口连接刷写固件，无需在浏览器弹窗中重新选择设备。
+                        </div>
+                    </div>
+                    <button class="action-btn highlight" id="flasher-flash-current-card-btn" style="background:#059669; border-color:#10b981; padding:7px 16px; font-size:13px;">
+                        ⚡ 写入当前设备
+                    </button>
+                </div>
+            </div>
+
             <div class="flasher-source-tabs">
                 <label class="flasher-tab-label">
                     <input type="radio" name="flasher-mode" id="flasher-mode-gh" checked> 官方最新 Release 固件 (推荐)
@@ -496,6 +513,7 @@
 
             <!-- 底部按钮 -->
             <div class="flasher-footer">
+                <button class="action-btn highlight" id="flasher-flash-current-btn" style="display:none; background:#059669; border-color:#10b981;">⚡ 写入当前设备</button>
                 <button class="action-btn highlight" id="flasher-start-btn">⚡ 连接串口并开始烧写</button>
                 <button class="pill-btn" id="flasher-reset-btn" title="向 ESP32 发送 DTR/RTS 硬件复位信号">🔄 硬件复位重启</button>
             </div>

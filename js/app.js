@@ -2010,6 +2010,7 @@ async function disconnectDevice() {
     setLinkStatus('未连接', false);
     refreshTargetUi();
 }
+window.disconnectDevice = disconnectDevice;
 
 async function connectDevice() {
     const mode = targetMode.value;
