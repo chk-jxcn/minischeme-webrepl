@@ -13,9 +13,12 @@ preventing latency during page transitions on the hardware device.
 """
 
 import concurrent.futures
+import configparser
 import datetime
+import gzip
 import json
 import math
+import os
 import re
 import time
 import urllib.parse
@@ -270,10 +273,16 @@ def fetch_qweather(loc: str, token: str, host: str, client_ip: str = "") -> Opti
 
     def qw_api_call(path: str, params: dict, timeout: float = 6.0) -> dict:
         q_params = {**params, "lang": "zh", "key": tok}
-        url = f"{base_url}{path}?{urllib.parse.urlencode(q_params)}"
+        cur_base = base_url
+        if path.startswith("/geo/") and ("devapi.qweather.com" in base_url or "api.qweather.com" in base_url):
+            cur_base = "https://geoapi.qweather.com"
+        url = f"{cur_base}{path}?{urllib.parse.urlencode(q_params)}"
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            raw = resp.read()
+            if raw[:2] == b"\x1f\x8b":
+                raw = gzip.decompress(raw)
+            data = json.loads(raw.decode("utf-8", errors="replace"))
             if str(data.get("code", "200")) != "200":
                 raise RuntimeError(f"QWeather error {path}: code {data.get('code')}")
             return data
@@ -553,6 +562,33 @@ def build_fallback_weather(loc: str, fallback_provider: str = "MiniScheme-Proxy"
     return items
 
 
+def get_qweather_default_config():
+    """Reads [qweather] key and host from config.ini or app_proxy.local.ini if available."""
+    cfg = configparser.ConfigParser()
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        "app_proxy.local.ini",
+        "config.ini",
+        "/opt/minischeme-proxy/config.ini",
+        os.path.join(cur_dir, "..", "config.ini"),
+        os.path.join(cur_dir, "..", "app_proxy.local.ini"),
+        os.path.join(cur_dir, "..", "..", "tools", "app_proxy.local.ini"),
+        os.path.join(cur_dir, "..", "..", "..", "tools", "app_proxy.local.ini"),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            try:
+                cfg.read(p, encoding="utf-8")
+                if cfg.has_section("qweather"):
+                    k = cfg.get("qweather", "key", fallback="").strip()
+                    h = cfg.get("qweather", "host", fallback="").strip()
+                    if k:
+                        return k, h
+            except Exception:
+                pass
+    return "", ""
+
+
 def get_weather(loc: str = "auto", key: str = "", host: str = "", token: str = "", client_ip: str = "") -> Dict[str, Any]:
     """Fetches weather forecast for all pages (now, 7-day, 24-hr, rain/air, indices).
 
@@ -561,6 +597,14 @@ def get_weather(loc: str = "auto", key: str = "", host: str = "", token: str = "
     """
     tok = (token or key or "").strip()
     hst = (host or "").strip()
+
+    if not tok or not hst:
+        def_k, def_h = get_qweather_default_config()
+        if not tok:
+            tok = def_k
+        if not hst:
+            hst = def_h
+
     cache_key = f"weather:{loc}:{tok}:{hst}:{client_ip}" if (not loc or loc.strip().lower() == "auto") else f"weather:{loc}:{tok}:{hst}"
     hit = cache.get(cache_key)
     if hit:

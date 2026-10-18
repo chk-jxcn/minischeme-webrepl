@@ -4,27 +4,27 @@
   "name": "电子相册",
   "description": "全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理",
   "version": "1",
+  "pages": 1,
   "api": "1.5",
   "extensions": "",
   "kind": "app",
   "web": true,
   "file": "album.msbc",
   "size": 56300,
-  "scm": "album.allinone.scm",
-  "hash": "c97f4c7f"
+  "hash": "211e41be"
  },
  {
   "id": "calendar",
   "name": "万年历",
   "description": "时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度",
   "version": "4",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "calendar.msbc",
   "size": 52042,
-  "scm": "calendar.allinone.scm",
   "hash": "17daa04b"
  },
  {
@@ -32,13 +32,13 @@
   "name": "加密货币",
   "description": "比特币、以太坊等币种的价格与24小时涨跌、24小时走势、7日走势（OKX 行情）",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "crypto.msbc",
   "size": 40977,
-  "scm": "crypto.allinone.scm",
   "hash": "6b95c5eb"
  },
  {
@@ -46,13 +46,13 @@
   "name": "期货行情",
   "description": "国内期货主力合约报价、单个合约分时、30日走势（新浪行情）",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "futures.msbc",
   "size": 41010,
-  "scm": "futures.allinone.scm",
   "hash": "699a7c26"
  },
  {
@@ -60,27 +60,27 @@
   "name": "备忘录",
   "description": "待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理",
   "version": "1",
+  "pages": 1,
   "api": "1.1",
   "extensions": "",
   "kind": "app",
   "web": true,
   "file": "memo.msbc",
   "size": 50935,
-  "scm": "memo.allinone.scm",
-  "hash": "cba9908e"
+  "hash": "99bf2d29"
  },
  {
   "id": "news",
   "name": "热点新闻",
   "description": "百度热搜、民生、财经、体育榜单，以及知乎或今日头条热榜，每页10条",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "news.msbc",
   "size": 39172,
-  "scm": "news.allinone.scm",
   "hash": "c61beb8e"
  },
  {
@@ -88,27 +88,27 @@
   "name": "消息提示",
   "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
   "version": "2",
+  "pages": 1,
   "api": "1.1",
   "extensions": "",
   "kind": "app",
   "web": true,
   "file": "notifier.msbc",
   "size": 52926,
-  "scm": "notifier.allinone.scm",
-  "hash": "00d22b20"
+  "hash": "4724262e"
  },
  {
   "id": "pcmonitor",
   "name": "PC 性能监控",
   "description": "LibreHardwareMonitor 的 CPU、温度、GPU、风扇曲线，按键切换链路和硬件页",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "pcmonitor.msbc",
   "size": 33741,
-  "scm": "pcmonitor.allinone.scm",
   "hash": "298dd0d1"
  },
  {
@@ -116,13 +116,13 @@
   "name": "系统设置",
   "description": "设置模式（热点配网网页）、选择启动应用、网络/硬件/存储信息",
   "version": "2",
+  "pages": 1,
   "api": "1.3",
   "extensions": "",
   "kind": "system",
   "web": false,
   "file": "settings.msbc",
   "size": 30498,
-  "scm": "settings.allinone.scm",
   "hash": "e2cfcd8f"
  },
  {
@@ -130,13 +130,13 @@
   "name": "股票行情",
   "description": "大盘指数与分时走势、自选股报价、三大指数分时、自选股30日走势",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "stocks.msbc",
   "size": 43617,
-  "scm": "stocks.allinone.scm",
   "hash": "d60a24d9"
  },
  {
@@ -144,41 +144,41 @@
   "name": "Token 用量",
   "description": "Claude Code、Gemini CLI、Codex 在本机的5小时与7天 token 用量、额度、按小时/天趋势和模型分布",
   "version": "1",
+  "pages": 1,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "usage.msbc",
   "size": 44398,
-  "scm": "usage.allinone.scm",
   "hash": "d4cec9a7"
  },
  {
   "id": "weather",
   "name": "天气预报",
   "description": "当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数",
-  "version": "1",
+  "version": "2",
+  "pages": 5,
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "web": false,
   "file": "weather.msbc",
-  "size": 51042,
-  "scm": "weather.allinone.scm",
-  "hash": "7269d316"
+  "size": 49568,
+  "hash": "9dda204d"
  },
  {
   "id": "wxpusher",
   "name": "WxPusher",
   "description": "WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）",
   "version": "5",
+  "pages": 1,
   "api": "1.4",
   "extensions": "",
   "kind": "app",
   "web": true,
   "file": "wxpusher.msbc",
   "size": 56260,
-  "scm": "wxpusher.allinone.scm",
-  "hash": "be6a9f15"
+  "hash": "54122328"
  }
 ]
