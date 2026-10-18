@@ -853,6 +853,17 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("path + sep + 'auth='", link_js)
         self.assertNotIn("headers['X-MiniScheme-Auth'] = pwd", link_js)
         self.assertIn("Mixed-Content or CORS", link_js)
+        self.assertIn("origin not allowed", link_js)
+
+        # Check index.html and app.js for password plaintext toggle
+        with open(os.path.join(ROOT_DIR, "index.html"), "r", encoding="utf-8") as f:
+            index_html = f.read()
+        self.assertIn('id="device-pwd-show-toggle"', index_html)
+
+        with open(os.path.join(ROOT_DIR, "js", "app.js"), "r", encoding="utf-8") as f:
+            app_js = f.read()
+        self.assertIn("devicePwdShowToggle", app_js)
+        self.assertIn("deviceHttpPwd.type = devicePwdShowToggle.checked ? 'text' : 'password'", app_js)
 
 
 if __name__ == "__main__":

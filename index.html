@@ -44,6 +44,9 @@
                 <input type="text" id="device-host" class="device-host-input" placeholder="192.168.x.x" spellcheck="false" autocomplete="off">
                 <label for="device-http-pwd" id="device-pwd-label" style="display:none; margin-left:8px;">访问密码:</label>
                 <input type="password" id="device-http-pwd" class="device-host-input" style="width:110px; display:none;" placeholder="硬件密码" autocomplete="off">
+                <label id="device-pwd-toggle-label" class="device-opt" style="display:none; margin-left:4px; font-size:12px; cursor:pointer;" title="切换密码明文显示">
+                    <input type="checkbox" id="device-pwd-show-toggle" style="margin-right:2px; vertical-align:middle;">明文
+                </label>
                 <button id="device-connect-btn" class="pill-btn highlight">连接设备</button>
                 <button id="btn-link-device-setup" class="pill-btn highlight" style="display:none;" title="设置 WiFi、应用代理服务器地址以及硬件密码">⚙️ 初始化配置</button>
                 <label class="device-opt" title="固件内置编译器时，直接发送源码由设备编译">

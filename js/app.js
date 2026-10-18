@@ -1935,9 +1935,17 @@ const deviceHostInput = document.getElementById('device-host');
 const deviceHostLabel = document.getElementById('device-host-label');
 const deviceHttpPwd = document.getElementById('device-http-pwd');
 const devicePwdLabel = document.getElementById('device-pwd-label');
+const devicePwdToggleLabel = document.getElementById('device-pwd-toggle-label');
+const devicePwdShowToggle = document.getElementById('device-pwd-show-toggle');
 const deviceConnectBtn = document.getElementById('device-connect-btn');
 const deviceLinkStatus = document.getElementById('device-link-status');
 const deviceSrcMode = document.getElementById('device-src-mode');
+
+if (devicePwdShowToggle && deviceHttpPwd) {
+    devicePwdShowToggle.addEventListener('change', () => {
+        deviceHttpPwd.type = devicePwdShowToggle.checked ? 'text' : 'password';
+    });
+}
 
 try {
     const savedHost = localStorage.getItem('minischeme.deviceHost');
@@ -2010,10 +2018,11 @@ async function connectDevice() {
             return;
         }
         try { localStorage.setItem('minischeme.deviceHost', host); } catch (e) { /* ignore */ }
-        const pwd = (deviceHttpPwd ? deviceHttpPwd.value.trim() : '') || (localStorage.getItem('minischeme_http_password') || '');
-        if (pwd) {
-            try { localStorage.setItem('minischeme_http_password', pwd); } catch (e) { /* ignore */ }
-        }
+        const pwd = deviceHttpPwd ? deviceHttpPwd.value.trim() : (localStorage.getItem('minischeme_http_password') || '');
+        try {
+            if (pwd) localStorage.setItem('minischeme_http_password', pwd);
+            else localStorage.removeItem('minischeme_http_password');
+        } catch (e) { /* ignore */ }
         link = new HttpDeviceLink(host, pwd);
     } else if (mode === 'serial') {
         link = new SerialDeviceLink(115200);
@@ -2131,6 +2140,7 @@ function refreshTargetUi() {
     if (deviceHostLabel) deviceHostLabel.style.display = mode === 'http' ? '' : 'none';
     if (deviceHttpPwd) deviceHttpPwd.style.display = mode === 'http' ? '' : 'none';
     if (devicePwdLabel) devicePwdLabel.style.display = mode === 'http' ? '' : 'none';
+    if (devicePwdToggleLabel) devicePwdToggleLabel.style.display = mode === 'http' ? 'inline-flex' : 'none';
     if (btnLinkDeviceSetup) btnLinkDeviceSetup.style.display = isLinkedHw ? '' : 'none';
     if (btnDeviceSetup) btnDeviceSetup.style.display = (mode === 'wasm' || isLinkedHw) ? '' : 'none';
     if (mode === 'wasm') {

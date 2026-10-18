@@ -76,6 +76,17 @@ class HttpDeviceLink {
             opts.headers = headers;
             const res = await fetch(this.base + path, { ...opts, signal: ctrl.signal });
             if (res.status === 401 || res.status === 403) {
+                let detail = '';
+                try {
+                    const r = await res.json();
+                    if (r && r.error) detail = r.error;
+                } catch (_) {}
+                if (detail && detail.includes('origin not allowed')) {
+                    throw new Error(`HTTP 403 跨源访问受限: 设备固件拦截了公网域名访问 (${detail})。请升级设备固件至最新版本，或通过本地 WebREPL (http://127.0.0.1:8087) 进行连接。`);
+                }
+                if (detail) {
+                    throw new Error(`HTTP ${res.status} 未授权/拒绝访问 (${detail}): 请检查硬件访问密码或设备权限配置`);
+                }
                 throw new Error(`HTTP ${res.status} 密码错误/未授权: 请检查硬件访问密码`);
             }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
