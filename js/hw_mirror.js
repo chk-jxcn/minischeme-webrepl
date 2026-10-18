@@ -97,6 +97,11 @@ class HardwareMirror {
     _tryWebSocketStream(gen, host) {
         return new Promise((resolve) => {
             if (!this._alive(gen)) return resolve(false);
+            if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {
+                // Browsers strictly block unencrypted ws:// connections from an HTTPS page (Mixed Content).
+                // Skip direct ws:// to avoid browser error noise and fall back directly to HTTP polling.
+                return resolve(false);
+            }
             const pwd = this.link.password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
             const wsUrl = `ws://${host}:8088/?auth=${encodeURIComponent(pwd)}`;
             let ws = null;
