@@ -21,10 +21,27 @@ class TcpMirrorClient:
         self.port = port
         self.password = password
         self.sock = None
+        self.buf = bytearray()
 
     def connect(self, timeout=3.0):
         self.sock = socket.create_connection((self.host, self.port), timeout=timeout)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.buf.clear()
+
+    def read_line(self):
+        while b"\n" not in self.buf:
+            chunk = self.sock.recv(1024)
+            if not chunk:
+                break
+            self.buf.extend(chunk)
+        if b"\n" in self.buf:
+            idx = self.buf.index(b"\n")
+            line = self.buf[:idx].decode("utf-8", errors="replace").strip()
+            del self.buf[:idx + 1]
+            return line
+        line = self.buf.decode("utf-8", errors="replace").strip()
+        self.buf.clear()
+        return line
 
     def authenticate(self, custom_password=None, since=0):
         pwd = self.password if custom_password is None else custom_password
@@ -33,17 +50,7 @@ class TcpMirrorClient:
             auth_line += f" since={since}"
         auth_line += "\r\n"
         self.sock.sendall(auth_line.encode("utf-8"))
-
-        # Read response line
-        resp = b""
-        while b"\n" not in resp:
-            chunk = self.sock.recv(64)
-            if not chunk:
-                break
-            resp += chunk
-
-        resp_str = resp.decode("utf-8", errors="replace").strip()
-        return resp_str
+        return self.read_line()
 
     def send_command(self, cmd):
         if not self.sock:
@@ -51,13 +58,14 @@ class TcpMirrorClient:
         self.sock.sendall(f"{cmd}\r\n".encode("utf-8"))
 
     def read_exact(self, n):
-        data = bytearray()
-        while len(data) < n:
-            chunk = self.sock.recv(n - len(data))
+        while len(self.buf) < n:
+            chunk = self.sock.recv(max(4096, n - len(self.buf)))
             if not chunk:
                 raise ConnectionResetError("Connection closed while reading frame")
-            data.extend(chunk)
-        return bytes(data)
+            self.buf.extend(chunk)
+        data = bytes(self.buf[:n])
+        del self.buf[:n]
+        return data
 
     def read_frame(self, timeout=5.0):
         self.sock.settimeout(timeout)
