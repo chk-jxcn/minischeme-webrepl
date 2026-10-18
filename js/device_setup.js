@@ -662,6 +662,43 @@ class DeviceSetupWizard {
 
         this._status('正在写入配置到设备…');
         try {
+            let channelId = '';
+            let channelKey = '';
+            if (!isSim) {
+                const existingKv = DeviceSetupWizard.parseIniMap(this.existingIniText || '');
+                channelId = existingKv['channel.channel_id'] || '';
+                channelKey = existingKv['channel.channel_key'] || '';
+                if (!channelId && this.backend && typeof this.backend.info === 'function') {
+                    try {
+                        const devInfo = await this.backend.info();
+                        if (devInfo && devInfo.mac) channelId = String(devInfo.mac).trim();
+                    } catch (e) { /* ignore info error */ }
+                }
+                if (channelId && hwPass && conv) {
+                    try {
+                        const authUrl = `${conv.replace(/\/+$/, '')}/channel/auth`;
+                        const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                        const timer = ctrl ? setTimeout(() => ctrl.abort(), 5000) : null;
+                        const resp = await fetch(authUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mac: channelId, hardware_password: hwPass }),
+                            signal: ctrl ? ctrl.signal : undefined
+                        });
+                        if (timer) clearTimeout(timer);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.master_key_2) {
+                                channelKey = data.master_key_2;
+                                this.log('info', `🔐 已完成加密通道密钥协商 (ID: ${channelId})`);
+                            }
+                        }
+                    } catch (e) {
+                        /* Keep existing channelKey if server is unreachable */
+                    }
+                }
+            }
+
             // Generate full valid config.ini with version = 3, matching firmware specification
             const configContent = this.buildConfigIni({
                 wifiSsid: ssid,
@@ -669,7 +706,9 @@ class DeviceSetupWizard {
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
-                bootApp: 'settings',
+                channelId,
+                channelKey,
+                bootApp: this.existingBootApp || 'settings',
                 isSimulator: isSim,
                 existingIni: this.existingIniText || '',
             });
@@ -710,6 +749,8 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
+            channelId = '',
+            channelKey = '',
             bootApp = 'settings',
             existingIni = ''
         } = opts;
@@ -721,6 +762,8 @@ class DeviceSetupWizard {
         const effectiveSsid = isSim ? '' : wifiSsid;
         const effectivePass = isSim ? '' : wifiPassword;
         const effectiveHwPass = isSim ? '' : hwPassword;
+        const effectiveChanId = isSim ? '' : channelId;
+        const effectiveChanKey = isSim ? '' : channelKey;
 
         // If existing INI text is provided and non-empty, merge into it
         if (existingIni && existingIni.trim().length > 0) {
@@ -786,12 +829,26 @@ class DeviceSetupWizard {
             setSectionKey('app', 'proxy', proxyUrl);
             setSectionKey('app', 'https_proxy', converterUrl);
             setSectionKey('channel', 'channel_server', converterUrl);
+            if (effectiveChanId) {
+                setSectionKey('channel', 'channel_id', effectiveChanId);
+            }
+            if (effectiveChanKey) {
+                setSectionKey('channel', 'channel_key', effectiveChanKey);
+            }
             setSectionKey('channel', 'proxy_via_channel', '1');
 
             setSectionKey('system', 'boot_app', bootApp || 'settings');
 
             return lines.join('\n');
         }
+
+        const chanLines = [
+            '[channel]',
+            `channel_server = ${converterUrl}`,
+        ];
+        if (effectiveChanId) chanLines.push(`channel_id = ${effectiveChanId}`);
+        if (effectiveChanKey) chanLines.push(`channel_key = ${effectiveChanKey}`);
+        chanLines.push('proxy_via_channel = 1', 'market_via_channel = 0');
 
         return [
             '; Device configuration (read at boot)',
@@ -826,10 +883,7 @@ class DeviceSetupWizard {
             `proxy = ${proxyUrl}`,
             `https_proxy = ${converterUrl}`,
             '',
-            '[channel]',
-            `channel_server = ${converterUrl}`,
-            'proxy_via_channel = 1',
-            'market_via_channel = 0',
+            ...chanLines,
             '',
             '[display]',
             'mode = band',

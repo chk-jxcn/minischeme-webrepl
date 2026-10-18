@@ -56,25 +56,54 @@ ACTIVE_PORT = DEFAULT_PORT
 # ---------------------------------------------------------------------------
 
 def get_local_ips():
-    """Return a list of non-loopback IPv4 addresses for this machine."""
+    """Return a list of non-loopback IPv4 addresses for this machine, prioritizing physical LAN interfaces with a default gateway."""
     ips = []
+    gateway_ips = set()
+
+    if os.name == "nt":
+        try:
+            res = subprocess.run(
+                ["ipconfig"],
+                capture_output=True,
+                timeout=1.5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            out = res.stdout.decode("gbk", errors="ignore")
+            import re as _re
+            cur_ip = None
+            for line in out.splitlines():
+                m_ip = _re.search(r"IPv4[^:]*:\s*(\d+\.\d+\.\d+\.\d+)", line, _re.I)
+                if m_ip:
+                    cur_ip = m_ip.group(1)
+                    if not cur_ip.startswith(("127.", "169.254.")) and cur_ip not in ips:
+                        ips.append(cur_ip)
+                elif cur_ip and ("默认网关" in line or "Default Gateway" in line):
+                    m_gw = _re.search(r":\s*(\d+\.\d+\.\d+\.\d+)", line)
+                    if m_gw:
+                        gateway_ips.add(cur_ip)
+        except Exception:
+            pass
+
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.settimeout(0.2)
             s.connect(("8.8.8.8", 80))
             primary = s.getsockname()[0]
-            if primary and not primary.startswith("127."):
-                ips.append(primary)
+            if primary and not primary.startswith(("127.", "169.254.")) and primary not in ips:
+                ips.insert(0, primary)
     except Exception:
         pass
 
     try:
         hostname = socket.gethostname()
         for ip in socket.gethostbyname_ex(hostname)[2]:
-            if ip and not ip.startswith("127.") and ip not in ips:
+            if ip and not ip.startswith(("127.", "169.254.")) and ip not in ips:
                 ips.append(ip)
     except Exception:
         pass
+
+    if gateway_ips:
+        ips.sort(key=lambda x: (0 if x in gateway_ips else 1))
 
     if not ips:
         ips.append("127.0.0.1")
@@ -394,7 +423,7 @@ def fetch_latest_release_asset(repo, asset_name):
     return 404, "application/json", b'{"error":"release asset not found"}'
 
 
-def handle_proxy_endpoint(path_with_query):
+def handle_proxy_endpoint(path_with_query, client_ip=""):
     """Dispatch /app/*, /health, and /market/* requests in-process."""
     parsed = urllib.parse.urlparse(path_with_query)
     path = parsed.path
@@ -417,9 +446,18 @@ def handle_proxy_endpoint(path_with_query):
         target_url = (qs.get("url") or [""])[0]
         if not target_url.startswith(("http://", "https://")):
             return 400, "text/plain", b"missing or invalid url"
+        p_target = urllib.parse.urlparse(target_url)
+        if p_target.path.startswith("/app/") or p_target.path == "/health":
+            sub_url = p_target.path + ("?" + p_target.query if p_target.query else "")
+            from proxy.endpoints import handle_app_query
+            return handle_app_query(sub_url, client_ip=client_ip)
         try:
-            req = urllib.request.Request(target_url, headers={"User-Agent": "MiniScheme-Proxy/1.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            import urllib.request as _ureq
+            hdrs = {"User-Agent": "MiniScheme-Proxy/1.0"}
+            if client_ip:
+                hdrs["X-Forwarded-For"] = client_ip
+            req = _ureq.Request(target_url, headers=hdrs)
+            with _ureq.urlopen(req, timeout=5) as resp:
                 body = resp.read(512 * 1024)
                 ctype = resp.headers.get("Content-Type", "application/json")
                 return 200, ctype, body
@@ -427,7 +465,7 @@ def handle_proxy_endpoint(path_with_query):
             return 502, "text/plain", f"fetch error: {e}".encode("utf-8")
 
     from proxy.endpoints import handle_app_query
-    return handle_app_query(path_with_query)
+    return handle_app_query(path_with_query, client_ip=client_ip)
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +515,21 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Private-Network", "true")
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
+
+    def _get_client_ip(self) -> str:
+        xff = self.headers.get("X-Forwarded-For")
+        if xff:
+            ip = xff.split(",")[0].strip()
+            if ip:
+                return ip
+        x_real = self.headers.get("X-Real-IP")
+        if x_real:
+            ip = x_real.strip()
+            if ip:
+                return ip
+        if hasattr(self, "client_address") and self.client_address:
+            return str(self.client_address[0]).strip()
+        return ""
 
     def do_GET(self):
         parsed_self = urllib.parse.urlparse(self.path)
@@ -564,7 +617,7 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                     "error": "Plaintext protocol is disabled on this server. Encrypted channel protocol (MSC1) is required."
                 }, status=403)
                 return
-            status, ctype, body = handle_proxy_endpoint(self.path)
+            status, ctype, body = handle_proxy_endpoint(self.path, client_ip=self._get_client_ip())
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
@@ -594,7 +647,7 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 or parsed.path == "/health"
             ):
                 p_query = parsed.path + ("?" + parsed.query if parsed.query else "")
-                status, ctype, body = handle_proxy_endpoint(p_query)
+                status, ctype, body = handle_proxy_endpoint(p_query, client_ip=self._get_client_ip())
                 self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
@@ -899,16 +952,18 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 }, status=403)
             proxy_ctx.ensure_initialized()
             from proxy.crypto import (
+                derive_hardware_hash_key,
                 derive_master_key_2,
                 derive_request_keys,
                 verify_challenge_response,
                 aes_gcm_encrypt,
                 aes_gcm_decrypt,
+                pack_channel_response,
             )
             content_length = int(self.headers.get("Content-Length", 0))
             raw_body = self.rfile.read(content_length) if content_length > 0 else b""
 
-            if req_path == "/channel/auth":
+            if req_path in ("/channel/auth", "/channel/register"):
                 try:
                     payload = json.loads(raw_body.decode("utf-8"))
                     mac = payload["mac"].replace(":", "").replace("-", "").upper()
@@ -925,10 +980,26 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                         return self._json_reply({"success": False, "error": "verification failed"}, 403)
                     return self._json_reply({"success": True, "status": "recovered", "master_key_2": dev["master_key_2"].hex(), "time": int(time.time())})
 
-                if "hardware_hash_key" in payload:
+                hw_hash_key = None
+                if "hardware_hash_key" in payload and payload["hardware_hash_key"]:
                     hw_hash_key = bytes.fromhex(payload["hardware_hash_key"])
+                elif "hardware_password" in payload and payload["hardware_password"]:
+                    hw_hash_key = derive_hardware_hash_key(str(payload["hardware_password"]), mac)
+
+                if hw_hash_key is not None:
                     dev = proxy_ctx.db.get_device(mac)
                     if dev:
+                        import hmac as _hmac
+                        if _hmac.compare_digest(dev["hardware_hash_key"], hw_hash_key):
+                            ch_nonce = secrets.token_bytes(32)
+                            proxy_ctx.recovery_challenges[mac] = (ch_nonce, time.time() + 60)
+                            return self._json_reply({
+                                "success": True,
+                                "status": "challenge_required",
+                                "challenge": ch_nonce.hex(),
+                                "master_key_2": dev["master_key_2"].hex(),
+                                "time": int(time.time()),
+                            })
                         ch_nonce = secrets.token_bytes(32)
                         proxy_ctx.recovery_challenges[mac] = (ch_nonce, time.time() + 60)
                         return self._json_reply({"success": True, "status": "challenge_required", "challenge": ch_nonce.hex(), "time": int(time.time())})
@@ -948,18 +1019,26 @@ class WebReplHandler(http.server.SimpleHTTPRequestHandler):
                 if not dev:
                     return self._json_reply({"error": "unknown device"}, 403)
                 k_req, k_resp = derive_request_keys(dev["master_key_2"], nonce)
+                aad = raw_body[:25 + id_len]
                 try:
-                    pt = aes_gcm_decrypt(k_req, nonce, ct_tag, raw_body[:25 + id_len])
+                    # minischeme_channel.c seals request with 12-byte zero nonce (since per-request key is derived from random 16B salt)
+                    pt = aes_gcm_decrypt(k_req, bytes(12), ct_tag, aad)
                 except Exception:
-                    return self._json_reply({"error": "auth tag failed"}, 403)
+                    try:
+                        pt = aes_gcm_decrypt(k_req, nonce, ct_tag, aad)
+                    except Exception:
+                        return self._json_reply({"error": "auth tag failed"}, 403)
                 m_len = pt[4]
                 u_len = struct.unpack(">H", pt[5 + m_len:7 + m_len])[0]
                 url = pt[7 + m_len:7 + m_len + u_len].decode("utf-8", "replace")
-                status, _, resp_body = handle_proxy_endpoint(url)
-                resp_nonce = secrets.token_bytes(16)
-                resp_hdr = struct.pack(">HI", status, len(resp_body))
-                sealed = aes_gcm_encrypt(k_resp, resp_nonce, resp_hdr + resp_body, resp_nonce)
-                out = resp_nonce + sealed
+                client_ip = self._get_client_ip()
+                status, _, resp_body = handle_proxy_endpoint(url, client_ip=client_ip)
+                out = pack_channel_response(k_resp, status, resp_body)
+                try:
+                    proxy_ctx.db.update_device_seen(mac, client_ip)
+                    proxy_ctx.db.log_access(mac, client_ip, "POST", url, status, len(raw_body))
+                except Exception:
+                    pass
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Length", str(len(out)))

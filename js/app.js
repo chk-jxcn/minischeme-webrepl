@@ -1586,8 +1586,12 @@ const appWebPanel = new AppWebPanel({
             if (!wasmInstance || !wasmInstance.exports.wasm_app_web_page) throw new Error('WASM 引擎未就绪 (需要新版 minischeme_vm.wasm)');
             return { kind: 'wasm', exports: () => wasmInstance && wasmInstance.exports, memory: () => wasmMemory };
         }
-        if (activeLink && activeLink.base) return { kind: 'url', url: activeLink.base + '/' };
-        throw new Error('请切换到 WASM 设备仿真，或通过 HTTP 连接板子');
+        if (activeLink) {
+            const authQuery = activeLink.password ? `?auth=${encodeURIComponent(activeLink.password)}` : '';
+            const nativeUrl = activeLink.base ? `${activeLink.base}/${authQuery}` : '';
+            return { kind: 'device', link: activeLink, url: nativeUrl };
+        }
+        throw new Error('请切换到 WASM 设备仿真，或通过 HTTP / 串口连接设备');
     },
     log: (kind, text) => appendTerminalLine(kind, text),
 });

@@ -17,7 +17,7 @@
   "id": "calendar",
   "name": "万年历",
   "description": "时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度",
-  "version": "2",
+  "version": "3",
   "api": "1.0",
   "extensions": "",
   "kind": "app",
@@ -25,7 +25,7 @@
   "file": "calendar.msbc",
   "size": 52051,
   "scm": "calendar.allinone.scm",
-  "hash": "952f6379"
+  "hash": "b93b2908"
  },
  {
   "id": "crypto",

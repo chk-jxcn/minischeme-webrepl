@@ -441,6 +441,53 @@ class AppWebPanel {
         return this._fsWrite('/spiffs/config.ini', bytes);
     }
 
+    async _readConfigIniAsync() {
+        if (this.target && this.target.kind === 'wasm') {
+            return this.readConfigIni();
+        }
+        const link = (this.target && this.target.link) || window.activeLink;
+        if (link && typeof link.fsRead === 'function') {
+            try {
+                let bytes = await link.fsRead('/spiffs/config.ini');
+                if (!bytes || !bytes.length) bytes = await link.fsRead('config.ini');
+                if (bytes && bytes.length) return new TextDecoder('utf-8').decode(bytes);
+            } catch (e) {}
+        }
+        return '';
+    }
+
+    async _writeConfigIniAsync(text) {
+        if (this.target && this.target.kind === 'wasm') {
+            return this.writeConfigIni(text);
+        }
+        const link = (this.target && this.target.link) || window.activeLink;
+        if (link && typeof link.fsWrite === 'function') {
+            try {
+                await link.fsWrite('/spiffs/config.ini', new TextEncoder().encode(text));
+                if (link.kind === 'http' && typeof link._url === 'function') {
+                    try {
+                        const parsed = this._parseIni(text);
+                        const disp = parsed['display'] || {};
+                        const params = new URLSearchParams();
+                        for (const k of ['auto_backlight', 'backlight', 'backlight_offset', 'backlight_min', 'backlight_max']) {
+                            if (disp[k] !== undefined) params.set(`display.${k}`, disp[k]);
+                        }
+                        if ([...params.keys()].length > 0) {
+                            await fetch(link._url('/api/settings'), {
+                                method: 'POST',
+                                body: params.toString()
+                            });
+                        }
+                    } catch (_) {}
+                }
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     _parseIni(text) {
         const out = {};
         let sec = 'system';
@@ -565,8 +612,27 @@ class AppWebPanel {
         if (!this.target && this.getTarget) {
             try { this.target = this.getTarget(); } catch (e) {}
         }
+        if (this.target && this.target.kind === 'device') {
+            const link = this.target.link || window.activeLink;
+            const label = (link && link.label) || 'ESP32 硬件设备';
+            this.el.title.textContent = `🌐 MiniScheme 设备网页 (${label})`;
+            this.el.target.textContent = label;
+            const nativeBtnHtml = this.target.url
+                ? `<p style="margin-top: 14px;"><a href="${this._esc(this.target.url)}" target="_blank" rel="noopener" style="display:inline-block; padding:8px 16px; border-radius:6px; background:#0284c7; color:#fff; text-decoration:none; font-size:13px; font-weight:600;">↗ 在新标签页打开设备原生网页 (${this._esc(link.base)})</a></p>`
+                : '';
+            this.el.frame.srcdoc = `
+                <div style="font-family: system-ui, -apple-system, sans-serif; color: #93a4b8; padding: 24px; text-align: center;">
+                    <h3 style="color: #62d0f0; margin-bottom: 8px;">🔌 已连接实体硬件 (${this._esc(label)})</h3>
+                    <p style="font-size: 14px; line-height: 1.6;">
+                        您可以直接切换上方 <b>【⚙️ 系统配置】</b>、<b>【🛠️ 应用配置】</b>、<b>【📦 应用管理】</b> 或 <b>【ℹ️ 系统信息】</b> 选项卡管理硬件设备。
+                    </p>
+                    ${nativeBtnHtml}
+                </div>`;
+            this._status(`已连接 ${label}，可使用上方选项卡直接配置设备`);
+            return;
+        }
         if (!this.target || this.target.kind !== 'wasm') {
-            this._status('未连接 WASM 仿真设备');
+            this._status('未连接设备');
             return;
         }
         const ex = this.target.exports ? this.target.exports() : null;
@@ -650,7 +716,14 @@ class AppWebPanel {
     }
 
     loadSystemTab() {
+        if (this.target && this.target.kind === 'device') {
+            return this._readConfigIniAsync().then(t => this._applySystemTabIni(t));
+        }
         const iniText = this.readConfigIni();
+        this._applySystemTabIni(iniText);
+    }
+
+    _applySystemTabIni(iniText) {
         const ini = this._parseIni(iniText);
 
         // 1. WiFi Online Switch
@@ -665,12 +738,14 @@ class AppWebPanel {
         // 3. Proxy & Converter
         const sys = ini['system'] || {};
         const srv = ini['server'] || {};
+        const appSec = ini['app'] || {};
         const sec = ini['security'] || {};
-        if (this.el.sysProxyUrl) this.el.sysProxyUrl.value = srv['proxy_url'] || sys['proxy_url'] || '';
-        if (this.el.sysConvUrl) this.el.sysConvUrl.value = srv['converter_url'] || sys['converter_url'] || '';
+        const httpSec = ini['http'] || {};
+        if (this.el.sysProxyUrl) this.el.sysProxyUrl.value = srv['proxy_url'] || appSec['proxy'] || sys['proxy_url'] || '';
+        if (this.el.sysConvUrl) this.el.sysConvUrl.value = srv['converter_url'] || appSec['https_proxy'] || sys['converter_url'] || '';
 
         // 4. Hardware password
-        const hwPass = (srv['hardware_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
+        const hwPass = (srv['hardware_password'] || httpSec['http_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
         this.lockedHwPassword = hwPass;
         const reqBadge = this.el.root.querySelector('#aw-sys-hw-pass-req');
         if (this.el.sysHwPass) {
@@ -724,9 +799,10 @@ class AppWebPanel {
     }
 
     saveSystemConfig() {
+        const isWasm = !this.target || this.target.kind === 'wasm';
         const proxyUrl = (this.el.sysProxyUrl ? this.el.sysProxyUrl.value : '').trim();
-        if (proxyUrl && window.DeviceSetupWizard && !window.DeviceSetupWizard.isLocalProxyUrl(proxyUrl)) {
-            alert('本地模拟设备 (WASM) 仅支持非加密协议，只能连接本地代理服务器 (127.0.0.1 / localhost / 局域网 IP)');
+        if (isWasm && proxyUrl && window.DeviceSetupWizard && !window.DeviceSetupWizard.isSupportedProxyUrl(proxyUrl)) {
+            alert('本地模拟设备 (WASM) 仅支持非加密协议，请连接本地代理服务器 (127.0.0.1 / 局域网 IP) 或已部署的公网服务器 (124.222.231.186:8087)');
             return;
         }
 
@@ -770,82 +846,106 @@ class AppWebPanel {
             blMax = tmp;
         }
 
-        const rawText = this.readConfigIni();
-        const parsed = this._parseIni(rawText);
-        const serverSec = parsed['server'] ? 'server' : 'system';
-        const updates = {
-            [`${serverSec}.proxy_url`]: proxyUrl,
-            [`${serverSec}.converter_url`]: (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim(),
-            [`${serverSec}.hardware_password`]: hwPassToSave,
-            'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
-            'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
-            'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
-            'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0',
-            'display.auto_backlight': fixedBl ? '0' : '1',
-            'display.backlight': String(fixedVal),
-            'display.backlight_offset': String(blOffset),
-            'display.backlight_min': String(blMin),
-            'display.backlight_max': String(blMax)
+        const applyWithRaw = (rawText) => {
+            const parsed = this._parseIni(rawText);
+            const serverSec = parsed['server'] ? 'server' : 'system';
+            const convUrl = (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim() || proxyUrl;
+            const updates = {
+                [`${serverSec}.proxy_url`]: proxyUrl,
+                [`${serverSec}.converter_url`]: convUrl,
+                [`${serverSec}.hardware_password`]: hwPassToSave,
+                'app.proxy': proxyUrl,
+                'app.https_proxy': convUrl,
+                'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
+                'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
+                'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
+                'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0',
+                'display.auto_backlight': fixedBl ? '0' : '1',
+                'display.backlight': String(fixedVal),
+                'display.backlight_offset': String(blOffset),
+                'display.backlight_min': String(blMin),
+                'display.backlight_max': String(blMax)
+            };
+
+            const ssid = (this.el.sysWifiSsid ? this.el.sysWifiSsid.value : '').trim();
+            if (ssid) {
+                if (parsed['wifi'] && 'ssid' in parsed['wifi']) updates['wifi.ssid'] = ssid;
+                else updates['wifi.wifi_ssid'] = ssid;
+            }
+
+            const pass = (this.el.sysWifiPass ? this.el.sysWifiPass.value : '').trim();
+            if (pass) {
+                const chk = this._validatePasswordSecurity(pass);
+                if (!chk.valid) {
+                    if (this.el.sysSaveStatus) {
+                        this.el.sysSaveStatus.textContent = `❌ WiFi ${chk.message}`;
+                        this.el.sysSaveStatus.style.color = '#ee7c7c';
+                    }
+                    if (this.el.sysWifiPass) this.el.sysWifiPass.focus();
+                    return null;
+                }
+                if (parsed['wifi'] && 'password' in parsed['wifi']) updates['wifi.password'] = pass;
+                else updates['wifi.wifi_password'] = pass;
+            }
+            return this._updateIni(rawText, updates);
         };
 
-        const ssid = (this.el.sysWifiSsid ? this.el.sysWifiSsid.value : '').trim();
-        if (ssid) {
-            if (parsed['wifi'] && 'ssid' in parsed['wifi']) updates['wifi.ssid'] = ssid;
-            else updates['wifi.wifi_ssid'] = ssid;
-        }
-
-        const pass = (this.el.sysWifiPass ? this.el.sysWifiPass.value : '').trim();
-        if (pass) {
-            const chk = this._validatePasswordSecurity(pass);
-            if (!chk.valid) {
+        const finishSave = (ok) => {
+            if (ok) {
+                this.lockedHwPassword = hwPassToSave;
                 if (this.el.sysSaveStatus) {
-                    this.el.sysSaveStatus.textContent = `❌ WiFi ${chk.message}`;
-                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                    this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';
+                    this.el.sysSaveStatus.style.color = '#72d696';
                 }
-                if (this.el.sysWifiPass) this.el.sysWifiPass.focus();
-                return;
-            }
-            if (parsed['wifi'] && 'password' in parsed['wifi']) updates['wifi.password'] = pass;
-            else updates['wifi.wifi_password'] = pass;
-        }
-
-        const newIni = this._updateIni(rawText, updates);
-        const ok = this.writeConfigIni(newIni);
-        if (ok) {
-            this.lockedHwPassword = hwPassToSave;
-            if (this.el.sysSaveStatus) {
-                this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';
-                this.el.sysSaveStatus.style.color = '#72d696';
-            }
-            if (typeof window.updateSimBrightnessConfig === 'function') {
-                window.updateSimBrightnessConfig({
-                    autoBacklight: !fixedBl,
-                    backlight: fixedVal,
-                    offset: blOffset,
-                    min: blMin,
-                    max: blMax
-                });
-            }
-            this.loadSystemTab();
-            this.log('info', '⚙️ [WASM 模拟器] 系统配置已更新并保存至 IndexedDB');
-        } else {
-            if (this.el.sysSaveStatus) {
+                if (isWasm && typeof window.updateSimBrightnessConfig === 'function') {
+                    window.updateSimBrightnessConfig({
+                        autoBacklight: !fixedBl,
+                        backlight: fixedVal,
+                        offset: blOffset,
+                        min: blMin,
+                        max: blMax
+                    });
+                }
+                this.loadSystemTab();
+                this.log('info', `⚙️ [${isWasm ? 'WASM 模拟器' : '实体硬件'}] 系统配置已更新并保存至 /spiffs/config.ini`);
+            } else if (this.el.sysSaveStatus) {
                 this.el.sysSaveStatus.textContent = '❌ 保存系统配置失败';
                 this.el.sysSaveStatus.style.color = '#ee7c7c';
             }
+        };
+
+        if (isWasm) {
+            const newIni = applyWithRaw(this.readConfigIni());
+            if (newIni !== null) finishSave(this.writeConfigIni(newIni));
+            return;
         }
+        return this._readConfigIniAsync().then(rawText => {
+            const newIni = applyWithRaw(rawText);
+            if (newIni !== null) return this._writeConfigIniAsync(newIni).then(finishSave);
+        });
     }
 
     saveRawConfigIni() {
         if (!this.el.sysRawIni) return;
         const text = this.el.sysRawIni.value;
-        const ok = this.writeConfigIni(text);
-        if (ok) {
-            alert('config.ini 保存成功！已同步至模拟器 flash 分区与 IndexedDB。');
-            this.loadSystemTab();
-        } else {
-            alert('保存 config.ini 失败。');
+        if (!this.target || this.target.kind === 'wasm') {
+            const ok = this.writeConfigIni(text);
+            if (ok) {
+                alert('config.ini 保存成功！已同步至模拟器 flash 分区与 IndexedDB。');
+                this.loadSystemTab();
+            } else {
+                alert('保存 config.ini 失败。');
+            }
+            return;
         }
+        return this._writeConfigIniAsync(text).then(ok => {
+            if (ok) {
+                alert('config.ini 保存成功！');
+                this.loadSystemTab();
+            } else {
+                alert('保存 config.ini 失败。');
+            }
+        });
     }
 
     _cfgId(key) {
@@ -1279,9 +1379,20 @@ class AppWebPanel {
         }
     }
 
-    loadManageTab() {
-        const files = this._fsList();
-        const msbcFiles = files.filter(f => f.path.endsWith('.msbc'));
+    async loadManageTab() {
+        let files = [];
+        if (this.target && this.target.kind === 'wasm') {
+            files = this._fsList();
+        } else {
+            const link = (this.target && this.target.link) || window.activeLink;
+            if (link && typeof link.fsList === 'function') {
+                try {
+                    const res = await link.fsList();
+                    files = Array.isArray(res) ? res : (res && res.files) || [];
+                } catch (e) {}
+            }
+        }
+        const msbcFiles = files.filter(f => f.path && f.path.endsWith('.msbc'));
         if (this.el.manageAppsList) {
             if (msbcFiles.length === 0) {
                 this.el.manageAppsList.innerHTML = '<div style="color:var(--text-secondary); padding:8px 0;">暂无已安装的 .msbc 应用镜像</div>';
@@ -1291,10 +1402,10 @@ class AppWebPanel {
                 for (const f of msbcFiles) {
                     html += `
                         <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                            <td style="padding:6px 0; font-family:var(--font-mono);">${f.path}</td>
-                            <td style="padding:6px 0;">${(f.size / 1024).toFixed(1)} KB</td>
+                            <td style="padding:6px 0; font-family:var(--font-mono);">${this._esc(f.path)}</td>
+                            <td style="padding:6px 0;">${((f.size || 0) / 1024).toFixed(1)} KB</td>
                             <td style="padding:6px 0;">
-                                <button class="pill-btn compact" onclick="if(window.appManager) window.appManager.runWasmApp('${f.path}')">▶ 启动</button>
+                                <button class="pill-btn compact" onclick="if(window.appManager) window.appManager.runWasmApp('${this._esc(f.path)}')">▶ 启动</button>
                             </td>
                         </tr>`;
                 }
@@ -1304,9 +1415,30 @@ class AppWebPanel {
         }
     }
 
-    loadInfoTab() {
+    async loadInfoTab() {
         if (!this.target && this.getTarget) {
             try { this.target = this.getTarget(); } catch (e) {}
+        }
+        if (this.target && this.target.kind === 'device') {
+            const link = this.target.link || window.activeLink;
+            let info = {}, stats = {};
+            try { if (link && typeof link.info === 'function') info = await link.info(); } catch (e) {}
+            try { if (link && typeof link.stats === 'function') stats = await link.stats(); } catch (e) {}
+            if (this.el.infoGrid) {
+                const vmAlloc = stats.vm_heap_allocated || info.heap_allocated || 0;
+                const vmCap = stats.vm_heap_capacity || info.heap_capacity || 0;
+                const sysFree = stats.free_heap || info.free_heap || 0;
+                this.el.infoGrid.innerHTML = `
+                    <b>实体硬件平台:</b> <span>${this._esc(info.platform || 'ESP32')} (${this._esc(info.version || 'v1.0')})</span>
+                    <b>MAC 地址:</b> <span>${this._esc(info.mac || '-')}</span>
+                    <b>局域网 IP:</b> <span>${this._esc(info.ip || '-')} (${this._esc(info.ssid || '-')})</span>
+                    <b>显示屏规格:</b> <span>${info.width || 320}×${info.height || 480} (${this._esc(info.display_mode || 'band')}, ${info.color_bits || 16}-bit)</span>
+                    <b>VM 堆内存 (Heap):</b> <span>${(vmAlloc / 1024).toFixed(1)} KB / ${(vmCap / 1024).toFixed(1)} KB</span>
+                    <b>系统剩余内存:</b> <span>${(sysFree / 1024).toFixed(1)} KB Free</span>
+                    <b>存储系统 (SPIFFS):</b> <span>${((stats.spiffs_used || 0) / 1024).toFixed(1)} KB / ${((stats.spiffs_total || 0) / 1024).toFixed(1)} KB</span>
+                `;
+            }
+            return;
         }
         const ex = (this.target && typeof this.target.exports === 'function') ? this.target.exports() : null;
         const alloc = (ex && ex.wasm_heap_alloc) ? ex.wasm_heap_alloc() : 0;
