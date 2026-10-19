@@ -119,6 +119,8 @@ async function initWasm() {
         // Saved flash first: config.ini ([fonts]) and the font ROM apply at boot
         const restored = await simStorage.restore(wasmInstance.exports, () => wasmMemory);
         simStorage.onError = (e) => appendTerminalLine('error', `模拟 Flash 无法保存到浏览器: ${e.message || e}`);
+        // An empty font ROM gets the firmware's factory image (simsun-16, all of GB2312)
+        const factoryFonts = await simStorage.installFactoryFontRom(wasmInstance.exports, () => wasmMemory);
 
         if (wasmInstance.exports.wasm_init) {
             const initRet = wasmInstance.exports.wasm_init();
@@ -206,6 +208,9 @@ async function initWasm() {
         if (restored) {
             appendTerminalLine('info', `💾 已恢复浏览器中保存的模拟 Flash: 文件系统 ${restored.files} 个文件` +
                 (restored.rom ? '，系统字库分区' : '') + ' (文件管理中可清空)');
+        }
+        if (factoryFonts) {
+            appendTerminalLine('info', `🔤 系统字库: 已装入固件自带的宋体 16px (GB2312 一、二级汉字，${Math.round(factoryFonts / 1024)} KB)`);
         }
         // Power on: the app installed in the simulated file system, else the bundled calendar
         await bootWasmDevice('开机', true);

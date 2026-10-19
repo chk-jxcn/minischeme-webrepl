@@ -13,6 +13,9 @@
  */
 
 const SIM_DB_NAME = 'minischeme-sim';
+/* The font ROM image the firmware ships with (minischeme-esp32 firmware/fontrom.bin:
+ * simsun-16, all of GB2312), so the simulator has the same fonts as a board */
+const SIM_FACTORY_FONT_ROM = 'firmware/fontrom.bin';
 const SIM_DB_STORE = 'flash';
 const SIM_SAVE_DELAY_MS = 400;
 
@@ -86,6 +89,45 @@ class SimStorage {
         this.fsGen = ex.wasm_fs_gen();
         this.romGen = ex.wasm_fontrom_gen();
         return files || romOk ? { files: nfiles, rom: romOk } : null;
+    }
+
+    /** Whether a font ROM image has a valid directory with at least one font
+     *  (either copy: sectors 0 and 1, "MFRM", u16 count at offset 6) */
+    static fontRomHasFonts(rom) {
+        for (const base of [0, 4096]) {
+            if (rom.length >= base + 8 && rom[base] === 0x4D && rom[base + 1] === 0x46 &&
+                rom[base + 2] === 0x52 && rom[base + 3] === 0x4D && (rom[base + 6] | (rom[base + 7] << 8)) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * An empty simulated font ROM gets the firmware's factory image, as a
+     * flashed board has: 16 px text then covers all of GB2312 without
+     * generating fonts. Runs before wasm_init (fonts apply at boot). Returns
+     * the image size, or 0 when nothing was installed.
+     */
+    async installFactoryFontRom(ex, getMemory) {
+        if (!ex.wasm_fontrom_data || !ex.wasm_fontrom_reload) return 0;
+        const size = ex.wasm_fontrom_size();
+        const ptr = ex.wasm_fontrom_data();
+        if (SimStorage.fontRomHasFonts(new Uint8Array(getMemory().buffer, ptr, Math.min(size, 8192)))) return 0;
+        let image;
+        try {
+            const res = await fetch(SIM_FACTORY_FONT_ROM, { cache: 'no-cache' });
+            if (!res.ok) return 0;
+            image = new Uint8Array(await res.arrayBuffer());
+        } catch (e) {
+            return 0;
+        }
+        if (!image.length || image.length > size || !SimStorage.fontRomHasFonts(image)) return 0;
+        const rom = new Uint8Array(getMemory().buffer, ex.wasm_fontrom_data(), size);
+        rom.fill(0xFF);
+        rom.set(image);
+        ex.wasm_fontrom_reload();
+        return image.length;
     }
 
     /** Nothing saved yet: the factory state (seeded config.ini) needs no copy */

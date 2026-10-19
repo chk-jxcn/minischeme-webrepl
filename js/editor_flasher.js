@@ -618,6 +618,20 @@ class WebSerialFirmwareFlasher {
                 }
                 if (!ok) continue;
                 for (const item of files) this.githubFirmware[item.key] = got[item.key];
+                // optional: the font ROM image (simsun-16, all of GB2312) of the same release
+                this.githubFirmware.fontrom = null;
+                const fontEntry = listed['fontrom.bin'];
+                if (fontEntry && Number(fontEntry.offset) === 0x190000) {
+                    const font = await get(src.url('fontrom.bin'));
+                    const digest = font ? await sha256Hex(font) : null;
+                    if (font && (!fontEntry.size || fontEntry.size === font.length) &&
+                        (!fontEntry.sha256 || digest === null || digest === String(fontEntry.sha256).toLowerCase())) {
+                        this.githubFirmware.fontrom = font;
+                        this.log('ok', `   fontrom.bin @0x190000 (${this._formatSize(font.length)}) 系统字库: 宋体 16px，GB2312 一、二级汉字`);
+                    } else {
+                        this.log('error', `${src.label}: fontrom.bin 下载失败或校验不符，本次不写入系统字库`);
+                    }
+                }
                 const checked = files.every(f => listed[f.name].sha256);
                 this.log('ok', `✔ 固件 v${manifest.version || '?'} (IDF ${manifest.idf || '?'}) 来自 ${src.label}` +
                     (checked ? '，3 个文件 SHA-256 校验通过' : '，清单无 SHA-256（旧版本），未校验'));
@@ -759,6 +773,12 @@ class WebSerialFirmwareFlasher {
                 { data: toUint8(src.partition), address: 0x8000 },
                 { data: toUint8(src.firmware), address: 0x10000 }
             ];
+            // the release's font ROM (replaces the fontrom partition: fonts installed before are removed)
+            const fontCheck = document.getElementById('flasher-write-fontrom');
+            if (isGhMode && src.fontrom && (!fontCheck || fontCheck.checked)) {
+                filesToFlash.push({ data: toUint8(src.fontrom), address: 0x190000 });
+                this.log('info', '同时写入系统字库 (宋体 16px，GB2312 一、二级汉字) 到 0x190000');
+            }
 
             const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);
             this.log('info', `准备写入 Flash：共 ${filesToFlash.length} 个分区，总计 ${this._formatSize(totalBytes)}`);

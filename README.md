@@ -35,11 +35,11 @@ The simulated device needs no password and uses the local proxy.
 ---
 
 ## Features
-- **Firmware flasher (Web Serial)**: the latest release's images, or local `.bin` files. A release is taken with its `firmware-manifest.json` from one source (the local server, the GitHub Release, this site's `firmware/`) and every file is checked against the manifest's SHA-256; after writing, esptool-js reads each region back and compares its MD5. A failed flash releases the serial port for the next try.
+- **Firmware flasher (Web Serial)**: the latest release's images, or local `.bin` files. With **写入系统字库** (on by default) it also writes the release's font ROM (simsun-16, all of GB2312) to `0x190000`; this replaces the font ROM, so fonts installed before must be installed again. A release is taken with its `firmware-manifest.json` from one source (the local server, the GitHub Release, this site's `firmware/`) and every file is checked against the manifest's SHA-256; after writing, esptool-js reads each region back and compares its MD5. A failed flash releases the serial port for the next try.
 - **Scheme editor and compiler**: compile to `.msbc` in the browser (`compiler.wasm`), simulate, download, or install on the board.
 - **Device access over WiFi**: the device password is sent in the `X-MiniScheme-Auth` header (never in page URLs); the settings tab's password is written as the firmware's `[http] http_password` and applied at once. A failed read of `config.ini` stops a save instead of writing defaults.
 - **App pages**: an app's own web page runs in a sandboxed frame (no access to the WebREPL's storage or device connection; it talks to the app through `postMessage`).
-- **WASM simulator**: the same C runtime as the firmware (stack traces on in the simulator).
+- **WASM simulator**: the same C runtime as the firmware (stack traces on in the simulator). It starts with the firmware's font ROM (`firmware/fontrom.bin`: **simsun-16, all of GB2312 levels 1 and 2**), so Chinese text needs no font generation; 16 px text uses it by default, as on the board.
 - **App market**: the apps of [minischeme-apps](https://github.com/chk-jxcn/minischeme-apps); install, edit and deploy.
 - **Fonts**: bitmap font (`.mfnt`) generation and the font ROM.
 
