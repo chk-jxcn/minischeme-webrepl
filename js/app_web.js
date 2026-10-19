@@ -95,7 +95,7 @@ class AppWebPanel {
                         <div style="margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 14px; gap: 12px;">
                             <div>
                                 <div style="font-weight: 600; color: #fff; font-size: 13px;">📟 设备运行模式</div>
-                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">重启设备并进入内置系统设置界面（可进行出厂设置、字库管理与网络配置）</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">重启设备并进入内置系统设置界面（可查看设备信息、恢复出厂（含清空字库）、使用应用市场）</div>
                             </div>
                             <button class="pill-btn highlight" id="aw-sys-enter-settings-btn" style="white-space: nowrap; cursor: pointer; padding: 6px 14px; font-weight: 500;">⚙️ 进入设置模式</button>
                         </div>
@@ -107,7 +107,7 @@ class AppWebPanel {
                                     <span>WiFi 联网连接 (WASM 模拟器在线开关，默认开启)</span>
                                 </label>
                                 <div style="margin-left: 26px; color: var(--text-secondary); font-size: 12px; margin-top: 3px;">
-                                    开启时模拟器通过 /api/fetch 正常抓取外部数据；关闭后断开网络连接，用于测试应用的离线容错与断网提示。
+                                    开启时模拟器正常访问应用代理和外部数据（需要时经后端的 /api/fetch 转发）；关闭后断开网络连接，用于测试应用的离线容错与断网提示。
                                 </div>
                             </div>
                             <div class="aw-grid-2">
@@ -135,7 +135,7 @@ class AppWebPanel {
                                     <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
                                 </label>
                                 <div id="aw-sys-hw-pass-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                    硬件密码用于加密通道与设备安全认证；一旦设置将直接明文显示并锁定禁止修改。
+                                    硬件密码用于加密通道的设备注册，同时也是设备网页和 HTTP API 的访问密码；一旦设置将直接明文显示并锁定禁止修改。
                                 </div>
                             </div>
                         </section>
@@ -764,7 +764,7 @@ class AppWebPanel {
                 this.el.sysHwPass.title = '硬件密码已设置，显示为不可编辑框，并以明文显示密码';
                 if (reqBadge) reqBadge.style.display = 'none';
                 if (this.el.sysHwPassNote) {
-                    this.el.sysHwPassNote.textContent = '🔒 硬件密码已设置并已生效，显示为不可编辑框，并以明文显示密码。';
+                    this.el.sysHwPassNote.textContent = '🔒 硬件密码已设置（config.ini 中已有），显示为不可编辑框，并以明文显示密码。';
                     this.el.sysHwPassNote.style.color = '#4ade80';
                 }
             } else {

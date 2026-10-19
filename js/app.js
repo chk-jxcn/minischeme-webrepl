@@ -371,8 +371,8 @@ async function resetSimulatorApp() {
             wasmInstance.exports.wasm_fs_remove(ptr);
             wasmInstance.exports.wasm_free_buffer(ptr);
         }
-        appendTerminalLine('info', '已重置模拟器开机应用缓存，正在重新载入默认万年历...');
-        await bootBundledApp('重置应用缓存: ', 'calendar');
+        appendTerminalLine('info', '已重置模拟器开机应用缓存，与板子一样进入内置系统设置...');
+        await bootBundledApp('重置应用缓存: ', 'settings');
     } catch (e) {
         appendTerminalLine('error', `重置应用失败: ${e.message || e}`);
     }
@@ -428,11 +428,12 @@ async function bootWasmDevice(why, firstBoot = false) {
         window.syncWasmProxyUrl();
     }
     if (r === '') {
+        // as the firmware: no app installed (or boot_app empty / settings) -> the built-in settings
         if (firstBoot) {
-            await bootBundledApp('', 'calendar');
+            await bootBundledApp('', 'settings');
             return;
         }
-        await bootBundledApp(`${why}: 未安装应用，显示万年历；`, 'calendar');
+        await bootBundledApp(`${why}: 未安装应用，进入内置系统设置；`, 'settings');
         return;
     }
     pumpDisplay();
@@ -525,8 +526,8 @@ if (simSpeedSelect) {
             wasmInstance.exports.wasm_set_cpu_speed_mode(currentSpeedMode);
         }
         let desc = "PC WASM 极速无延迟";
-        if (currentSpeedMode === 240) desc = "ESP32 240MHz 典型 (8位并口总线刷新拟合 ~20.5ms)";
-        if (currentSpeedMode === 80) desc = "ESP32 80MHz 节能 (8位并口总线刷新拟合 ~40ms)";
+        if (currentSpeedMode === 240) desc = "ESP32 240MHz 典型 (整屏刷新约 35ms：板上实测，13.3 MHz 8 位并口)";
+        if (currentSpeedMode === 80) desc = "ESP32 80MHz 节能 (整屏刷新约 70ms：估算，未实测)";
         appendTerminalLine('info', `⏱️ [运行速度拟合模式] ➔ ${desc}`);
         syncHardwareTelemetry();
     });
@@ -860,9 +861,9 @@ function syncHardwareTelemetry() {
         }
         if (devEsp32Estimate) {
             if (appFootprint <= 45000) {
-                devEsp32Estimate.innerHTML = `<span class="status-badge-ok">🟢 充裕 (完全适于 200KB ESP32, 净负荷 ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
+                devEsp32Estimate.innerHTML = `<span class="status-badge-ok">🟢 充裕 (板上 VM 堆约 102 KB，当前 ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
             } else if (appFootprint <= esp32Semispace) {
-                devEsp32Estimate.innerHTML = `<span class="status-badge-warn">🟡 接近半区上限 (可用但需留意GC, ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
+                devEsp32Estimate.innerHTML = `<span class="status-badge-warn">🟡 偏高 (常驻数据超过堆的约 45% 后 GC 变频繁, ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
             } else {
                 devEsp32Estimate.innerHTML = `<span class="status-badge-crit">🔴 接近堆上限 (${(appFootprint / 1024).toFixed(1)}KB)</span>`;
             }
@@ -919,12 +920,12 @@ function syncHardwareTelemetry() {
 // Continuous animation and telemetry frame loop with hardware bus rate fitting
 function simLoop(timestamp) {
     if (wasmInstance) {
-        // LCD 8-bit parallel bus flush rate fitting:
-        // At 240MHz, 320x480 frame transfer takes ~20.5ms (~48 FPS).
-        // At 80MHz, frame transfer takes ~41ms (~24 FPS).
+        // LCD 8-bit parallel bus flush rate: on the board a full 320x480 frame
+        // takes ~35 ms on the bus (measured, 13.3 MHz WR clock after the boot
+        // check); the 80 MHz figure is an estimate.
         let minFlushInterval = 0;
-        if (currentSpeedMode === 240) minFlushInterval = 20;
-        else if (currentSpeedMode === 80) minFlushInterval = 40;
+        if (currentSpeedMode === 240) minFlushInterval = 35;
+        else if (currentSpeedMode === 80) minFlushInterval = 70;
 
         if (wasmInstance.exports.wasm_service_display) {
             wasmInstance.exports.wasm_service_display();
@@ -1351,7 +1352,7 @@ async function feedFetch(ex, url) {
     if (problem !== pcmonLastProblem) {
         pcmonLastProblem = problem;
         if (problem === 'proxy') {
-            appendTerminalLine('error', '⚠️ 当前 server.py 没有 /api/fetch 代理 (旧版本仍在运行)。请结束旧的 server.py 进程后重新启动 web_repl/server.py。');
+            appendTerminalLine('error', '⚠️ 当前后端服务没有 /api/fetch 转发 (旧版本仍在运行)。请结束旧的 server.py 或 MiniScheme-WebREPL.exe，再启动最新版本。');
         } else if (problem) {
             appendTerminalLine('error', `⚠️ 读取 ${url} 失败: ${problem}`);
         } else {
@@ -1437,6 +1438,10 @@ async function handleUploadedPayloadFile(file) {
         const uint8Data = new Uint8Array(arrayBuf);
         const len = uint8Data.length;
 
+        // The file runs in the REPL of the current target, like a second fasl
+        // loaded at the prompt: nothing is installed or written to the app's
+        // flash, and the VM frees what it allocated afterwards. Apps are
+        // installed with the editor's "安装到 ESP32" or the App manager.
         const isImage = len >= 4 && ['MSBC', 'MFAS'].includes(String.fromCharCode(...uint8Data.subarray(0, 4)));
         if (activeLink) {
             let bytes = uint8Data;
@@ -1448,16 +1453,10 @@ async function handleUploadedPayloadFile(file) {
                 }
                 bytes = comp.bytes;
             }
-            await installOnDevice(bytes, file.name);
+            await runBytesOnDevice(bytes, file.name);
         } else if (wasmInstance && wasmInstance.exports.wasm_alloc_buffer && wasmInstance.exports.wasm_run_payload) {
-            // Apps start like on the board: .msbc from a Code ROM image, .fasl
-            // (heap snapshot) restored into a fresh device VM, then the app loop
-            const isFasl = isImage && uint8Data[1] === 0x46; // 'MFAS'
-            const appId = isImage ? readAppImageId(uint8Data) : '';
-            const isBootApp = isImage && (isFasl || appId || /^app\.msbc$|pcmonitor/i.test(file.name));
-            const resStr = isBootApp ? startAppOnWasmDevice(uint8Data) : execBytesOnWasmDevice(uint8Data); // source compiles in the VM
-            appendTerminalLine(resStr.startsWith('Error:') ? 'error' : 'output',
-                `=> ${file.name}${isBootApp ? ` 已作为应用启动${appId ? ` (${appId})` : ''}` : ' 执行结果'}:\n${resStr}`);
+            const resStr = execBytesOnWasmDevice(uint8Data); // source compiles in the VM
+            appendTerminalLine(resStr.startsWith('Error:') ? 'error' : 'output', `=> ${file.name} 执行结果:\n${resStr}`);
         } else {
             appendTerminalLine('error', 'WASM 引擎未就绪或未导出 wasm_run_payload');
         }
@@ -2191,12 +2190,41 @@ async function installOnDevice(bytes, name) {
     }
 }
 
-/* An app image with metadata: /spiffs/apps/<id>.msbc (.fasl), made the boot
- * app in config.ini, then the board restarts into it (as the App manager) */
+/* Bytecode run in the board's REPL (the upload button): up to 24 KB in one
+ * /api/exec or @EXEC request, larger files staged in /spiffs/upload.tmp and
+ * run from there (JOB_RUN_FILE); nothing is installed */
+const DEVICE_EXEC_MAX = 24 * 1024;
+
+async function runBytesOnDevice(bytes, name) {
+    const link = activeLink;
+    appendTerminalLine('info', `📤 正在 ${link.label} 的 REPL 中运行 ${name} (${bytes.length} 字节)...`);
+    const t0 = performance.now();
+    try {
+        const r = bytes.length <= DEVICE_EXEC_MAX
+            ? await link.exec(bytes, 30000)
+            : await link.upload(bytes, '/spiffs/upload.tmp', true, (done, total) => {
+                if (deviceLinkStatus) deviceLinkStatus.textContent = `上传中 ${Math.round(done * 100 / total)}%`;
+            });
+        setLinkStatus(`已连接 ${link.label}`, true);
+        const ms = (performance.now() - t0).toFixed(0);
+        if (r && r.success) {
+            appendTerminalLine('output', `=> ${name} 已在硬件上运行 (${ms} ms): ${r.result !== undefined ? r.result : ''}`);
+        } else {
+            appendTerminalLine('error', `设备执行失败: ${(r && r.error) || '无返回'}`);
+        }
+    } catch (err) {
+        setLinkStatus(`已连接 ${link.label}`, true);
+        appendTerminalLine('error', `运行失败: ${err.message}`);
+    }
+}
+
+/* An app image with metadata: /spiffs/apps/<id>/app.msbc (the market's and
+ * the App manager's layout), made the boot app in config.ini, then the board
+ * restarts into it */
 async function installAppOnDevice(bytes, name, appId) {
     const link = activeLink;
     const isFasl = String.fromCharCode(...bytes.subarray(0, 4)) === 'MFAS';
-    const rel = `apps/${appId}.${isFasl ? 'fasl' : 'msbc'}`;
+    const rel = `apps/${appId}/app.${isFasl ? 'fasl' : 'msbc'}`;
     appendTerminalLine('info', `📤 正在安装应用 ${appId}: ${name} (${bytes.length} 字节) ➔ /spiffs/${rel}...`);
     const t0 = performance.now();
     try {

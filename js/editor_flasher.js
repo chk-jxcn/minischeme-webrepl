@@ -540,7 +540,7 @@ class WebSerialFirmwareFlasher {
         const statusEl = document.getElementById('flasher-gh-status');
         const btn = document.getElementById('flasher-fetch-gh-btn');
         if (btn) btn.disabled = true;
-        if (statusEl) statusEl.textContent = '正在从 GitHub 最新 Release 下载固件包...';
+        if (statusEl) statusEl.textContent = '正在取得最新发布的固件包 (本地服务 / GitHub Release / 本站)...';
         let releaseTag = 'latest';
         let assetMap = {};
         try {
@@ -645,7 +645,7 @@ class WebSerialFirmwareFlasher {
 
             this.githubFirmware.status = 'ready';
             if (statusEl) {
-                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 固件下载完毕: Bootloader (0x1000), 分区表 (0x8000), 主固件 (0x10000)</span>`;
+                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 固件下载完毕: Bootloader (0x1000), 分区表 (0x8000), 主固件 (0x10000)${this.githubFirmware.fontrom ? ', 系统字库 (0x190000)' : ''}</span>`;
             }
         } catch (e) {
             this.log('error', `固件拉取失败: ${e.message}`);
@@ -1380,7 +1380,11 @@ class SchemeIdeModal {
             
             const doBoot = confirm(`✔ 应用 ${meta.name} 已成功安装到设备！\n\n是否将它设置为开机自启并立即重启设备？`);
             if (doBoot) {
-                await window.activeLink.evalSource(`(config-set! "system" "boot_app" "apps/${meta.id}/app.msbc")`);
+                // the board has no compiler: compile here, run the bytecode there
+                const comp = compileWithWasm(`(config-set! "system" "boot_app" "apps/${meta.id}/app.msbc")`);
+                if (!comp.success) throw new Error(comp.error);
+                const r = await window.activeLink.exec(comp.bytes, 30000);
+                if (!r.success || String(r.result).trim() !== '#t') throw new Error(`设置启动应用失败: ${r.error || r.result}`);
                 await window.activeLink.reset();
                 if (typeof appendTerminalLine === 'function') {
                     appendTerminalLine('ok', `🚀 已设为开机启动应用并重启: apps/${meta.id}/app.msbc`);

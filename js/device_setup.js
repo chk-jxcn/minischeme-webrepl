@@ -311,7 +311,7 @@ class DeviceSetupWizard {
                             <input type="text" id="ds-hw-password" placeholder="设置硬件密码 (已设置后将明文显示且不可修改)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
                         </div>
                         <div id="ds-hw-password-hint" style="font-size: 11px; color: #eab308; margin-left: 130px;">
-                            ⚠️ 提示：硬件密码用于 HKDF 派生端到端加密密钥与身份验证；一旦设置将以明文显示且禁止修改。
+                            ⚠️ 提示：硬件密码用于加密通道的设备注册（派生设备 hash 密钥），同时也是设备网页和 HTTP API 的访问密码；一旦设置将以明文显示且禁止修改。
                         </div>
                     </div>
                 </div>
@@ -457,7 +457,7 @@ class DeviceSetupWizard {
             this.el.hwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
             if (this.el.hwPassHint) {
                 this.el.hwPassHint.style.color = '#eab308';
-                this.el.hwPassHint.textContent = '⚠️ 必填项：硬件密码用于 HKDF 派生端到端加密密钥与身份验证（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
+                this.el.hwPassHint.textContent = '⚠️ 必填项：硬件密码用于加密通道的设备注册，同时也是设备网页和 HTTP API 的访问密码（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
             }
         }
     }
@@ -475,8 +475,8 @@ class DeviceSetupWizard {
             this.el.fillLocalBtn.textContent = `🏠 快捷填入当前服务 IP (${defaultLocalProxy.replace(/^https?:\/\//i, '')})`;
         }
         if (isSim) {
-            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
-            this.el.converterUrl.placeholder = `${defaultLocalProxy} (仅限本地/局域网代理，非加密协议)`;
+            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理，模拟设备不加密)`;
+            this.el.converterUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理，模拟设备不加密)`;
             this._applyHwPasswordLockState('');
         } else {
             if (DeviceSetupWizard.isPublicWebRepl()) {

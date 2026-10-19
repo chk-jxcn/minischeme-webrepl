@@ -26,7 +26,6 @@
                     <option value="wasm" selected>💻 本地 WASM 设备仿真 (与固件一致)</option>
                     <option value="http">📡 ESP32 硬件 (WiFi HTTP)</option>
                     <option value="serial">🔌 ESP32 硬件 (USB 串口)</option>
-                    <option value="sim">🖥️ 本地模拟进程 (server.py)</option>
                 </select>
             </div>
             <span class="status-indicator online" id="status-dot"></span>
@@ -84,7 +83,7 @@
                     <span class="prompt-symbol">minischeme&gt;</span>
                     <textarea id="cmd-input" rows="1" placeholder="输入 Scheme 代码，回车发送 (Tab 自动补全，Shift+Enter 换行)..." autofocus autocomplete="off" spellcheck="false"></textarea>
                     <button id="send-btn" class="action-btn">编译并执行</button>
-                    <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件：WASM 仿真时直接运行 (带元数据的应用按开机应用启动)；连接硬件时安装到设备，应用装到 /spiffs/apps/&lt;id&gt;.msbc 并设为启动应用后重启。也可以把文件拖到页面上">📁 上传字节码</button>
+                    <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件，在当前目标 (WASM 仿真或硬件) 的 REPL 中运行这段字节码 (.scm 先在浏览器编译)：不安装、不写入 Flash，运行完释放内存，类似再加载一个 fasl。安装应用请用编辑器的「安装到 ESP32」或应用管理。也可以把文件拖到页面上">📁 上传字节码</button>
                     <input type="file" id="input-fasl-upload" style="display:none;" accept=".fasl,.msbc,.bin,.scm">
                 </div>
 
@@ -363,14 +362,14 @@
                 <div class="device-status-card">
                     <div class="dev-row">
                         <span class="dev-k">虚拟机模式:</span>
-                        <span class="dev-v" id="dev-vm-mode">WASM 本地 VM (估算 200KB ESP32)</span>
+                        <span class="dev-v" id="dev-vm-mode">WASM 本地 VM (与板上 VM 相同的 C 运行时)</span>
                     </div>
                     <div class="dev-row">
                         <span class="dev-k">当前堆占用:</span>
                         <span class="dev-v highlight" id="dev-heap-alloc">-- 字节</span>
                     </div>
                     <div class="dev-row">
-                        <span class="dev-k">活动半区总容量:</span>
+                        <span class="dev-k">VM 堆总容量:</span>
                         <span class="dev-v" id="dev-heap-capacity">-- 字节</span>
                     </div>
                     <div class="dev-row">
@@ -398,8 +397,8 @@
                             <div class="heap-progress-fill" id="heap-progress-fill" style="width: 0%;"></div>
                         </div>
                         <div class="heap-progress-labels">
-                            <span id="heap-progress-text">0 / 64 KB (0%)</span>
-                            <span class="heap-limit-badge">ESP32 108KB VM 堆</span>
+                            <span id="heap-progress-text">-- / -- KB</span>
+                            <span class="heap-limit-badge">板上 VM 堆约 102 KB</span>
                         </div>
                     </div>
                     <div class="dev-row">
@@ -448,7 +447,7 @@
             <!-- GitHub Release 模式 -->
             <div id="flasher-gh-section" class="flasher-section">
                 <div class="flasher-card">
-                    <div class="flasher-desc">从 GitHub 官方仓库 (chk-jxcn/minischeme-esp32) 拉取经过测试验证的完整固件包，包含引导程序、分区表与 MiniScheme 系统固件。</div>
+                    <div class="flasher-desc">取得最新发布的完整固件包：引导程序、分区表、MiniScheme 系统固件和系统字库。依次尝试本地服务、GitHub Release (chk-jxcn/minischeme-esp32)、本站 firmware/ 和仓库 firmware/，所有文件取自同一来源并按清单逐个校验 SHA-256。</div>
                     <div class="flasher-gh-files">
                         <span class="flasher-file-badge">📦 bootloader.bin (0x1000)</span>
                         <span class="flasher-file-badge">📋 partition-table.bin (0x8000)</span>
@@ -561,7 +560,7 @@
                     <span>⚙️</span> WebREPL 服务 IP 与端口设置
                 </div>
                 <div class="flasher-desc" style="margin-bottom:10px;">
-                    设置 WebREPL（应用下载、HTTPS 代理 /api/fetch 与管理后台）连接的后端服务地址：
+                    设置 WebREPL（应用下载、模拟器访问外部数据时的跨域转发 /api/fetch 与管理后台）连接的后端服务地址：
                 </div>
                 <div style="display:grid; grid-template-columns: 1fr 120px; gap:10px; align-items:center; margin-bottom:10px;">
                     <div>
