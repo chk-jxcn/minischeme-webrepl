@@ -1,12 +1,10 @@
 # MiniScheme WebREPL
 
-A modern, browser-based integrated development environment (IDE), bytecode compiler, device telemetry console, and Web Serial firmware flasher for MiniScheme.
+A browser IDE, bytecode compiler, WASM device simulator, device console and Web Serial firmware flasher for MiniScheme.
 
-🌐 **Online Demo**: [https://chk-jxcn.github.io/minischeme-webrepl/](https://chk-jxcn.github.io/minischeme-webrepl/)
+🌐 **Online demo**: [https://chk-jxcn.github.io/minischeme-webrepl/](https://chk-jxcn.github.io/minischeme-webrepl/)
 
-## Quick Start (One-Click Installer)
-
-Install and launch WebREPL locally in seconds using a single command:
+## Quick start (one-line installer)
 
 ### Windows (PowerShell)
 ```powershell
@@ -18,69 +16,61 @@ irm https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.p
 curl -fsSL https://raw.githubusercontent.com/chk-jxcn/minischeme-webrepl/main/install.sh | bash
 ```
 
-The script automatically downloads/clones the repository, installs Python dependencies, starts the local WebREPL server, and opens `http://localhost:8080` in your default browser.
+The script downloads the latest release (on Windows the single-file tray program `MiniScheme-WebREPL.exe`), starts the local server on port 8087 (the next free port if that one is busy) and opens it in the browser. The local server also runs the app proxy and protocol converter.
 
 ---
 
-## Initial Device Setup Wizard (Web Serial)
+## First setup of a device (serial)
 
-When connecting a new or unconfigured ESP32 hardware device via USB / Web Serial:
-1. Click **"连接串口 (Connect Serial)"** in the top navigation bar.
-2. Click **"⚙️ 初始设备配置 (Device Setup)"** in the toolbar.
+1. Click **连接设备** with the serial mode and choose the board's USB port. A board without WiFi settings opens the setup dialog by itself; otherwise use the setup button next to **连接设备**.
+2. The dialog first reads the board's `/spiffs/config.ini`. If that read fails (a serial timeout), saving is refused until **⟳ 读取设备配置** succeeds, so the board's other settings are never replaced by defaults.
 3. Fill in:
-   - **WiFi Information**: SSID and password.
-   - **External Server**: Proxy address (`http://<host>:8087`) and hardware password.
-   - **Default Boot App**: Bundled **万年历 (Calendar)** is selected by default.
-4. Click **"保存配置并重启设备 (Save & Reboot)"**. The WebREPL writes `/spiffs/config.ini`, uploads the default app if missing, and restarts the device immediately.
+   - **WiFi**: SSID and password (the router's own password; no strength rule).
+   - **App proxy / protocol converter**: `http://<host>:8087` (the service IP comes from the backend settings).
+   - **Hardware password**: at least 6 characters, no simple sequences (12345678, 88888888, ...). Once set it is shown and locked. It becomes the device's web page / API password (`[http] http_password`) and registers the board with the converter (`[channel] channel_key`).
+4. Click **保存配置并重启设备**. The WebREPL writes `/spiffs/config.ini` (keeping `config_version = 3` and every other key), remembers the password for its next requests and restarts the board, which boots into the built-in settings until an app is installed.
+
+The simulated device needs no password and uses the local proxy.
 
 ---
 
-## Key Features
-- **Web Serial Firmware Flasher**: Flash firmware directly from the browser to ESP32 devices via Web Serial API. Supports downloading official releases from GitHub or uploading local `.bin` images.
-- **In-Browser Scheme IDE & Compiler**:
-  - Code editor with auto-indentation and syntax support.
-  - Automatic metadata and API version extraction from `.scm` files.
-  - In-browser compilation via `compiler.wasm` to binary `.msbc` bytecode.
-  - Download `.msbc`, save to browser `localStorage`, or upload directly to connected hardware.
-- **Password-Protected Device Access**:
-  - Connect to hardware via WiFi HTTP with optional authentication header (`X-MiniScheme-Auth`) using lightweight string comparison.
-- **Font Generation Suite**:
-  - Generate compact bitmap fonts (`.mfnt`) from TTF/WOFF files directly in browser or through backend tools.
-- **App Market Integration**:
-  - Browse and download community apps from GitHub, modify code in the online editor, and deploy with one click.
-- **Co-located Proxy Support**:
-  - Launch with `--with-proxy` to automatically run the local application proxy and protocol converter alongside the WebREPL server.
+## Features
+- **Firmware flasher (Web Serial)**: the latest release's images, or local `.bin` files. A release is taken with its `firmware-manifest.json` from one source (the local server, the GitHub Release, this site's `firmware/`) and every file is checked against the manifest's SHA-256; after writing, esptool-js reads each region back and compares its MD5. A failed flash releases the serial port for the next try.
+- **Scheme editor and compiler**: compile to `.msbc` in the browser (`compiler.wasm`), simulate, download, or install on the board.
+- **Device access over WiFi**: the device password is sent in the `X-MiniScheme-Auth` header (never in page URLs); the settings tab's password is written as the firmware's `[http] http_password` and applied at once. A failed read of `config.ini` stops a save instead of writing defaults.
+- **App pages**: an app's own web page runs in a sandboxed frame (no access to the WebREPL's storage or device connection; it talks to the app through `postMessage`).
+- **WASM simulator**: the same C runtime as the firmware (stack traces on in the simulator).
+- **App market**: the apps of [minischeme-apps](https://github.com/chk-jxcn/minischeme-apps); install, edit and deploy.
+- **Fonts**: bitmap font (`.mfnt`) generation and the font ROM.
 
-## Running Locally
+## Running from source
 
 ```bash
-python server.py --port 8080
+pip install Pillow fontTools      # optional: only the font generator needs them
+python server.py                  # http://127.0.0.1:8087, app proxy included
+python -m pytest tests            # integration tests (starts its own server)
 ```
 
-To run with the local application proxy & protocol converter enabled:
-```bash
-python server.py --port 8080 --with-proxy
-```
+The local server's admin portal (`/admin`) uses `config.ini [security] admin_password`; without one only this machine's own browser gets in. Its CORS answers go only to the published WebREPL and pages on this network, and it never serves its own files (`config.ini`, the database, sources).
 
-Then navigate to `http://localhost:8080` in Chrome, Edge, or any modern Chromium-based browser.
-
-## Project Structure
+## Project structure
 
 ```
 minischeme-webrepl/
-├── apps/               # Built-in Scheme application packages (.scm, .msbc, meta.ini)
-├── css/                # Web stylesheets (style.css)
-├── data/               # Static data assets (font_charsets.json)
-├── firmware/           # Prebuilt ESP32 firmware binaries & manifest
-├── js/                 # Client JavaScript frontend modules
-├── proxy/              # App Proxy & Protocol Converter service
-├── tests/              # Test suite (Python integration & browser HTML suites)
-├── tools/              # Developer & packaging tools (build_exe.py, make_font.py)
-├── wasm/               # WebAssembly binaries (minischeme_vm.wasm, compiler.wasm) & C sources
-├── index.html          # WebREPL web interface entry point
-├── server.py           # Local server & Windows system tray application
-└── install.ps1 / .sh   # One-line installer scripts
+├── apps/       # app images (.msbc), all-in-one sources, index.json and app sources (from minischeme-apps)
+├── css/ data/ fonts/
+├── firmware/   # the latest firmware release (images + firmware-manifest.json with SHA-256)
+├── js/         # front end
+├── proxy/      # app proxy and protocol converter (same files as minischeme-proxy)
+├── tests/      # Python integration tests and browser suites
+├── tools/      # build_exe.py, make_font.py, deploy_public_proxy.py
+├── wasm/       # minischeme_vm.wasm, compiler.wasm and their C bridge
+├── index.html
+├── server.py   # local server and Windows tray program
+└── install.ps1 / install.sh
 ```
+
+See [AGENT_DEVELOPMENT_GUIDE.md](AGENT_DEVELOPMENT_GUIDE.md) for the protocols and the five repositories.
 
 ## License
 MIT License
