@@ -1029,14 +1029,27 @@
 (define (app-render-footer)
   (if (app-local? app-page-index) (app-render-local-footer) (app-render-feed-footer)))
 
+;; "http://host:port" shown as "host:port"
+(define (app-server-name s)
+  (cond ((not (string? s)) "服务器")
+        ((str-starts? s "http://") (substring s 7 (string-length s)))
+        ((str-starts? s "tcp://") (substring s 6 (string-length s)))
+        (else s)))
+
 (define (app-render-feed-footer)
   (let* ((y (- (gui-height) FTR-H))
          (w (scr-w))
          (entry (app-cache-entry (vector-ref app-urls app-page-index)))
          (upd (and entry (items-find (vector-ref entry 1) "upd")))  ; the server's data time
          (state (app-status 'state))
-         (failed (or app-error (eq? state 'error)))
-         (text (cond (app-error (string-append "代理: " app-error))
+         ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
+         (step (app-status 'step))
+         (busy (memq step '(clock register)))
+         (failed (and (not busy) (or app-error (eq? state 'error))))
+         (text (cond ((eq? step 'register)
+                      (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
+                     ((eq? step 'clock) "等待网络对时...")
+                     (app-error (string-append "代理: " app-error))
                      ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
                      (app-loading (if entry "刷新中..." "加载中..."))
                      ;; the time the server gives for its data ({"t": "upd"}), else when

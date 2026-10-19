@@ -10,9 +10,9 @@
   "pages": 1,
   "web": true,
   "file": "album.msbc",
-  "size": 56667,
+  "size": 57135,
   "scm": "album.allinone.scm",
-  "hash": "1524775d"
+  "hash": "e88d9040"
  },
  {
   "id": "calendar",
@@ -25,9 +25,9 @@
   "pages": 3,
   "web": false,
   "file": "calendar.msbc",
-  "size": 52464,
+  "size": 52932,
   "scm": "calendar.allinone.scm",
-  "hash": "d013ef80"
+  "hash": "536385d5"
  },
  {
   "id": "crypto",
@@ -40,9 +40,9 @@
   "pages": 3,
   "web": false,
   "file": "crypto.msbc",
-  "size": 41428,
+  "size": 41896,
   "scm": "crypto.allinone.scm",
-  "hash": "afc63a1f"
+  "hash": "b6bbc716"
  },
  {
   "id": "futures",
@@ -55,9 +55,9 @@
   "pages": 3,
   "web": false,
   "file": "futures.msbc",
-  "size": 41461,
+  "size": 41929,
   "scm": "futures.allinone.scm",
-  "hash": "3b54192e"
+  "hash": "ff40c4fd"
  },
  {
   "id": "memo",
@@ -70,9 +70,9 @@
   "pages": 2,
   "web": true,
   "file": "memo.msbc",
-  "size": 51386,
+  "size": 51854,
   "scm": "memo.allinone.scm",
-  "hash": "d4b25d4f"
+  "hash": "6b989502"
  },
  {
   "id": "news",
@@ -85,9 +85,9 @@
   "pages": 5,
   "web": false,
   "file": "news.msbc",
-  "size": 39123,
+  "size": 39591,
   "scm": "news.allinone.scm",
-  "hash": "93463cdf"
+  "hash": "343b48b2"
  },
  {
   "id": "notifier",
@@ -100,9 +100,9 @@
   "pages": 2,
   "web": true,
   "file": "notifier.msbc",
-  "size": 53377,
+  "size": 53845,
   "scm": "notifier.allinone.scm",
-  "hash": "c55b38a6"
+  "hash": "22dff333"
  },
  {
   "id": "pcmonitor",
@@ -145,9 +145,9 @@
   "pages": 4,
   "web": false,
   "file": "stocks.msbc",
-  "size": 43945,
+  "size": 44413,
   "scm": "stocks.allinone.scm",
-  "hash": "959426a6"
+  "hash": "30782941"
  },
  {
   "id": "usage",
@@ -160,9 +160,9 @@
   "pages": 4,
   "web": false,
   "file": "usage.msbc",
-  "size": 44820,
+  "size": 45288,
   "scm": "usage.allinone.scm",
-  "hash": "63753322"
+  "hash": "1565edd7"
  },
  {
   "id": "weather",
@@ -175,9 +175,9 @@
   "pages": 5,
   "web": false,
   "file": "weather.msbc",
-  "size": 53511,
+  "size": 53979,
   "scm": "weather.allinone.scm",
-  "hash": "096b3987"
+  "hash": "b5880928"
  },
  {
   "id": "wxpusher",
@@ -190,8 +190,8 @@
   "pages": 1,
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 56627,
+  "size": 57095,
   "scm": "wxpusher.allinone.scm",
-  "hash": "52d326a3"
+  "hash": "90ead521"
  }
 ]
