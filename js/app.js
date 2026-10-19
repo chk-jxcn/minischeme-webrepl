@@ -1845,6 +1845,7 @@ Object.defineProperty(window, 'activeLink', {
 // =========================================================================
 
 const devPanelTitle = document.getElementById('dev-panel-title');
+const btnRefreshHwStats = document.getElementById('btn-refresh-hw-stats');
 const devExecLabel = document.getElementById('dev-exec-label');
 const heapLimitBadge = document.querySelector('.heap-limit-badge');
 const lcdModeTagEl = document.getElementById('lcd-mode-tag');
@@ -1888,6 +1889,8 @@ function badge(kind, text) {
 }
 
 function applyHardwareStats(st) {
+    if (!st) return;
+    if (st.color_bits) adoptDeviceDisplay(st);
     // panel: the board's own numbers
     if (devPanelTitle) devPanelTitle.textContent = '📟 运行内存与 ESP32 负荷 (硬件实测)';
     if (devExecLabel) devExecLabel.textContent = '实测渲染/负载:';
@@ -1956,6 +1959,7 @@ const hwMirror = new HardwareMirror({
     onState(state, detail) {
         if (!lcdModeTagEl) return;
         if (state === 'stopped') {
+            if (btnRefreshHwStats) btnRefreshHwStats.style.display = 'none';
             showWasmModeTag();
             return;
         }
@@ -1969,6 +1973,7 @@ const hwMirror = new HardwareMirror({
 
 /* Back to the simulator's picture and figures */
 function stopHardwareMirror() {
+    if (btnRefreshHwStats) btnRefreshHwStats.style.display = 'none';
     if (!hwMirror.active) return;
     hwMirror.stop();
     if (devPanelTitle) devPanelTitle.textContent = PANEL_TEXT.title;
@@ -1978,6 +1983,24 @@ function stopHardwareMirror() {
     vfbImageData = null;
     renderVfbToCanvas(true); // the whole WASM picture again
     syncHardwareTelemetry();
+}
+
+if (btnRefreshHwStats) {
+    btnRefreshHwStats.addEventListener('click', async () => {
+        if (!hwMirror.active) return;
+        btnRefreshHwStats.disabled = true;
+        const origText = btnRefreshHwStats.textContent;
+        btnRefreshHwStats.textContent = '⏳ 刷新中...';
+        try {
+            const st = await hwMirror.fetchStats();
+            if (st) adoptDeviceDisplay(st);
+        } catch (err) {
+            appendTerminalLine('error', `刷新硬件状态失败: ${(err && err.message) || err}`);
+        } finally {
+            btnRefreshHwStats.disabled = false;
+            btnRefreshHwStats.textContent = origText;
+        }
+    });
 }
 
 const deviceLinkBar = document.getElementById('device-link-bar');
@@ -2099,10 +2122,8 @@ async function connectDevice() {
         appendTerminalLine('info', `🔗 已连接 ${link.label}: ${describeDeviceInfo(info)}`);
         if (link.kind === 'http') {
             hwMirror.start(link);
-            appendTerminalLine('info', '📡 页面显示硬件的实际画面与内存/负载数据 (断开或切回 WASM 仿真即恢复)');
-            try {
-                adoptDeviceDisplay(await link.stats()); // the selects show the board's settings
-            } catch (e) { /* older firmware: no /api/stats */ }
+            if (btnRefreshHwStats) btnRefreshHwStats.style.display = 'inline-flex';
+            appendTerminalLine('info', '📡 页面显示硬件实际画面；点击“🔄 刷新”可获取最新负荷数据 (断开或切回 WASM 仿真即恢复)');
             if (simLightRemote && simLightRemote.checked) sendLightToDevice(lightSliderValue());
         } else if (link.kind === 'serial') {
             // Auto-trigger initial setup wizard ONLY on serial connection if unconfigured (no WiFi SSID yet)

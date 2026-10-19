@@ -24,7 +24,7 @@ class HardwareMirror {
     /**
      * @param {object} opts
      * @param {HTMLCanvasElement} opts.canvas the LCD canvas
-     * @param {(stats: object) => void} opts.onStats real figures, once a second
+     * @param {(stats: object) => void} opts.onStats real figures callback
      * @param {(state: string, detail: string) => void} opts.onState
      *        'sync' | 'live' | 'nopixels' | 'error' | 'unsupported' | 'stopped'
      */
@@ -41,6 +41,7 @@ class HardwareMirror {
         this.passClock = null; // the board's clock when this pass began
         this.lastRow = -1;     // the last row of the latest reply
         this.lastUptime = 0;
+        this.lastStatsTime = 0;
         this.bytes = 0;
         this.ws = null;
         this.state = 'stopped';
@@ -54,10 +55,11 @@ class HardwareMirror {
         this.link = link;
         this.needFull = true;
         this.lastUptime = 0;
+        this.lastStatsTime = Date.now();
         const gen = ++this.gen;
         this._setState('sync', '同步硬件画面…');
         this._startStreamOrPolling(gen);
-        this._statsLoop(gen);
+        this.fetchStats().catch(() => {});
     }
 
     stop() {
@@ -231,22 +233,32 @@ class HardwareMirror {
         }
     }
 
-    async _statsLoop(gen) {
-        while (this._alive(gen)) {
-            try {
-                const st = await this.link.stats();
-                if (!this._alive(gen)) return;
-                if (st && st.success) {
-                    // uptime going backwards: the board rebooted, fetch the whole screen
-                    if (st.uptime_ms < this.lastUptime) this.needFull = true;
-                    this.lastUptime = st.uptime_ms;
-                    st.mirror_bytes = this.bytes;
-                    this.bytes = 0;
-                    this.onStats(st);
-                }
-            } catch (e) { /* the screen loop reports connection problems */ }
-            await new Promise((r) => setTimeout(r, MIRROR_STATS_MS));
+    /** Fetches hardware telemetry figures on demand without background polling loop */
+    async fetchStats() {
+        if (!this.link || typeof this.link.stats !== 'function') return null;
+        const gen = this.gen;
+        try {
+            const st = await this.link.stats();
+            if (!this._alive(gen)) return null;
+            if (st && st.success) {
+                // uptime going backwards: the board rebooted, fetch the whole screen
+                if (st.uptime_ms < this.lastUptime) this.needFull = true;
+                this.lastUptime = st.uptime_ms;
+                const now = Date.now();
+                const elapsedSec = this.lastStatsTime ? Math.max(0.1, (now - this.lastStatsTime) / 1000) : 1;
+                this.lastStatsTime = now;
+                st.mirror_bytes = (this.bytes || 0) / elapsedSec;
+                this.bytes = 0;
+                this.onStats(st);
+                return st;
+            }
+        } catch (e) {
+            if (this._alive(gen)) {
+                console.warn('[HardwareMirror] fetchStats failed:', e);
+            }
+            throw e;
         }
+        return null;
     }
 
     /** Moves this viewer's cursor past a reply (version 2: the board keeps
