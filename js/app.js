@@ -1633,8 +1633,8 @@ const appWebPanel = new AppWebPanel({
             return { kind: 'wasm', exports: () => wasmInstance && wasmInstance.exports, memory: () => wasmMemory };
         }
         if (activeLink) {
-            const authQuery = activeLink.password ? `?auth=${encodeURIComponent(activeLink.password)}` : '';
-            const nativeUrl = activeLink.base ? `${activeLink.base}/${authQuery}` : '';
+            // no password in the URL (history, logs): the device page asks for it on 401
+            const nativeUrl = activeLink.base ? `${activeLink.base}/` : '';
             return { kind: 'device', link: activeLink, url: nativeUrl };
         }
         throw new Error('请切换到 WASM 设备仿真，或通过 HTTP / 串口连接设备');
@@ -2081,7 +2081,21 @@ async function disconnectDevice() {
 }
 window.disconnectDevice = disconnectDevice;
 
+/* One connection attempt at a time: a second click while the first is still
+ * opening the port would open it twice ("port already open") */
+let connectInProgress = false;
+
 async function connectDevice() {
+    if (connectInProgress) return;
+    connectInProgress = true;
+    try {
+        await connectDeviceOnce();
+    } finally {
+        connectInProgress = false;
+    }
+}
+
+async function connectDeviceOnce() {
     const mode = targetMode.value;
     await disconnectDevice();
     let link;

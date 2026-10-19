@@ -700,6 +700,9 @@ class DeviceSetupWizard {
         this._applyHwPasswordLockState('');
         this.existingIniText = '';
         this.existingBootApp = '';
+        // true until the device's config.ini was read: a board always has one,
+        // so saving without it would replace every setting with defaults
+        this.readFailed = !this._isSimulator();
         if (this.el.wifiEnable) {
             this.el.wifiEnable.checked = typeof window.isSimWifiOnline === 'function' ? window.isSimWifiOnline() : true;
         }
@@ -713,6 +716,11 @@ class DeviceSetupWizard {
 
             if (!bytes || !bytes.length) {
                 this.existingIniText = '';
+                if (!this._isSimulator()) {
+                    this._status('读取设备 config.ini 失败（无响应或超时）。为避免覆盖设备现有配置，请点击“读取设备配置”重试后再保存。', 'error');
+                    return;
+                }
+                this.readFailed = false;
                 this._setDefault();
                 if (autoTriggered) {
                     this._status('⚠️ 检测到串口设备尚未配置 WiFi，请填写下方初始配置并保存重启', 'ok');
@@ -724,6 +732,7 @@ class DeviceSetupWizard {
 
             const text = new TextDecoder().decode(bytes);
             this.existingIniText = text;
+            this.readFailed = false;
             this._parseToForm(text);
             if (autoTriggered) {
                 this._status('⚠️ 检测到串口设备尚未配置 WiFi 网络，请完成初始配置并保存重启', 'ok');
@@ -768,7 +777,7 @@ class DeviceSetupWizard {
             this.el.converterUrl.value = DeviceSetupWizard.getPublicProxyServer();
         }
 
-        const existingHwPass = kv['server.hardware_password'] || '';
+        const existingHwPass = kv['server.hardware_password'] || kv['http.http_password'] || '';
         this._applyHwPasswordLockState(existingHwPass);
 
         if (kv['system.boot_app']) {
@@ -805,14 +814,12 @@ class DeviceSetupWizard {
             }
         }
 
-        if (!isSim && pass) {
-            const chk = DeviceSetupWizard.validatePasswordSecurity(pass);
-            if (!chk.valid) {
-                this._status(`WiFi ${chk.message}`, 'error');
-                this.log('error', `⚙️ WiFi 密码校验失败: ${chk.message}`);
-                if (this.el.wifiPass) this.el.wifiPass.focus();
-                return;
-            }
+        // the router's WiFi password is the router's: no weak-password rule here
+        if (!isSim && this.readFailed) {
+            const msg = '尚未成功读取设备当前的 config.ini，为避免覆盖设备上的配置，已取消保存。请先点击“读取设备配置”。';
+            this._status(msg, 'error');
+            this.log('error', `⚙️ ${msg}`);
+            return;
         }
 
         if (isSim) {
@@ -883,6 +890,9 @@ class DeviceSetupWizard {
 
             if (!isSim && hwPass) {
                 this._applyHwPasswordLockState(hwPass);
+                // the board asks for this password ([http] http_password) after the restart
+                try { localStorage.setItem('minischeme_http_password', hwPass); } catch (_) {}
+                if (this.backend) this.backend.password = hwPass;
             }
 
             // Reboot device

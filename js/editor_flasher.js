@@ -178,7 +178,7 @@ function safeAtob(val) {
     try {
         return window.atob(str);
     } catch (e1) {
-        const cleaned = str.replace(/[^A-Za-z0-9+/=]/g, '');
+        let cleaned = str.replace(/[^A-Za-z0-9+/=]/g, '');
         while (cleaned.length % 4 !== 0) cleaned += '=';
         try {
             return window.atob(cleaned);
@@ -188,19 +188,75 @@ function safeAtob(val) {
     }
 }
 
-// Ensure global window.atob is safeguarded against undefined/null strings in third-party bundles
+// esptool-js bundles may call atob(undefined) for a stub section that is
+// absent: that one case decodes to nothing. Any other invalid base64 still
+// throws, so a broken transfer (a device file read cut short) is an error,
+// never an empty or partial success.
 if (typeof window !== 'undefined' && typeof window.atob === 'function') {
     const rawAtob = window.atob.bind(window);
     window.atob = function(val) {
-        if (val === undefined || val === null || val === 'undefined' || val === 'null') {
-            return '';
-        }
-        try {
-            return rawAtob(val);
-        } catch (e) {
-            return safeAtob(val);
-        }
+        if (val === undefined || val === null) return '';
+        return rawAtob(val);
     };
+}
+
+/* SHA-256 of bytes as hex (WebCrypto; on a plain-http page without it, the
+ * check is skipped and said so) */
+async function sha256Hex(bytes) {
+    if (!(window.crypto && crypto.subtle)) return null;
+    const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+    return Array.from(d, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function binaryStringToBytes(s) {
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+    return out;
+}
+
+/* MD5 of bytes as hex: esptool-js compares it with the flash read back */
+function md5Hex(bytes) {
+    const S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+               5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+               4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+               6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
+    const K = new Uint32Array(64);
+    for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+    const n = bytes.length;
+    const total = ((n + 8) >>> 6 << 6) + 64;
+    const buf = new Uint8Array(total);
+    buf.set(bytes);
+    buf[n] = 0x80;
+    const bitsLo = (n << 3) >>> 0, bitsHi = Math.floor(n / 0x20000000) >>> 0;
+    for (let i = 0; i < 4; i++) {
+        buf[total - 8 + i] = (bitsLo >>> (8 * i)) & 0xff;
+        buf[total - 4 + i] = (bitsHi >>> (8 * i)) & 0xff;
+    }
+    let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+    const M = new Uint32Array(16);
+    for (let off = 0; off < total; off += 64) {
+        for (let i = 0; i < 16; i++) {
+            const j = off + i * 4;
+            M[i] = (buf[j] | (buf[j + 1] << 8) | (buf[j + 2] << 16) | (buf[j + 3] << 24)) >>> 0;
+        }
+        let A = a0, B = b0, C = c0, D = d0;
+        for (let i = 0; i < 64; i++) {
+            let F, g;
+            if (i < 16) { F = (B & C) | (~B & D); g = i; }
+            else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+            else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+            else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+            F = (F + A + K[i] + M[g]) >>> 0;
+            A = D; D = C; C = B;
+            B = (B + ((F << S[i]) | (F >>> (32 - S[i])))) >>> 0;
+        }
+        a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0; c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
+    }
+    let hex = '';
+    for (const w of [a0, b0, c0, d0]) {
+        for (let i = 0; i < 4; i++) hex += ((w >>> (8 * i)) & 0xff).toString(16).padStart(2, '0');
+    }
+    return hex;
 }
 
 async function loadEsptoolBundle() {
@@ -475,6 +531,11 @@ class WebSerialFirmwareFlasher {
         if (label) label.textContent = text || `${Math.round(pct)}%`;
     }
 
+    /* The firmware set: firmware-manifest.json and the three images it lists,
+     * all from ONE source (never a mix of versions), each checked against the
+     * manifest's sha256. Sources in order: the local server (its bundle or the
+     * latest Release), the latest Release itself, this site's firmware/ (synced
+     * with each Release), the repository's firmware/. */
     async fetchGithubAssets() {
         const statusEl = document.getElementById('flasher-gh-status');
         const btn = document.getElementById('flasher-fetch-gh-btn');
@@ -494,48 +555,79 @@ class WebSerialFirmwareFlasher {
                     if (a.name && a.browser_download_url) assetMap[a.name] = a.browser_download_url;
                 }
             }
-        } catch (e) { /* fallback to latest/download and main branch */ }
-        this.log('info', `正在从 GitHub 官方仓库最新 Release (${releaseTag}) 下载固件文件...`);
+        } catch (e) { /* the other sources follow */ }
+        this.log('info', `最新固件 Release: ${releaseTag}`);
+
+        const files = [
+            { name: 'bootloader.bin', key: 'bootloader', offset: 0x1000 },
+            { name: 'partition-table.bin', key: 'partition', offset: 0x8000 },
+            { name: 'minischeme_esp32.bin', key: 'firmware', offset: 0x10000 }
+        ];
+        const sources = [
+            { label: '本地服务 (/api/release_asset)', url: (n) => `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(n)}` },
+            { label: `GitHub Release ${releaseTag}`, url: (n) => assetMap[n] || '' },
+            { label: '本站 firmware/', url: (n) => `./firmware/${n}` },
+            { label: 'minischeme-esp32 仓库 firmware/', url: (n) => `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${n}` }
+        ];
+        const get = async (url) => {
+            if (!url) return null;
+            try {
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) return null;
+                const u8 = new Uint8Array(await res.arrayBuffer());
+                return u8.length && u8[0] !== 0x3C ? u8 : null;   // '<': an HTML error page
+            } catch (e) {
+                return null;
+            }
+        };
 
         try {
-            const files = [
-                { name: 'bootloader.bin', key: 'bootloader', offset: 0x1000 },
-                { name: 'partition-table.bin', key: 'partition', offset: 0x8000 },
-                { name: 'minischeme_esp32.bin', key: 'firmware', offset: 0x10000 }
-            ];
-
-            for (const item of files) {
-                this.log('info', `正在拉取: ${item.name} ...`);
-                const urls = [
-                    `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(item.name)}`,
-                    ...(assetMap[item.name] ? [assetMap[item.name]] : []),
-                    `./firmware/${item.name}`,
-                    `firmware/${item.name}`,
-                    `/firmware/${item.name}`,
-                    `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${item.name}`,
-                    `${GITHUB_ESP32_RELEASE_BASE}${item.name}`
-                ];
-                let buf = null;
-                for (const url of urls) {
-                    try {
-                        const res = await fetch(url, { cache: 'no-store' });
-                        if (res.ok) {
-                            const ab = await res.arrayBuffer();
-                            if (ab.byteLength > 256) {
-                                const u8 = new Uint8Array(ab);
-                                if (u8[0] === 0x3C) { // Skip HTML error responses ('<')
-                                    continue;
-                                }
-                                buf = ab;
-                                break;
-                            }
+            let done = false;
+            for (const src of sources) {
+                const manBytes = await get(src.url('firmware-manifest.json'));
+                if (!manBytes) continue;
+                let manifest;
+                try { manifest = JSON.parse(new TextDecoder().decode(manBytes)); } catch (e) { continue; }
+                const listed = {};
+                for (const f of (manifest.files || [])) listed[f.name] = f;
+                const got = {};
+                let ok = true;
+                for (const item of files) {
+                    const entry = listed[item.name];
+                    if (!entry || Number(entry.offset) !== item.offset) {
+                        this.log('error', `${src.label}: 清单中 ${item.name} 缺失或地址不符，跳过此来源`);
+                        ok = false;
+                        break;
+                    }
+                    const data = await get(src.url(item.name));
+                    if (!data) { ok = false; break; }
+                    if (entry.size && entry.size !== data.length) {
+                        this.log('error', `${src.label}: ${item.name} 大小 ${data.length} 与清单 ${entry.size} 不符，跳过此来源`);
+                        ok = false;
+                        break;
+                    }
+                    if (entry.sha256) {
+                        const digest = await sha256Hex(data);
+                        if (digest !== null && digest !== String(entry.sha256).toLowerCase()) {
+                            this.log('error', `${src.label}: ${item.name} SHA-256 校验失败，跳过此来源`);
+                            ok = false;
+                            break;
                         }
-                    } catch (e) { /* try next */ }
+                    }
+                    got[item.key] = data;
                 }
-                if (!buf) throw new Error(`下载 ${item.name} 失败 (请检查网络或切换手动上传)`);
-                this.githubFirmware[item.key] = new Uint8Array(buf);
-                this.log('ok', `✔ 已下载 ${item.name} (${this._formatSize(buf.byteLength)})`);
+                if (!ok) continue;
+                for (const item of files) this.githubFirmware[item.key] = got[item.key];
+                const checked = files.every(f => listed[f.name].sha256);
+                this.log('ok', `✔ 固件 v${manifest.version || '?'} (IDF ${manifest.idf || '?'}) 来自 ${src.label}` +
+                    (checked ? '，3 个文件 SHA-256 校验通过' : '，清单无 SHA-256（旧版本），未校验'));
+                for (const item of files) {
+                    this.log('ok', `   ${item.name} @0x${item.offset.toString(16)} (${this._formatSize(got[item.key].length)})`);
+                }
+                done = true;
+                break;
             }
+            if (!done) throw new Error('所有来源都无法取得一套完整且校验通过的固件 (请检查网络或切换手动上传)');
 
             this.githubFirmware.status = 'ready';
             if (statusEl) {
@@ -679,6 +771,8 @@ class WebSerialFirmwareFlasher {
                 flashFreq: 'keep',
                 compress: true,
                 eraseAll: eraseAll,
+                // esptool reads each region back and compares its MD5
+                calculateMD5Hash: (image) => md5Hex(typeof image === 'string' ? binaryStringToBytes(image) : image),
                 reportProgress: (fileIndex, written, total) => {
                     const filePct = total > 0 ? (written / total) : 0;
                     const overallPct = Math.round(((fileIndex + filePct) / filesToFlash.length) * 100);
@@ -718,6 +812,14 @@ class WebSerialFirmwareFlasher {
             this.log('info', '💡 提示：如果开发板未自动亮屏，可轻按板上的 RST / EN 按键手动复位。');
         } catch (err) {
             this.log('error', `❌ 烧录失败: ${err.message}`);
+            // release the serial port so a retry can open it again
+            try {
+                if (this.transport) await this.transport.disconnect();
+                else if (this.port && this.port.readable) await this.port.close();
+            } catch (_) { /* already closed */ }
+            this.port = null;
+            this.transport = null;
+            this.esploader = null;
             alert(`烧录失败: ${err.message}`);
         } finally {
             this.isFlashing = false;

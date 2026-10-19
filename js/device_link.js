@@ -66,12 +66,16 @@ class HttpDeviceLink {
             const headers = { ...(opts.headers || {}) };
             const pwd = this.password || (typeof getHttpAuthPassword === 'function' ? getHttpAuthPassword() : localStorage.getItem("minischeme_http_password") || '');
             if (pwd) {
-                // Pass auth via query parameter. We intentionally do NOT set 'X-MiniScheme-Auth'
-                // header by default because custom headers trigger browser CORS preflight (OPTIONS)
-                // checks, which causes preflight failures on devices with strict or older CORS headers.
-                // Both firmware and proxy verify auth via '?auth=' or '?token=' query parameters.
-                const sep = path.includes('?') ? '&' : '?';
-                path = path + sep + 'auth=' + encodeURIComponent(pwd);
+                // The password goes in the X-MiniScheme-Auth header (the firmware's
+                // CORS preflight allows it), not in the URL where it would stay in
+                // history and logs. A header value must be Latin-1: other passwords
+                // fall back to the percent-encoded ?auth= the firmware also reads.
+                if (/^[\x20-\x7e]*$/.test(pwd)) {
+                    headers['X-MiniScheme-Auth'] = pwd;
+                } else {
+                    const sep = path.includes('?') ? '&' : '?';
+                    path = path + sep + 'auth=' + encodeURIComponent(pwd);
+                }
             }
             opts.headers = headers;
             const res = await fetch(this.base + path, { ...opts, signal: ctrl.signal });
@@ -302,6 +306,14 @@ class SerialDeviceLink {
             } catch (e) {
                 data = { success: false, error: `无法解析设备响应: ${line}` };
             }
+            // a reply to a request that already timed out is not the answer
+            // to the next one: each timeout owes one late reply (for 30 s)
+            const now = Date.now();
+            this._late = (this._late || []).filter(t => t > now);
+            if (this._late.length) {
+                this._late.shift();
+                return;
+            }
             if (this._pending) {
                 const p = this._pending;
                 this._pending = null;
@@ -327,6 +339,7 @@ class SerialDeviceLink {
             }
             const timer = setTimeout(() => {
                 this._pending = null;
+                (this._late = this._late || []).push(Date.now() + 30000);
                 reject(new Error('设备响应超时'));
             }, timeoutMs);
             this._pending = { resolve, reject, timer };

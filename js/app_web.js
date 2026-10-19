@@ -87,7 +87,7 @@ class AppWebPanel {
                             <span class="aw-note" id="aw-app-note">设备网页的第一个选项卡：运行中应用自带的页面，调用由模拟设备上的 (app-web name body) 回答</span>
                             <button class="pill-btn compact" data-act="reload">⟳ 重新载入</button>
                         </div>
-                        <iframe class="aw-frame" title="应用网页"></iframe>
+                        <iframe class="aw-frame" title="应用网页" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"></iframe>
                     </div>
 
                     <!-- Tab 2: 系统配置 -->
@@ -441,6 +441,11 @@ class AppWebPanel {
         return this._fsWrite('/spiffs/config.ini', bytes);
     }
 
+    /* The device's config.ini text, or null when it could not be read (a
+     * serial timeout, a lost link): a save must then stop, since writing a
+     * file built from nothing would wipe the device's settings. The board
+     * always has a config.ini (the firmware writes one at boot), so an empty
+     * answer from a board counts as a failed read too. */
     async _readConfigIniAsync() {
         if (this.target && this.target.kind === 'wasm') {
             return this.readConfigIni();
@@ -451,9 +456,11 @@ class AppWebPanel {
                 let bytes = await link.fsRead('/spiffs/config.ini');
                 if (!bytes || !bytes.length) bytes = await link.fsRead('config.ini');
                 if (bytes && bytes.length) return new TextDecoder('utf-8').decode(bytes);
-            } catch (e) {}
+            } catch (e) {
+                this.log('error', `⚙️ 读取设备 config.ini 失败: ${e.message || e}`);
+            }
         }
-        return '';
+        return null;
     }
 
     async _writeConfigIniAsync(text) {
@@ -464,7 +471,7 @@ class AppWebPanel {
         if (link && typeof link.fsWrite === 'function') {
             try {
                 await link.fsWrite('/spiffs/config.ini', new TextEncoder().encode(text));
-                if (link.kind === 'http' && typeof link._url === 'function') {
+                if (link.kind === 'http' && typeof link._json === 'function') {
                     try {
                         const parsed = this._parseIni(text);
                         const disp = parsed['display'] || {};
@@ -473,10 +480,11 @@ class AppWebPanel {
                             if (disp[k] !== undefined) params.set(`display.${k}`, disp[k]);
                         }
                         if ([...params.keys()].length > 0) {
-                            await fetch(link._url('/api/settings'), {
+                            await link._json('/api/settings', {
                                 method: 'POST',
+                                headers: { 'Content-Type': 'text/plain' },
                                 body: params.toString()
-                            });
+                            }, 8000);
                         }
                     } catch (_) {}
                 }
@@ -847,6 +855,15 @@ class AppWebPanel {
         }
 
         const applyWithRaw = (rawText) => {
+            if (rawText === null || (!isWasm && !String(rawText).trim())) {
+                const msg = '读取设备当前 config.ini 失败，为避免覆盖设备上的配置，已取消保存。请检查连接后重试。';
+                if (this.el.sysSaveStatus) {
+                    this.el.sysSaveStatus.textContent = `❌ ${msg}`;
+                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                }
+                this.log('error', `⚙️ ${msg}`);
+                return null;
+            }
             const parsed = this._parseIni(rawText);
             const serverSec = parsed['server'] ? 'server' : 'system';
             const convUrl = (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim() || proxyUrl;
@@ -854,6 +871,8 @@ class AppWebPanel {
                 [`${serverSec}.proxy_url`]: proxyUrl,
                 [`${serverSec}.converter_url`]: convUrl,
                 [`${serverSec}.hardware_password`]: hwPassToSave,
+                // the firmware guards its web page and API with [http] http_password
+                'http.http_password': hwPassToSave,
                 'app.proxy': proxyUrl,
                 'app.https_proxy': convUrl,
                 'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
@@ -880,22 +899,34 @@ class AppWebPanel {
 
             const pass = (this.el.sysWifiPass ? this.el.sysWifiPass.value : '').trim();
             if (pass) {
-                const chk = this._validatePasswordSecurity(pass);
-                if (!chk.valid) {
-                    if (this.el.sysSaveStatus) {
-                        this.el.sysSaveStatus.textContent = `❌ WiFi ${chk.message}`;
-                        this.el.sysSaveStatus.style.color = '#ee7c7c';
-                    }
-                    if (this.el.sysWifiPass) this.el.sysWifiPass.focus();
-                    return null;
-                }
                 if (parsed['wifi'] && 'password' in parsed['wifi']) updates['wifi.password'] = pass;
                 else updates['wifi.wifi_password'] = pass;
             }
-            return this._updateIni(rawText, updates);
+            let text = this._updateIni(rawText, updates);
+            // a file without config_version is replaced by the firmware's defaults at boot
+            if (!/^\s*config_version\s*=/m.test(text)) text = 'config_version = 3\n' + text;
+            return text;
         };
 
-        const finishSave = (ok) => {
+        const finishSave = async (ok) => {
+            if (ok && !isWasm && hwPassToSave) {
+                const link = (this.target && this.target.link) || window.activeLink;
+                const newPassword = !this.lockedHwPassword;
+                try { localStorage.setItem('minischeme_http_password', hwPassToSave); } catch (_) {}
+                if (link) link.password = hwPassToSave;
+                if (newPassword && link && link.kind === 'http' && typeof link._json === 'function') {
+                    // firmware since 2026-10-19 guards the API from this request on
+                    try {
+                        await link._json('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'text/plain' },
+                            body: new URLSearchParams({ 'http.http_password': hwPassToSave }).toString()
+                        }, 8000);
+                    } catch (e) {
+                        this.log('info', `⚙️ 密码已写入 config.ini，重启设备后生效 (${e.message || e})`);
+                    }
+                }
+            }
             if (ok) {
                 this.lockedHwPassword = hwPassToSave;
                 if (this.el.sysSaveStatus) {
