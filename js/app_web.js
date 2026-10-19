@@ -130,9 +130,6 @@ class AppWebPanel {
                                     <input type="text" id="aw-sys-conv-url" placeholder="http://127.0.0.1:8087">
                                 </label>
                             </div>
-                            <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
-                                💡 本地模拟设备仅允许使用本地代理 (127.0.0.1 / localhost / 局域网 IP)，避免对外部服务器造成压力。
-                            </div>
                             <div style="margin-top: 10px;">
                                 <label>硬件密码 (hardware_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
                                     <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
