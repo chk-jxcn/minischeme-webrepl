@@ -238,6 +238,20 @@ class DeviceSetupWizard {
     }
 
     /**
+     * A server address from config.ini: the firmware keeps the device's key
+     * for that server in the same value, "<64 hex digits>@http://host:port".
+     */
+    static splitKeyedUrl(value) {
+        const m = String(value || '').trim().match(/^\[?([0-9a-fA-F]{64})\]?@(.*)$/);
+        return m ? { key: m[1], url: m[2].trim() } : { key: '', url: String(value || '').trim() };
+    }
+
+    static urlOrigin(url) {
+        const m = String(url || '').trim().match(/^([a-z][a-z0-9+.-]*:\/\/[^\/?#]*)/i);
+        return m ? m[1].toLowerCase() : '';
+    }
+
+    /**
      * Check if a config.ini text represents an unconfigured device (no WiFi SSID set).
      */
     static isConfigUnconfigured(iniText) {
@@ -311,7 +325,7 @@ class DeviceSetupWizard {
                             <input type="text" id="ds-hw-password" placeholder="设置硬件密码 (已设置后将明文显示且不可修改)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
                         </div>
                         <div id="ds-hw-password-hint" style="font-size: 11px; color: #eab308; margin-left: 130px;">
-                            ⚠️ 提示：硬件密码用于加密通道的设备注册（派生设备 hash 密钥），同时也是设备网页和 HTTP API 的访问密码；一旦设置将以明文显示且禁止修改。
+                            ⚠️ 提示：固件连接服务器时用硬件密码在本地算出 hash 密钥并自动注册加密通道（密码不发给服务器）；它同时也是设备网页和 HTTP API 的访问密码；一旦设置将以明文显示且禁止修改。
                         </div>
                     </div>
                 </div>
@@ -457,7 +471,7 @@ class DeviceSetupWizard {
             this.el.hwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
             if (this.el.hwPassHint) {
                 this.el.hwPassHint.style.color = '#eab308';
-                this.el.hwPassHint.textContent = '⚠️ 必填项：硬件密码用于加密通道的设备注册，同时也是设备网页和 HTTP API 的访问密码（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
+                this.el.hwPassHint.textContent = '⚠️ 必填项：固件用硬件密码自动注册加密通道（密码不发给服务器），它同时也是设备网页和 HTTP API 的访问密码（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
             }
         }
     }
@@ -756,7 +770,7 @@ class DeviceSetupWizard {
         else if (kv['wifi.wifi_password'] !== undefined) this.el.wifiPass.value = kv['wifi.wifi_password'];
 
         if (kv['server.proxy_url'] !== undefined) {
-            let pUrl = kv['server.proxy_url'];
+            let pUrl = DeviceSetupWizard.splitKeyedUrl(kv['server.proxy_url']).url;
             if (this._isSimulator() && (pUrl === 'http://proxy.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(pUrl))) {
                 pUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
             } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl() && (!pUrl || pUrl === 'http://proxy.local:8087')) {
@@ -768,7 +782,7 @@ class DeviceSetupWizard {
         }
 
         if (kv['server.converter_url'] !== undefined) {
-            let cUrl = kv['server.converter_url'];
+            let cUrl = DeviceSetupWizard.splitKeyedUrl(kv['server.converter_url']).url;
             if (this._isSimulator() && (cUrl === 'http://converter.local:8087' || !DeviceSetupWizard.isLocalProxyUrl(cUrl))) {
                 cUrl = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
             } else if (!this._isSimulator() && DeviceSetupWizard.isPublicWebRepl() && (!cUrl || cUrl === 'http://converter.local:8087')) {
@@ -835,52 +849,16 @@ class DeviceSetupWizard {
 
         this._status('正在写入配置到设备…');
         try {
-            let channelId = '';
-            let channelKey = '';
-            if (!isSim) {
-                const existingKv = DeviceSetupWizard.parseIniMap(this.existingIniText || '');
-                channelId = existingKv['channel.channel_id'] || '';
-                channelKey = existingKv['channel.channel_key'] || '';
-                if (!channelId && this.backend && typeof this.backend.info === 'function') {
-                    try {
-                        const devInfo = await this.backend.info();
-                        if (devInfo && devInfo.mac) channelId = String(devInfo.mac).trim();
-                    } catch (e) { /* ignore info error */ }
-                }
-                if (channelId && hwPass && conv) {
-                    try {
-                        const authUrl = `${conv.replace(/\/+$/, '')}/channel/auth`;
-                        const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-                        const timer = ctrl ? setTimeout(() => ctrl.abort(), 5000) : null;
-                        const resp = await fetch(authUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mac: channelId, hardware_password: hwPass }),
-                            signal: ctrl ? ctrl.signal : undefined
-                        });
-                        if (timer) clearTimeout(timer);
-                        if (resp.ok) {
-                            const data = await resp.json();
-                            if (data && data.master_key_2) {
-                                channelKey = data.master_key_2;
-                                this.log('info', `🔐 已完成加密通道密钥协商 (ID: ${channelId})`);
-                            }
-                        }
-                    } catch (e) {
-                        /* Keep existing channelKey if server is unreachable */
-                    }
-                }
-            }
-
-            // Generate full valid config.ini with version = 3, matching firmware specification
+            // Only the server addresses and the hardware password: the firmware
+            // registers with each server by itself (its MAC as the id, a hash
+            // of the password; the password is never sent) and keeps the key
+            // it gets next to the address
             const configContent = this.buildConfigIni({
                 wifiSsid: ssid,
                 wifiPassword: pass,
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
-                channelId,
-                channelKey,
                 bootApp: this.existingBootApp || 'settings',
                 isSimulator: isSim,
                 existingIni: this.existingIniText || '',
@@ -925,8 +903,6 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
-            channelId = '',
-            channelKey = '',
             bootApp = 'settings',
             existingIni = ''
         } = opts;
@@ -938,8 +914,6 @@ class DeviceSetupWizard {
         const effectiveSsid = isSim ? '' : wifiSsid;
         const effectivePass = isSim ? '' : wifiPassword;
         const effectiveHwPass = isSim ? '' : hwPassword;
-        const effectiveChanId = isSim ? '' : channelId;
-        const effectiveChanKey = isSim ? '' : channelKey;
 
         // If existing INI text is provided and non-empty, merge into it
         if (existingIni && existingIni.trim().length > 0) {
@@ -996,35 +970,26 @@ class DeviceSetupWizard {
             if (effectiveHwPass) {
                 setSectionKey('http', 'http_password', effectiveHwPass);
             }
-            setSectionKey('server', 'proxy_url', proxyUrl);
-            setSectionKey('server', 'converter_url', converterUrl);
+            // an address that names the same server keeps the device's key for it
+            const oldKv = DeviceSetupWizard.parseIniMap(existingIni);
+            const keepKey = (sectionKey, url) => {
+                const old = DeviceSetupWizard.splitKeyedUrl(oldKv[sectionKey]);
+                return old.key && url && DeviceSetupWizard.urlOrigin(old.url) === DeviceSetupWizard.urlOrigin(url)
+                    ? `${old.key}@${url}` : url;
+            };
+            setSectionKey('server', 'proxy_url', keepKey('server.proxy_url', proxyUrl));
+            setSectionKey('server', 'converter_url', keepKey('server.converter_url', converterUrl));
             if (effectiveHwPass) {
                 setSectionKey('server', 'hardware_password', effectiveHwPass);
             }
 
-            setSectionKey('app', 'proxy', proxyUrl);
-            setSectionKey('app', 'https_proxy', converterUrl);
-            setSectionKey('channel', 'channel_server', converterUrl);
-            if (effectiveChanId) {
-                setSectionKey('channel', 'channel_id', effectiveChanId);
-            }
-            if (effectiveChanKey) {
-                setSectionKey('channel', 'channel_key', effectiveChanKey);
-            }
-            setSectionKey('channel', 'proxy_via_channel', '1');
+            setSectionKey('app', 'proxy', keepKey('app.proxy', proxyUrl));
+            setSectionKey('app', 'https_proxy', keepKey('app.https_proxy', converterUrl));
 
             setSectionKey('system', 'boot_app', bootApp || 'settings');
 
             return lines.join('\n');
         }
-
-        const chanLines = [
-            '[channel]',
-            `channel_server = ${converterUrl}`,
-        ];
-        if (effectiveChanId) chanLines.push(`channel_id = ${effectiveChanId}`);
-        if (effectiveChanKey) chanLines.push(`channel_key = ${effectiveChanKey}`);
-        chanLines.push('proxy_via_channel = 1', 'market_via_channel = 0');
 
         return [
             '; Device configuration (read at boot)',
@@ -1060,8 +1025,6 @@ class DeviceSetupWizard {
             `https_proxy = ${converterUrl}`,
             'carousel = 1',
             'carousel_seconds = 10',
-            '',
-            ...chanLines,
             '',
             '[display]',
             'mode = band',
