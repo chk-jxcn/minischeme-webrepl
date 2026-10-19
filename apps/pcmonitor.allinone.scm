@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 3
 ;;; id = pcmonitor
 ;;; name = PC 性能监控
 ;;; description = LibreHardwareMonitor 的 CPU、温度、GPU、风扇曲线，按键切换链路和硬件页

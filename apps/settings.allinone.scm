@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 4
 ;;; id = settings
 ;;; name = 系统设置
 ;;; description = 设置模式（热点配网网页）、选择启动应用、网络/硬件/存储信息

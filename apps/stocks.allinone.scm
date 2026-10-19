@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 4
 ;;; id = stocks
 ;;; name = 股票行情
 ;;; description = 大盘指数与分时走势、自选股报价、三大指数分时、自选股30日走势
@@ -1111,10 +1112,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))
@@ -1352,10 +1351,10 @@
 ;; Pages -----------------------------------------------------------------------------------------
 
 (app-define! "股票行情"
-  (list (app-page "首页" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-home)
-        (app-page "自选股" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-list)
-        (app-page "指数分时" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-trends)
-        (app-page "30日走势" (lambda () (stocks-all-url)) STOCKS-KLINE-INTERVAL stocks-render-kline)))
+  (list (app-page "首页" (stocks-url "home") STOCKS-INTERVAL stocks-render-home)
+        (app-page "自选股" (stocks-url "list") STOCKS-INTERVAL stocks-render-list)
+        (app-page "指数分时" (stocks-url "trend") STOCKS-INTERVAL stocks-render-trends)
+        (app-page "30日走势" (stocks-url "kline") STOCKS-KLINE-INTERVAL stocks-render-kline)))
 
 (set! app-subtitle-proc
       (lambda (items) (let ((m (items-find items "meta"))) (if m (it-a m) #f))))

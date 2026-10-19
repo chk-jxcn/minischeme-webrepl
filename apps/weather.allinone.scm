@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 5
 ;;; id = weather
 ;;; name = 天气预报
 ;;; description = 当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数
@@ -1117,10 +1118,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))

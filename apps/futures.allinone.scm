@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 3
 ;;; id = futures
 ;;; name = 期货行情
 ;;; description = 国内期货主力合约报价、单个合约分时、30日走势（新浪行情）
@@ -1111,10 +1112,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))

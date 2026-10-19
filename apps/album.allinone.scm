@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 1
 ;;; id = album
 ;;; name = 电子相册
 ;;; description = 全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理
@@ -1116,10 +1117,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))

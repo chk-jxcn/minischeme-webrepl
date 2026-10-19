@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 4
 ;;; id = usage
 ;;; name = Token 用量
 ;;; description = Claude Code、Gemini CLI、Codex 在本机的5小时与7天 token 用量、额度、按小时/天趋势和模型分布
@@ -1115,10 +1116,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))
