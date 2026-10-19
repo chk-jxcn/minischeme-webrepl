@@ -77,6 +77,7 @@ static MiniVM *create_device_vm(void) {
     cfg.stack_size         = DEV_STACK_SLOTS;
     cfg.frame_capacity     = DEV_FRAMES;
     cfg.skip_init_fasl     = true;
+    cfg.enable_stack_trace = true;
     MiniVM *vm = mini_create_ext(&cfg);
     if (!vm) return NULL;
     register_device_prims(vm);
@@ -1465,6 +1466,17 @@ int wasm_get_display_mode(void) {
     return g_display_mode;
 }
 
+__attribute__((visibility("default")))
+void wasm_set_stack_trace(int enabled) {
+    if (g_dev) mini_set_stack_trace_enabled(g_dev, enabled != 0);
+    if (g_vm) mini_set_stack_trace_enabled(g_vm, enabled != 0);
+}
+
+__attribute__((visibility("default")))
+int wasm_get_stack_trace(void) {
+    return g_dev ? (mini_is_stack_trace_enabled(g_dev) ? 1 : 0) : 1;
+}
+
 /* ========================================================================= */
 /* Lifecycle                                                                 */
 /* ========================================================================= */
@@ -1481,6 +1493,7 @@ int wasm_init(void) {
     cfg.stack_size         = 65536;
     cfg.frame_capacity     = 4096;
     cfg.skip_init_fasl     = true;
+    cfg.enable_stack_trace = true;
     g_vm = mini_create_ext(&cfg);
     if (!g_vm) return -1;
     use_compiler();
