@@ -524,6 +524,7 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn('id="sim-wifi-toggle"', body, "WASM WiFi toggle switch missing in index.html")
         self.assertIn('id="btn-app-web"', body, "Device Web button missing in index.html")
         self.assertIn('data-code="(light-read)"', body, "☀️ 读取光感 button missing in index.html")
+        self.assertIn('data-code="(backlight-get)"', body, "🔆 读取亮度 button missing in index.html")
 
         # Verify app_web.js contains all 5 tabs and config handlers via both clean /js/ and legacy / URL
         for url in ("/js/app_web.js", "/app_web.js"):
