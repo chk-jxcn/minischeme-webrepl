@@ -48,6 +48,15 @@ body {
 }
 
 .logo-area h1 { font-size: 18px; font-weight: 600; }
+.github-link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 2px;
+    transition: color 0.15s ease;
+}
+.github-link:hover, .github-link:focus-visible { color: var(--text-primary); }
 .arch-badge {
     background-color: rgba(59, 130, 246, 0.15);
     color: var(--accent-cyan);
