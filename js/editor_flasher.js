@@ -906,12 +906,29 @@ const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
 ;;; proxy_url = 
 ;;; converter_url = 
 
-;; 简单的信息看板页面 (页数由应用在运行时自主决定)
-(gui-frame "MiniScheme IDE"
-  (gui-vbox
-    (gui-text "Hello, MiniScheme!" 24 'bold)
-    (gui-text "毫秒级 WASM 预编译，零显存条带渲染" 16 'normal)
-    (gui-text (string-append "开机运行时间: " (number->string (millis)) " ms") 14 'dim)))
+;; 最小应用：固件需要重绘时调用 gui-render-proc；app-tick 每秒调用一次。
+;; 状态变化后用 gui-invalidate 标出要重绘的区域 (x y w h)。
+(define seconds 0)
+(define clock "--:--")
+
+(define (render)
+  (let ((w (gui-width)) (h (gui-height)))
+    (gui-rect 0 0 w h (gui-rgb 16 24 40) #t)
+    (gui-rect 0 0 w 48 (gui-rgb 30 60 110) #t)
+    (gui-text 16 16 "Hello, MiniScheme!" (gui-rgb 255 255 255))
+    (gui-text 16 72 "毫秒级 WASM 预编译，零显存条带渲染" (gui-rgb 150 200 255))
+    (gui-text 16 112 (string-append "时间: " clock) (gui-rgb 230 230 230))
+    (gui-text 16 144 (string-append "已运行 " (number->string seconds) " 秒") (gui-rgb 180 180 180))))
+
+(define gui-render-proc render)
+
+;; hm 为 "20:29" 这样的时间 (未对时为 "--:--")
+(define (app-tick hm sec week date lux backlight tick lunar)
+  (set! seconds (+ seconds 1))
+  (set! clock (string-append hm sec))
+  (gui-invalidate 0 104 (gui-width) 64))
+
+(gui-invalidate 0 0 (gui-width) (gui-height))
 `;
 
 class SchemeIdeModal {
@@ -1318,15 +1335,22 @@ class SchemeIdeModal {
     runLocal() {
         if (!this.compile()) return;
         const bytes = this.lastCompiled.combinedBytes;
-        if (typeof bootAppOnWasmDevice === 'function') {
-            bootAppOnWasmDevice(bytes);
-        } else if (typeof execBytesOnWasmDevice === 'function') {
-            execBytesOnWasmDevice(bytes);
+        const statusEl = document.getElementById('editor-build-status');
+        // boot it as the device boots an app (hooks, timers), and show what went wrong
+        let result = '';
+        if (typeof startAppOnWasmDevice === 'function') {
+            result = startAppOnWasmDevice(bytes) || '';
+        } else if (typeof bootAppOnWasmDevice === 'function') {
+            result = bootAppOnWasmDevice(bytes) || '';
         } else {
             alert('WASM 虚拟机执行器未就绪');
             return;
         }
-        const statusEl = document.getElementById('editor-build-status');
+        if (/^Error/i.test(result)) {
+            if (statusEl) statusEl.innerHTML = `<span style="color:#f87171;">❌ 运行出错: ${escapeHtml(result)}</span>`;
+            if (typeof appendTerminalLine === 'function') appendTerminalLine('error', `💻 本地模拟运行出错: ${result}`);
+            return;
+        }
         if (statusEl) {
             statusEl.innerHTML = `<span style="color:#38bdf8;">💻 正在右侧 3.5寸 仿真屏幕上运行: ${this._getMetaFromInputs().name}</span>`;
         }

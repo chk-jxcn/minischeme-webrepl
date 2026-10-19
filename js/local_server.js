@@ -537,8 +537,10 @@ class LocalServerManager {
                 const cleanPort = savedPort || '8087';
                 candidates.push(`http://${cleanHost}:${cleanPort}`);
             } else {
-                if (window.location.protocol.startsWith('http')) {
-                    candidates.push(''); // Same origin first
+                // same origin first, unless this is the published WebREPL (GitHub Pages has no /health)
+                const publicPage = window.DeviceSetupWizard && window.DeviceSetupWizard.isPublicWebRepl();
+                if (window.location.protocol.startsWith('http') && !publicPage) {
+                    candidates.push('');
                 }
 
                 for (const p of [8087, 8088, 8089, 8090, 8091, 8080]) {

@@ -531,7 +531,9 @@ class DeviceSetupWizard {
         const currentProxy = (this.el.proxyUrl ? this.el.proxyUrl.value : '').trim();
 
         let info = (window.LocalServerManager && window.LocalServerManager.info) ? window.LocalServerManager.info : null;
-        if (!info) {
+        // only a page served by the local server has /api/server_info at its own origin
+        // (GitHub Pages answers 404, which the browser logs as an error)
+        if (!info && !DeviceSetupWizard.isPublicWebRepl()) {
             try {
                 const res = await fetch('/api/server_info', { cache: 'no-store' });
                 if (res.ok) {
