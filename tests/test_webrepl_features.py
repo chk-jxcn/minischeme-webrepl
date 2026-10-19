@@ -61,6 +61,11 @@ def find_free_port():
         return s.getsockname()[1]
 
 
+# the test server's admin password (an admin password is always required
+# except on a local server without one, for this machine's own browser)
+TEST_ADMIN_PASSWORD = "webrepl-test-admin"
+
+
 class WebReplServerFixture:
     def __init__(self, port, with_proxy=False):
         self.port = port
@@ -72,7 +77,7 @@ class WebReplServerFixture:
         if self.with_proxy:
             cmd.extend(["--with-proxy", "--proxy-port", str(self.port + 1)])
         env = dict(os.environ)
-        env["MINISCHEME_ADMIN_PASSWORD"] = "admin"
+        env["MINISCHEME_ADMIN_PASSWORD"] = TEST_ADMIN_PASSWORD
         self.proc = subprocess.Popen(
             cmd,
             cwd=ROOT_DIR,
@@ -649,7 +654,7 @@ class TestWebReplFeatures(unittest.TestCase):
 
         req_ok = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/admin/login",
-            data=json.dumps({"password": "admin"}).encode("utf-8"),
+            data=json.dumps({"password": TEST_ADMIN_PASSWORD}).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
         with urllib.request.urlopen(req_ok, timeout=3) as res_ok:
@@ -831,12 +836,24 @@ class TestWebReplFeatures(unittest.TestCase):
             except Exception:
                 proc.kill()
 
-        # 6. Verify local server allows passwordless admin auto-login
+        # 6. A local server without an admin password lets this machine in
+        #    without one; with [security] admin_password set, the password is needed
+        local_pwd = TEST_ADMIN_PASSWORD
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/admin/status", timeout=2) as res:
             self.assertEqual(res.status, 200)
             local_st = json.loads(res.read().decode("utf-8"))
+        if local_pwd:
+            self.assertTrue(local_st.get("auth_required"))
+            self.assertNotIn("token", local_st)
+            req_login = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/api/admin/login",
+                data=json.dumps({"password": local_pwd}).encode("utf-8"),
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req_login, timeout=30) as res:
+                local_st["token"] = json.loads(res.read().decode("utf-8")).get("token")
+        else:
             self.assertFalse(local_st.get("auth_required"))
-            self.assertTrue(bool(local_st.get("token")))
+        self.assertTrue(bool(local_st.get("token")))
 
         # 7. Simulator registration and passwordless login on local server
         test_sim_uuid = "SIM-9A8B-7C6D"
@@ -915,13 +932,14 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("仅支持非加密协议", setup_js)
 
     def test_17_cors_preflight_and_device_link_auth(self):
-        """Verify server CORS preflight headers and HttpDeviceLink CORS-simple auth handling"""
+        """Verify the server's CORS allow-list and the device link's header auth"""
         conn = http.client.HTTPConnection("127.0.0.1", self.port)
-        conn.request("OPTIONS", "/api/info")
+        conn.request("OPTIONS", "/api/info", headers={"Origin": "https://chk-jxcn.github.io"})
         res = conn.getresponse()
         self.assertEqual(res.status, 204)
         headers = dict(res.getheaders())
-        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
+        # the WebREPL's own origin is named, never "*"
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), "https://chk-jxcn.github.io")
         self.assertEqual(headers.get("Access-Control-Allow-Private-Network"), "true")
         allow_headers = headers.get("Access-Control-Allow-Headers", "")
         self.assertIn("X-MiniScheme-Auth", allow_headers)
@@ -929,13 +947,20 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertIn("Authorization", allow_headers)
         conn.close()
 
+        # a page of another site gets no CORS answer
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("OPTIONS", "/api/info", headers={"Origin": "https://evil.example"})
+        res = conn.getresponse()
+        res.read()
+        self.assertIsNone(dict(res.getheaders()).get("Access-Control-Allow-Origin"))
+        conn.close()
+
         # Check js/device_link.js:
         link_js_path = os.path.join(ROOT_DIR, "js", "device_link.js")
         with open(link_js_path, "r", encoding="utf-8") as f:
             link_js = f.read()
-        # Verify auth is passed in query string and not as mandatory custom header
-        self.assertIn("path + sep + 'auth='", link_js)
-        self.assertNotIn("headers['X-MiniScheme-Auth'] = pwd", link_js)
+        # the password travels in the X-MiniScheme-Auth header (?auth= only for non-Latin-1 passwords)
+        self.assertIn("headers['X-MiniScheme-Auth'] = pwd", link_js)
         self.assertIn("Mixed-Content or CORS", link_js)
         self.assertIn("origin not allowed", link_js)
 

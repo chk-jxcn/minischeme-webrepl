@@ -58,6 +58,9 @@ def main():
         "--hidden-import", "proxy.cache",
         "--hidden-import", "proxy.user_portal",
         "--hidden-import", "proxy.admin_portal",
+        "--hidden-import", "proxy.channel",
+        "--hidden-import", "proxy.security",
+        "--hidden-import", "proxy.hwkey_js",
         "--hidden-import", "make_font",
         "server.py",
     ])

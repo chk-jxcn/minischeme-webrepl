@@ -91,11 +91,11 @@
             statusDiv.innerText = "WASM VM Ready. Configuring system and testing apps...";
 
             // Setup system config with proxy and previous token
-            const sysCfg = `[system]\\nproxy_url = http://127.0.0.1:8087\\nconverter_url = http://127.0.0.1:8087\\n\\n[weather]\\nqweather_token = f303e9850b6a4a368d7d76f9d27589e3\\nqweather_host = nb7jpkge2v.re.qweatherapi.com\\nlocation = Shanghai\\n`;
+            const sysCfg = `[system]\\nproxy_url = http://127.0.0.1:8087\\nconverter_url = http://127.0.0.1:8087\\n\\n[weather]\\nqweather_token = \\nqweather_host = \\nlocation = Shanghai\\n`;
             evalScheme(`(config-set! "proxy_url" "http://127.0.0.1:8087")`);
             evalScheme(`(config-set! "converter_url" "http://127.0.0.1:8087")`);
-            evalScheme(`(config-set! "qweather_token" "f303e9850b6a4a368d7d76f9d27589e3")`);
-            evalScheme(`(config-set! "qweather_host" "nb7jpkge2v.re.qweatherapi.com")`);
+            evalScheme(`(config-set! "qweather_token" "")`);
+            evalScheme(`(config-set! "qweather_host" "")`);
 
             const testResults = [];
 
@@ -112,8 +112,8 @@
                     // Apply config settings
                     evalScheme(`(config-set! "proxy_url" "http://127.0.0.1:8087")`);
                     evalScheme(`(config-set! "converter_url" "http://127.0.0.1:8087")`);
-                    evalScheme(`(config-set! "qweather_token" "f303e9850b6a4a368d7d76f9d27589e3")`);
-                    evalScheme(`(config-set! "qweather_host" "nb7jpkge2v.re.qweatherapi.com")`);
+                    evalScheme(`(config-set! "qweather_token" "")`);
+                    evalScheme(`(config-set! "qweather_host" "")`);
                     evalScheme(`(config-set! "location" "Shanghai")`);
 
                     const resp = await fetch(msbcUrl);
