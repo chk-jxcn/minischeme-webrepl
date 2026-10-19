@@ -752,22 +752,28 @@
 
 ;; type: the "t" text ("day"); items hold it as a symbol
 (define (items-find items type)
-  (let ((sym (string->symbol type)))
-    (let loop ((xs items))
-      (cond ((null? xs) #f)
-            ((eq? (it-t (car xs)) sym) (car xs))
-            (else (loop (cdr xs)))))))
+  (if (not (pair? items))
+      #f
+      (let ((sym (string->symbol type)))
+        (let loop ((xs items))
+          (cond ((not (pair? xs)) #f)
+                ((eq? (it-t (car xs)) sym) (car xs))
+                (else (loop (cdr xs))))))))
 
 (define (items-all items type)
-  (let ((sym (string->symbol type)))
-    (filter (lambda (it) (eq? (it-t it) sym)) items)))
+  (if (not (pair? items))
+      '()
+      (let ((sym (string->symbol type)))
+        (filter (lambda (it) (eq? (it-t it) sym)) items))))
 
 (define (items-where items type k value)   ; first of a type whose field k is value
-  (let ((sym (string->symbol type)))
-    (let loop ((xs items))
-      (cond ((null? xs) #f)
-            ((and (eq? (it-t (car xs)) sym) (equal? (vector-ref (car xs) k) value)) (car xs))
-            (else (loop (cdr xs)))))))
+  (if (not (pair? items))
+      #f
+      (let ((sym (string->symbol type)))
+        (let loop ((xs items))
+          (cond ((not (pair? xs)) #f)
+                ((and (eq? (it-t (car xs)) sym) (equal? (vector-ref (car xs) k) value)) (car xs))
+                (else (loop (cdr xs))))))))
 
 ;; 4. Charts ---------------------------------------------------------------------------
 
@@ -970,7 +976,7 @@
                           (str-contains? (it-b loc) "演示")))))))
 
 (define (app-header-title items)
-  (let ((t-it (items-find items "title")))
+  (let ((t-it (if (pair? items) (items-find items "title") #f)))
     (cond
       ((and t-it (not (str-empty? (it-a t-it))))
        (it-a t-it))
@@ -1004,9 +1010,9 @@
          (badge (- w 8 tw 8 iw))
          ;; the carousel's countdown sits left of the page number (of the clock on page 1)
          (bar-r (- badge (if ind 6 0)))
-         (right (if app-carousel (- bar-r (carousel-bar-w (app-page-seconds app-page-index)) 6) badge)))
+         (right (if (pair? app-carousel) (- bar-r (carousel-bar-w (app-page-seconds app-page-index)) 6) badge)))
     (gui-rect 0 0 w HDR-H theme-card-hdr #t)
-    (if app-carousel (app-render-countdown bar-r))
+    (if (pair? app-carousel) (app-render-countdown bar-r))
     (txt-right (- w 8) 8 app-time theme-text-main)
     (if ind
         (begin
@@ -1088,10 +1094,13 @@
       #f))
 
 (define (app-page-seconds i)
-  (if (< i (length app-carousel)) (list-ref app-carousel i) (list-ref app-carousel (- (length app-carousel) 1))))
+  (cond
+    ((or (not (pair? app-carousel)) (null? app-carousel)) 10)
+    ((< i (length app-carousel)) (list-ref app-carousel i))
+    (else (list-ref app-carousel (- (length app-carousel) 1)))))
 
 (define (app-carousel-reset!)
-  (if app-carousel (set! app-carousel-left (app-page-seconds app-page-index))))
+  (if (pair? app-carousel) (set! app-carousel-left (app-page-seconds app-page-index))))
 
 (define (app-define! title pages)
   (set! app-title title)
