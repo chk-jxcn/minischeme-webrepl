@@ -1416,10 +1416,18 @@ int wasm_service_display(void) {
     int errors = mini_gui_service(g_dev, &rows); /* every mode, like the firmware */
     if (!errors) {
         mini_device_app_render_ok();
-    } else if (!g_settings_mode && mini_device_app_error("render", mini_gui_band_last_error(), (uint32_t)js_now_ms())) {
-        char why[160];
-        snprintf(why, sizeof(why), "%s", mini_device_app_crash_reason());
-        wasm_app_failed("crash", why);
+    } else {
+        const char *detail = mini_gui_band_last_error_detail();
+        if (detail && detail[0]) {
+            js_print("[Render Error Detail]\n", 23);
+            js_print(detail, (int)strlen(detail));
+            js_print("\n", 1);
+        }
+        if (!g_settings_mode && mini_device_app_error("render", mini_gui_band_last_error(), (uint32_t)js_now_ms())) {
+            char why[160];
+            snprintf(why, sizeof(why), "%s", mini_device_app_crash_reason());
+            wasm_app_failed("crash", why);
+        }
     }
     return errors ? -1 : rows;
 }
@@ -1427,6 +1435,11 @@ int wasm_service_display(void) {
 __attribute__((visibility("default")))
 const char *wasm_get_band_error(void) {
     return mini_gui_band_last_error();
+}
+
+__attribute__((visibility("default")))
+const char *wasm_get_band_error_detail(void) {
+    return mini_gui_band_last_error_detail();
 }
 
 static void request_full_redraw(void) {

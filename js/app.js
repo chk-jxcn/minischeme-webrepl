@@ -341,14 +341,38 @@ function pumpDisplay() {
     if (r > 0) wasmFrames++;
     if (r < 0) {
         const err = readStringFromWasm(wasmInstance.exports.wasm_get_band_error());
+        let detail = '';
+        if (wasmInstance.exports.wasm_get_band_error_detail) {
+            detail = readStringFromWasm(wasmInstance.exports.wasm_get_band_error_detail());
+        }
         if (err && err !== lastBandError) {
             lastBandError = err;
             appendTerminalLine('error', `渲染错误 (与硬件一致): ${err}`);
+            if (detail) {
+                console.error('[WASM Render Error Detail]:\n' + detail);
+                appendTerminalLine('error', `[调试调用栈追踪]:\n${detail}`);
+                appendTerminalLine('info', '💡 提示: 若模拟文件系统缓存了旧版应用，可在控制台输入 resetSimulatorApp() 重置开机应用');
+            }
         }
     }
     renderVfbToCanvas();
     syncHardwareTelemetry();
 }
+
+async function resetSimulatorApp() {
+    try {
+        if (wasmInstance && wasmInstance.exports.wasm_fs_remove) {
+            const ptr = passStringToWasm('/spiffs/app.msbc');
+            wasmInstance.exports.wasm_fs_remove(ptr);
+            wasmInstance.exports.wasm_free_buffer(ptr);
+        }
+        appendTerminalLine('info', '已重置模拟器开机应用缓存，正在重新载入默认万年历...');
+        await bootBundledApp('重置应用缓存: ', 'calendar');
+    } catch (e) {
+        appendTerminalLine('error', `重置应用失败: ${e.message || e}`);
+    }
+}
+window.resetSimulatorApp = resetSimulatorApp;
 
 function finishLocalResult(resStr, t0, t1) {
     const wasmTimeUs = Math.round((t1 - t0) * 1000);
