@@ -51,7 +51,7 @@ python server.py                  # http://127.0.0.1:8087, app proxy included
 python -m pytest tests            # integration tests (starts its own server)
 ```
 
-The local server's admin portal (`/admin`) uses `config.ini [security] admin_password`; without one only this machine's own browser gets in. Its CORS answers go only to the published WebREPL and pages on this network, and it never serves its own files (`config.ini`, the database, sources).
+The local server's admin portal (`/admin`) uses `config.ini [security] admin_password` (read again at every login); without one the password is `admin`, and the portal says so and offers to change it (the new one is written into config.ini). The tray menu opens config.ini ("打开配置文件"). The proxy-only deployment (the public server) has no default. Its CORS answers go only to the published WebREPL and pages on this network, and it never serves its own files (`config.ini`, the database, sources).
 
 ## Project structure
 

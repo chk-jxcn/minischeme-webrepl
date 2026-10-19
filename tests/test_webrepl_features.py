@@ -61,8 +61,8 @@ def find_free_port():
         return s.getsockname()[1]
 
 
-# the test server's admin password (an admin password is always required
-# except on a local server without one, for this machine's own browser)
+# the test server's admin password (from the environment: it comes before
+# config.ini and the local default "admin")
 TEST_ADMIN_PASSWORD = "webrepl-test-admin"
 
 
