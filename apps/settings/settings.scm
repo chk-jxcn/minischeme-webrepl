@@ -321,9 +321,9 @@
     (row 148 "设备名称" (or (cfg "device_name") "-"))
     (row 172 "配置网页" (if (wifi-connected?) (string-append "http://" (wifi-ip) "/") "-"))
     (row 196 "热点" (if (ref st 'ap) (string-append (show (ref st 'ap-ssid)) "  " (show (ref st 'ap-ip))) "未开启"))
-    (row 220 "应用代理" (or (cfg "proxy") "-"))
+    (row 220 "应用代理" (or (cfg "proxy_url") (cfg "proxy") "-"))
     (row 244 "时间同步" (if (ref info 'time 'ntp-synced) "已同步 (NTP)" "未同步"))
-    (row 268 "配置 WiFi" (or (cfg "wifi_ssid") "-"))))
+    (row 268 "配置 WiFi" (or (cfg "ssid") (cfg "wifi_ssid") "-"))))
 
 (define (render-hardware)
   (let ((info (system-info)) (app (last-app-stats)))

@@ -24,8 +24,8 @@
 ;;; symbols = BTC,ETH,SOL,BNB,XRP,DOGE,ADA ; coins against USDT, comma separated
 ;;; chart = BTC ; the coin of the 24 h page
 ;;; fiat = usd ; usd (USDT) or cny
-;;; carousel = 1 ; 1: turn the pages by themselves
-;;; carousel_seconds = 10 ; seconds per page, or one per page
+;;; carousel = ; empty: config.ini [app] carousel (1: turn the pages by themselves, 0: manual)
+;;; carousel_seconds = ; empty: config.ini [app] carousel_seconds (seconds per page, or one per page)
 ;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
 ;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
@@ -949,7 +949,11 @@
           (set! app-error #f)
           (app-cache-put! (json-feed-url) items)
           (if app-data-proc (app-data-proc items))
-          (app-prefetch-next!)))
+          ;; every page cached: the firmware's one stream goes back to the
+          ;; page on screen, so it keeps refreshing (not the last prefetched one)
+          (if (and (not (app-prefetch-next!))
+                   (not (equal? (json-feed-url) (vector-ref app-urls app-page-index))))
+              (app-start-feed!))))
     (app-invalidate-all)))
 
 ;; 7. Drawing --------------------------------------------------------------------------------
@@ -1059,7 +1063,8 @@
 (define (app-render-waiting)
   (let ((cx (quotient (scr-w) 2)) (y (- (quotient (gui-height) 2) 60)))
     (txt-center cx y "正在获取数据..." theme-text-sub)
-    (gui-text-wrap 16 (+ y 34) (- (scr-w) 32) 60 app-feed-url theme-text-muted F-TEXT LINE-H)
+    ;; the address without its query: a token there would show on the screen and mirror
+    (gui-text-wrap 16 (+ y 34) (- (scr-w) 32) 60 (car (str-split app-feed-url #\?)) theme-text-muted F-TEXT LINE-H)
     (if (or app-error (eq? (app-status 'state) 'error))
         (txt-wrap 16 (+ y 100) (- (scr-w) 32) 80
                   "请在电脑上运行 tools/app_proxy.py，并在 config.ini [app] proxy 中填写它的地址"

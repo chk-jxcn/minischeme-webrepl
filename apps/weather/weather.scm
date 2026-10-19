@@ -14,7 +14,6 @@
                  (if (string=? t "") (app-config "qweather_key" "") t))))
     (app-url (string-append "/app/weather?loc=" (url-encode (app-config "location" "auto"))
                             "&token=" (url-encode token)
-                            "&key=" (url-encode token)
                             "&host=" (url-encode (app-config "qweather_host" ""))))))
 
 (define (weather-update-interval-ms)
@@ -380,9 +379,8 @@
               (if (member cur-hm weather-refresh-times)
                   (begin
                     (set! weather-last-refresh-hm app-time)
-                    (set! app-cache
-                          (let ((url (weather-url)))
-                            (filter (lambda (e) (not (equal? (vector-ref e 0) url))) app-cache)))
+                    ;; refetch now; the cached forecast stays on screen until the
+                    ;; new one arrives (and when the request fails)
                     (app-start-feed!)
                     (app-invalidate-all)))))))
 

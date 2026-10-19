@@ -3,6 +3,7 @@
 ;;; All-in-One Standalone Scheme Source (Libraries Included for WebREPL)
 ;;; =========================================================================
 ;;; [app]
+;;; pages = 5
 ;;; id = weather
 ;;; name = 天气预报
 ;;; description = 当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数
@@ -27,8 +28,8 @@
 ;;; refresh_times = ; up to 4 scheduled refresh times in HH:MM format, comma-separated (e.g. 08:00,12:00,18:00,21:00)
 ;;; qweather_token = ; QWeather (和风天气) API token / key; individual per hardware, never stored on proxy
 ;;; qweather_host = ; QWeather API Host (console > settings); empty: default host or fallback
-;;; carousel = 0 ; 1: turn the pages by themselves
-;;; carousel_seconds = 10 ; seconds per page, or one per page: 15,10,10 (the last repeats)
+;;; carousel = ; empty: config.ini [app] carousel (1: turn the pages by themselves, 0: manual)
+;;; carousel_seconds = ; empty: config.ini [app] carousel_seconds (seconds per page, or one per page)
 ;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
 ;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
@@ -753,22 +754,28 @@
 
 ;; type: the "t" text ("day"); items hold it as a symbol
 (define (items-find items type)
-  (let ((sym (string->symbol type)))
-    (let loop ((xs items))
-      (cond ((null? xs) #f)
-            ((eq? (it-t (car xs)) sym) (car xs))
-            (else (loop (cdr xs)))))))
+  (if (not (pair? items))
+      #f
+      (let ((sym (string->symbol type)))
+        (let loop ((xs items))
+          (cond ((not (pair? xs)) #f)
+                ((eq? (it-t (car xs)) sym) (car xs))
+                (else (loop (cdr xs))))))))
 
 (define (items-all items type)
-  (let ((sym (string->symbol type)))
-    (filter (lambda (it) (eq? (it-t it) sym)) items)))
+  (if (not (pair? items))
+      '()
+      (let ((sym (string->symbol type)))
+        (filter (lambda (it) (eq? (it-t it) sym)) items))))
 
 (define (items-where items type k value)   ; first of a type whose field k is value
-  (let ((sym (string->symbol type)))
-    (let loop ((xs items))
-      (cond ((null? xs) #f)
-            ((and (eq? (it-t (car xs)) sym) (equal? (vector-ref (car xs) k) value)) (car xs))
-            (else (loop (cdr xs)))))))
+  (if (not (pair? items))
+      #f
+      (let ((sym (string->symbol type)))
+        (let loop ((xs items))
+          (cond ((not (pair? xs)) #f)
+                ((and (eq? (it-t (car xs)) sym) (equal? (vector-ref (car xs) k) value)) (car xs))
+                (else (loop (cdr xs))))))))
 
 ;; 4. Charts ---------------------------------------------------------------------------
 
@@ -946,7 +953,11 @@
           (set! app-error #f)
           (app-cache-put! (json-feed-url) items)
           (if app-data-proc (app-data-proc items))
-          (app-prefetch-next!)))
+          ;; every page cached: the firmware's one stream goes back to the
+          ;; page on screen, so it keeps refreshing (not the last prefetched one)
+          (if (and (not (app-prefetch-next!))
+                   (not (equal? (json-feed-url) (vector-ref app-urls app-page-index))))
+              (app-start-feed!))))
     (app-invalidate-all)))
 
 ;; 7. Drawing --------------------------------------------------------------------------------
@@ -971,7 +982,7 @@
                           (str-contains? (it-b loc) "演示")))))))
 
 (define (app-header-title items)
-  (let ((t-it (items-find items "title")))
+  (let ((t-it (if (pair? items) (items-find items "title") #f)))
     (cond
       ((and t-it (not (str-empty? (it-a t-it))))
        (it-a t-it))
@@ -1005,9 +1016,9 @@
          (badge (- w 8 tw 8 iw))
          ;; the carousel's countdown sits left of the page number (of the clock on page 1)
          (bar-r (- badge (if ind 6 0)))
-         (right (if app-carousel (- bar-r (carousel-bar-w (app-page-seconds app-page-index)) 6) badge)))
+         (right (if (pair? app-carousel) (- bar-r (carousel-bar-w (app-page-seconds app-page-index)) 6) badge)))
     (gui-rect 0 0 w HDR-H theme-card-hdr #t)
-    (if app-carousel (app-render-countdown bar-r))
+    (if (pair? app-carousel) (app-render-countdown bar-r))
     (txt-right (- w 8) 8 app-time theme-text-main)
     (if ind
         (begin
@@ -1056,7 +1067,8 @@
 (define (app-render-waiting)
   (let ((cx (quotient (scr-w) 2)) (y (- (quotient (gui-height) 2) 60)))
     (txt-center cx y "正在获取数据..." theme-text-sub)
-    (gui-text-wrap 16 (+ y 34) (- (scr-w) 32) 60 app-feed-url theme-text-muted F-TEXT LINE-H)
+    ;; the address without its query: a token there would show on the screen and mirror
+    (gui-text-wrap 16 (+ y 34) (- (scr-w) 32) 60 (car (str-split app-feed-url #\?)) theme-text-muted F-TEXT LINE-H)
     (if (or app-error (eq? (app-status 'state) 'error))
         (txt-wrap 16 (+ y 100) (- (scr-w) 32) 80
                   "请在电脑上运行 tools/app_proxy.py，并在 config.ini [app] proxy 中填写它的地址"
@@ -1083,16 +1095,19 @@
 
 ;; carousel = 1 in the app's ini (or config.ini [app]): seconds per page
 (define (app-carousel-config)
-  (if (member (app-config "carousel" "0") '("1" "on" "yes" "true"))
+  (if (member (app-config "carousel" "1") '("1" "on" "yes" "true"))
       (let ((secs (map (lambda (n) (clamp n 3 3600)) (string->ints (app-config "carousel_seconds" "10")))))
         (if (null? secs) '(10) secs))
       #f))
 
 (define (app-page-seconds i)
-  (if (< i (length app-carousel)) (list-ref app-carousel i) (list-ref app-carousel (- (length app-carousel) 1))))
+  (cond
+    ((or (not (pair? app-carousel)) (null? app-carousel)) 10)
+    ((< i (length app-carousel)) (list-ref app-carousel i))
+    (else (list-ref app-carousel (- (length app-carousel) 1)))))
 
 (define (app-carousel-reset!)
-  (if app-carousel (set! app-carousel-left (app-page-seconds app-page-index))))
+  (if (pair? app-carousel) (set! app-carousel-left (app-page-seconds app-page-index))))
 
 (define (app-define! title pages)
   (set! app-title title)
@@ -1108,10 +1123,8 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (let ((url (vector-ref app-urls i)))
-    (if (not (equal? url app-feed-url))
-        (if (not (app-cache-entry url))
-            (app-start-feed!))))
+  (if (not (equal? (vector-ref app-urls i) app-feed-url))
+      (app-start-feed!))
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))
@@ -1207,7 +1220,6 @@
                  (if (string=? t "") (app-config "qweather_key" "") t))))
     (app-url (string-append "/app/weather?loc=" (url-encode (app-config "location" "auto"))
                             "&token=" (url-encode token)
-                            "&key=" (url-encode token)
                             "&host=" (url-encode (app-config "qweather_host" ""))))))
 
 (define (weather-update-interval-ms)
@@ -1573,9 +1585,8 @@
               (if (member cur-hm weather-refresh-times)
                   (begin
                     (set! weather-last-refresh-hm app-time)
-                    (set! app-cache
-                          (let ((url (weather-url)))
-                            (filter (lambda (e) (not (equal? (vector-ref e 0) url))) app-cache)))
+                    ;; refetch now; the cached forecast stays on screen until the
+                    ;; new one arrives (and when the request fails)
                     (app-start-feed!)
                     (app-invalidate-all)))))))
 

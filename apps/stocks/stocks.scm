@@ -156,10 +156,10 @@
 ;; Pages -----------------------------------------------------------------------------------------
 
 (app-define! "股票行情"
-  (list (app-page "首页" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-home)
-        (app-page "自选股" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-list)
-        (app-page "指数分时" (lambda () (stocks-all-url)) STOCKS-INTERVAL stocks-render-trends)
-        (app-page "30日走势" (lambda () (stocks-all-url)) STOCKS-KLINE-INTERVAL stocks-render-kline)))
+  (list (app-page "首页" (stocks-url "home") STOCKS-INTERVAL stocks-render-home)
+        (app-page "自选股" (stocks-url "list") STOCKS-INTERVAL stocks-render-list)
+        (app-page "指数分时" (stocks-url "trend") STOCKS-INTERVAL stocks-render-trends)
+        (app-page "30日走势" (stocks-url "kline") STOCKS-KLINE-INTERVAL stocks-render-kline)))
 
 (set! app-subtitle-proc
       (lambda (items) (let ((m (items-find items "meta"))) (if m (it-a m) #f))))

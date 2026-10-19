@@ -864,7 +864,8 @@ static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
     mock_fs_seed();
     char val[160];
     const char *key = mini_string_data(argv[0]);
-    if (mock_ini_value(g_app_ini, key, val, sizeof(val)) ||
+    /* as the firmware: a key left empty in the app's ini is the system's */
+    if ((mock_ini_value(g_app_ini, key, val, sizeof(val)) && val[0]) ||
         (mini_app_config_key_ok(key) && mock_ini_value("/spiffs/config.ini", key, val, sizeof(val)))) {
         /* the simulator's requests go through server.py on the PC that runs
          * the app proxy: an unset proxy is that PC's */

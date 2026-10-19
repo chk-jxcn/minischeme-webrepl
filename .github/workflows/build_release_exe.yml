@@ -66,7 +66,7 @@ jobs:
           path: dist/MiniScheme-WebREPL.exe
 
       - name: Publish Latest GitHub Release
-        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: startsWith(github.ref, 'refs/tags/v')   # releases only from a pushed version tag
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rel_tag.outputs.tag }}
