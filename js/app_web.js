@@ -247,8 +247,8 @@ class AppWebPanel {
                     <!-- Tab 5: 系统信息 -->
                     <div class="aw-pane" id="aw-pane-info" hidden>
                         <section class="aw-section">
-                            <h3 class="aw-sec-title">ℹ️ 仿真硬件与运行状态</h3>
-                            <div id="aw-info-grid" class="aw-kv-grid">读取中...</div>
+                            <h3 class="aw-sec-title" id="aw-info-title">ℹ️ 仿真硬件与运行状态</h3>
+                            <div id="aw-info-grid">读取中...</div>
                         </section>
                     </div>
                 </div>
@@ -1455,8 +1455,22 @@ class AppWebPanel {
         if (!this.target && this.getTarget) {
             try { this.target = this.getTarget(); } catch (e) {}
         }
+        const titleEl = this.el.root.querySelector('#aw-info-title');
         if (this.target && this.target.kind === 'device') {
             const link = this.target.link || window.activeLink;
+            if (titleEl) titleEl.textContent = 'ℹ️ 硬件与运行状态';
+            // over WiFi: the same report as the board's own web page (/api/hardware)
+            if (link && link.kind === 'http' && typeof link._json === 'function') {
+                try {
+                    const hw = await link._json('/api/hardware', {}, 10000);
+                    if (hw && hw.success && this.el.infoGrid) {
+                        this.el.infoGrid.innerHTML = this._hardwareHtml(hw);
+                        return;
+                    }
+                } catch (e) {
+                    this.log('error', `读取硬件信息失败: ${e.message || e}`);
+                }
+            }
             let info = {}, stats = {};
             try { if (link && typeof link.info === 'function') info = await link.info(); } catch (e) {}
             try { if (link && typeof link.stats === 'function') stats = await link.stats(); } catch (e) {}
@@ -1464,34 +1478,111 @@ class AppWebPanel {
                 const vmAlloc = stats.vm_heap_allocated || info.heap_allocated || 0;
                 const vmCap = stats.vm_heap_capacity || info.heap_capacity || 0;
                 const sysFree = stats.free_heap || info.free_heap || 0;
-                this.el.infoGrid.innerHTML = `
+                const note = link && link.kind === 'serial'
+                    ? '<div class="desc" style="margin-top:8px;">串口连接只能读取概要；通过 WiFi (HTTP) 连接设备可查看与设备网页相同的完整硬件信息。</div>' : '';
+                this.el.infoGrid.innerHTML = `<div class="aw-kv-grid">
                     <b>实体硬件平台:</b> <span>${this._esc(info.platform || 'ESP32')} (${this._esc(info.version || 'v1.0')})</span>
                     <b>MAC 地址:</b> <span>${this._esc(info.mac || '-')}</span>
                     <b>局域网 IP:</b> <span>${this._esc(info.ip || '-')} (${this._esc(info.ssid || '-')})</span>
                     <b>显示屏规格:</b> <span>${info.width || 320}×${info.height || 480} (${this._esc(info.display_mode || 'band')}, ${info.color_bits || 16}-bit)</span>
                     <b>VM 堆内存 (Heap):</b> <span>${(vmAlloc / 1024).toFixed(1)} KB / ${(vmCap / 1024).toFixed(1)} KB</span>
                     <b>系统剩余内存:</b> <span>${(sysFree / 1024).toFixed(1)} KB Free</span>
-                    <b>存储系统 (SPIFFS):</b> <span>${((stats.spiffs_used || 0) / 1024).toFixed(1)} KB / ${((stats.spiffs_total || 0) / 1024).toFixed(1)} KB</span>
-                `;
+                    <b>存储系统 (LittleFS):</b> <span>${((stats.spiffs_used || 0) / 1024).toFixed(1)} KB / ${((stats.spiffs_total || 0) / 1024).toFixed(1)} KB</span>
+                </div>${note}`;
             }
             return;
         }
+        if (titleEl) titleEl.textContent = 'ℹ️ 仿真硬件与运行状态';
         const ex = (this.target && typeof this.target.exports === 'function') ? this.target.exports() : null;
         const alloc = (ex && ex.wasm_heap_alloc) ? ex.wasm_heap_alloc() : 0;
         const cap = (ex && ex.wasm_heap_capacity) ? ex.wasm_heap_capacity() : 0;
         const isOnline = window.isSimWifiOnline ? window.isSimWifiOnline() : true;
 
         if (this.el.infoGrid) {
-            this.el.infoGrid.innerHTML = `
-                <b>虚拟硬件平台:</b> <span>ESP32-S3 (WASM 仿真)</span>
+            this.el.infoGrid.innerHTML = `<div class="aw-kv-grid">
+                <b>虚拟硬件平台:</b> <span>ESP32 (WASM 仿真)</span>
                 <b>Scheme 虚拟机:</b> <span>Native C VM + Pure Scheme Compiler</span>
                 <b>固件 API 版本:</b> <span>1.5 (全兼容 ESP32 固件 1.x)</span>
                 <b>虚拟显存规格:</b> <span>320×480 RGB565 (~300 KB VFB)</span>
                 <b>堆内存分配 (Heap):</b> <span>${(alloc / 1024).toFixed(1)} KB / ${(cap / 1024).toFixed(1)} KB</span>
                 <b>WiFi 联网状态:</b> <span>${isOnline ? '🟢 已联网 (网络在线)' : '🔴 已断开 (网络离线)'}</span>
-                <b>存储系统 (Flash):</b> <span>SPIFFS (持久化于浏览器 IndexedDB)</span>
-            `;
+                <b>存储系统 (Flash):</b> <span>/spiffs 文件系统 (持久化于浏览器 IndexedDB)</span>
+            </div>`;
         }
+    }
+
+    /* /api/hardware as the board's own web page shows it (setup_page.html loadHardware) */
+    _hardwareHtml(h) {
+        const esc = (v) => this._esc(v == null ? '' : String(v));
+        const kb = (n) => `${((Number(n) || 0) / 1024).toFixed(1)} KB`;
+        const pct = (a, b) => (b ? ` (${Math.round(a * 100 / b)}%)` : '');
+        const dur = (s) => {
+            s = Math.floor(Number(s) || 0);
+            const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), mm = Math.floor(s % 3600 / 60);
+            return d ? `${d} 天 ${hh} 小时` : hh ? `${hh} 小时 ${mm} 分` : `${mm} 分 ${s % 60} 秒`;
+        };
+        const section = (title, rows) => `<h4 style="margin:14px 0 6px;">${title}</h4><div class="aw-kv-grid">` +
+            rows.filter(Boolean).map(([k, v]) => `<b>${esc(k)}:</b> <span>${v}</span>`).join('') + '</div>';
+        const c = h.chip || {}, f = h.firmware || {}, m = h.memory || {}, v = h.vm || {}, s = h.storage || {};
+        const r = h.app_rom || {}, fr = h.font_rom || {}, d = h.display || {}, n = h.network || {}, la = h.last_app;
+        let html = section('芯片与固件', [
+            ['芯片', `${esc(c.model)} v${((c.revision || 0) / 100).toFixed(2)}，${c.cores} 核 ${c.mhz} MHz${c.bt ? '，WiFi+BT' : ''}`],
+            ['MAC', esc(c.mac)],
+            ['Flash', kb(c.flash)],
+            ['固件', `${esc(f.version)}，${esc(f.built)}`],
+            ['ESP-IDF', esc(f.idf)],
+            ['固件镜像', `${kb(f.image)} / ${kb(f.partition)} 分区${pct(f.image, f.partition)}`],
+            ['运行时间', `${dur((f.uptime_ms || 0) / 1000)}，复位原因 ${esc(f.reset)}，时间${f.time_synced ? '已' : '未'}同步`],
+        ]);
+        html += section('系统内存', [
+            ['空闲', `${kb(m.free)} / ${kb(m.internal_total)}`],
+            ['历史最低', kb(m.min_free)],
+            ['最大连续块', kb(m.largest)],
+            ['DMA 可用', kb(m.dma_free)],
+            m.iram_total ? ['IRAM', `已用 ${kb(m.iram_total - m.iram_free)} / ${kb(m.iram_total)}${pct(m.iram_total - m.iram_free, m.iram_total)}，其中 VM ${kb(m.iram_vm)}`] : null,
+        ]);
+        html += section(`当前程序：${v.settings ? '系统设置' : esc(v.program)}`, [
+            ['VM 堆', `${kb(v.used)} / ${kb(v.heap)}${pct(v.used, v.heap)}`],
+            v.probe ? ['开机测量', `空闲 ${kb(v.probe.free)}，最大连续块 ${kb(v.probe.largest)}，系统预留 ${kb(v.probe.reserved)}${v.probe.wifi ? '（WiFi 已连上）' : '（WiFi 未连上）'}`] : null,
+            ['存活 / 峰值', `${kb(v.live)} / ${kb(v.peak)}`],
+            ['累计分配', `${v.alloc_kb} KB，GC ${v.minor_gcs} 次小回收、${v.major_gcs} 次全回收`],
+            ['栈', `峰值 ${v.stack_peak} / ${v.stack_slots} 槽`],
+            ['代码 ROM', v.rom ? `${kb(v.rom)}（原地运行于 Flash）` : '无（代码在 RAM 中）'],
+        ]);
+        if (la) {
+            html += section(`上次运行的应用：${esc(la.id)}（进入设置前记录）`, [
+                ['VM 堆', `${kb(la.live)} / ${kb(la.heap)}`],
+                ['堆峰值', kb(la.peak)],
+                ['代码 ROM', kb(la.rom)],
+                ['系统内存', `空闲 ${kb(la.free)}，最低 ${kb(la.min_free)}`],
+                ['运行了', dur(la.uptime_s)],
+            ]);
+        }
+        html += section('存储', [
+            ['文件系统', `${kb(s.used)} / ${kb(s.total)}${pct(s.used, s.total)}`],
+            ['文件', `${s.files} 个，其中应用目录 ${s.apps} 个`],
+            ['应用 ROM 分区', `${kb(r.partition)}，当前程序的代码镜像 ${r.image ? kb(r.image) : '未使用'}`],
+        ]);
+        const fonts = (fr.fonts || []).map(x => `${esc(x.name)} (${kb(x.bytes)})`).join('，') || '无';
+        const slots = (fr.slots || []).filter(x => x.source !== 'built-in' || x.slot < 2)
+            .map(x => `${x.slot}: ${esc(x.name || '-')} ${x.height}px ${/^built-?in$/.test(x.source) ? '内置' : esc(x.source)}`).join('；');
+        html += section('字库', [
+            ['系统字库', `${kb(fr.used)} / ${kb(fr.capacity)}${pct(fr.used, fr.capacity)}`],
+            ['字库', fonts],
+            ['字体槽', slots || '-'],
+        ]);
+        html += section('显示', [
+            ['屏幕', `${esc(d.model)} ${d.width}x${d.height}`],
+            ['模式', `${esc(d.mode)}（${d.band_lines} 行一带），${d.color_bits} 位色，配色 ${esc(d.scheme)}`],
+            ['显存', `缓冲 ${kb(d.buffer)}，DMA ${kb(d.dma)}`],
+            ['负载', `${d.fps} 帧/秒，主循环 ${d.busy_pct}% 忙，背光 ${d.backlight}`],
+            d.dl_cap === undefined ? null : ['显示列表', d.dl_cmds < 0 ? `上一帧超出 ${d.dl_cap} 条，逐带重画` : `上一帧 ${d.dl_cmds} / ${d.dl_cap} 条命令${d.dl_heap ? `，从堆扩容 ${kb(d.dl_heap)}` : ''}`],
+        ]);
+        html += section('网络', [
+            ['WiFi', n.connected ? `${esc(n.ssid)}，${esc(n.ip)}，${n.rssi} dBm` : '未连接'],
+            ['热点', n.ap ? `${esc(n.ap_ssid)}，${esc(n.ap_ip)}，${n.clients} 台设备` : '未开启'],
+        ]);
+        return html;
     }
 
     _onFile(e, d) {

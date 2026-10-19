@@ -64,6 +64,7 @@ jobs:
         with:
           name: MiniScheme-WebREPL-Windows-Exe
           path: dist/MiniScheme-WebREPL.exe
+          retention-days: 1   # storage quota: the Release keeps the files
 
       - name: Publish Latest GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')   # releases only from a pushed version tag
