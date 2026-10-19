@@ -21,7 +21,7 @@
 ;;; [config]
 ;;; codes = RB0,AU0,AG0,SC0,CU0,M0,IF0 ; contracts, comma separated: product + 0 = main contract
 ;;; chart = AU0 ; the contract of the minute line page
-;;; carousel = 0 ; 1: turn the pages by themselves
+;;; carousel = 1 ; 1: turn the pages by themselves
 ;;; carousel_seconds = 10 ; seconds per page, or one per page
 ;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
 ;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
@@ -1077,7 +1077,7 @@
 
 ;; carousel = 1 in the app's ini (or config.ini [app]): seconds per page
 (define (app-carousel-config)
-  (if (member (app-config "carousel" "0") '("1" "on" "yes" "true"))
+  (if (member (app-config "carousel" "1") '("1" "on" "yes" "true"))
       (let ((secs (map (lambda (n) (clamp n 3 3600)) (string->ints (app-config "carousel_seconds" "10")))))
         (if (null? secs) '(10) secs))
       #f))

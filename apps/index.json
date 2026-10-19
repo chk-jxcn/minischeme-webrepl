@@ -11,7 +11,7 @@
   "file": "album.msbc",
   "size": 56300,
   "scm": "album.allinone.scm",
-  "hash": "c97f4c7f"
+  "hash": "0a0289a0"
  },
  {
   "id": "calendar",
@@ -25,7 +25,7 @@
   "file": "calendar.msbc",
   "size": 52042,
   "scm": "calendar.allinone.scm",
-  "hash": "17daa04b"
+  "hash": "2691e3c5"
  },
  {
   "id": "crypto",
@@ -39,7 +39,7 @@
   "file": "crypto.msbc",
   "size": 40977,
   "scm": "crypto.allinone.scm",
-  "hash": "6b95c5eb"
+  "hash": "4e6e0825"
  },
  {
   "id": "futures",
@@ -53,7 +53,7 @@
   "file": "futures.msbc",
   "size": 41010,
   "scm": "futures.allinone.scm",
-  "hash": "699a7c26"
+  "hash": "e9921cd8"
  },
  {
   "id": "memo",
@@ -67,7 +67,7 @@
   "file": "memo.msbc",
   "size": 50935,
   "scm": "memo.allinone.scm",
-  "hash": "cba9908e"
+  "hash": "608bc8f4"
  },
  {
   "id": "news",
@@ -81,7 +81,7 @@
   "file": "news.msbc",
   "size": 39172,
   "scm": "news.allinone.scm",
-  "hash": "c61beb8e"
+  "hash": "89616220"
  },
  {
   "id": "notifier",
@@ -95,7 +95,7 @@
   "file": "notifier.msbc",
   "size": 52926,
   "scm": "notifier.allinone.scm",
-  "hash": "00d22b20"
+  "hash": "96d1c168"
  },
  {
   "id": "pcmonitor",
@@ -137,7 +137,7 @@
   "file": "stocks.msbc",
   "size": 43617,
   "scm": "stocks.allinone.scm",
-  "hash": "d60a24d9"
+  "hash": "36c7f32c"
  },
  {
   "id": "usage",
@@ -151,7 +151,7 @@
   "file": "usage.msbc",
   "size": 44398,
   "scm": "usage.allinone.scm",
-  "hash": "d4cec9a7"
+  "hash": "c29c0d71"
  },
  {
   "id": "weather",
@@ -165,7 +165,7 @@
   "file": "weather.msbc",
   "size": 53231,
   "scm": "weather.allinone.scm",
-  "hash": "6bed77df"
+  "hash": "c6d35a64"
  },
  {
   "id": "wxpusher",
@@ -179,6 +179,6 @@
   "file": "wxpusher.msbc",
   "size": 56260,
   "scm": "wxpusher.allinone.scm",
-  "hash": "be6a9f15"
+  "hash": "420d682c"
  }
 ]

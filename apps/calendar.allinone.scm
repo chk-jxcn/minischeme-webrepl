@@ -23,7 +23,7 @@
 ;;; countdown = 春节=L01-01 ; name=date, comma separated: YYYY-MM-DD once, MM-DD yearly, L before MM-DD: lunar
 ;;; world_clock = 美西=PST, 新西兰=NZST ; up to 4: an abbreviation, a place, name=zone (IANA or abbreviation) or UTC+8
 ;;; location = auto ; auto (city of the public IP), a city name (深圳) or lon,lat
-;;; carousel = 0 ; 1: turn the pages by themselves
+;;; carousel = 1 ; 1: turn the pages by themselves
 ;;; carousel_seconds = 10 ; seconds per page, or one per page: 15,10,10 (the last repeats)
 ;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
 ;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
@@ -1079,7 +1079,7 @@
 
 ;; carousel = 1 in the app's ini (or config.ini [app]): seconds per page
 (define (app-carousel-config)
-  (if (member (app-config "carousel" "0") '("1" "on" "yes" "true"))
+  (if (member (app-config "carousel" "1") '("1" "on" "yes" "true"))
       (let ((secs (map (lambda (n) (clamp n 3 3600)) (string->ints (app-config "carousel_seconds" "10")))))
         (if (null? secs) '(10) secs))
       #f))

@@ -867,6 +867,11 @@ class AppWebPanel {
                 'display.backlight_max': String(blMax)
             };
 
+            if (!parsed['app'] || !('carousel' in parsed['app'])) {
+                updates['app.carousel'] = '1';
+                updates['app.carousel_seconds'] = '10';
+            }
+
             const ssid = (this.el.sysWifiSsid ? this.el.sysWifiSsid.value : '').trim();
             if (ssid) {
                 if (parsed['wifi'] && 'ssid' in parsed['wifi']) updates['wifi.ssid'] = ssid;

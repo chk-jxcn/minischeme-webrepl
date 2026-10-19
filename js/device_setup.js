@@ -1046,6 +1046,8 @@ class DeviceSetupWizard {
             '[app]',
             `proxy = ${proxyUrl}`,
             `https_proxy = ${converterUrl}`,
+            'carousel = 1',
+            'carousel_seconds = 10',
             '',
             ...chanLines,
             '',
