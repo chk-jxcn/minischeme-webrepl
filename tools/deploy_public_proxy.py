@@ -113,33 +113,7 @@ def deploy():
     cfg_check = run_ssh(f"if [ -f '{CONFIG_PATH}' ]; then echo 'EXISTS'; else echo 'NEW'; fi").strip()
 
     if "EXISTS" in cfg_check:
-        print("      Existing config.ini found on server. Preserving current admin credentials...")
-        # Ensure security and server settings are enforced
-        py_patch = (
-            f"python3 -c \""
-            f"import configparser\n"
-            f"cfg = configparser.ConfigParser()\n"
-            f"cfg.read('{CONFIG_PATH}')\n"
-            f"if not cfg.has_section('server'): cfg.add_section('server')\n"
-            f"if not cfg.has_section('security'): cfg.add_section('security')\n"
-            f"if not cfg.has_section('qweather'): cfg.add_section('qweather')\n"
-            f"cfg.set('server', 'protocol_mode', 'both')\n"
-            f"cfg.set('server', 'components', 'proxy,channel,portal')\n"
-            f"cfg.set('security', 'admin_login_delay', '5')\n"
-            f"if not cfg.get('qweather', 'key', fallback=''):\n"
-            f"    cfg.set('qweather', 'key', 'f303e9850b6a4a368d7d76f9d27589e3')\n"
-            f"if not cfg.get('qweather', 'host', fallback=''):\n"
-            f"    cfg.set('qweather', 'host', 'nb7jpkge2v.re.qweatherapi.com')\n"
-            f"if not cfg.get('security', 'admin_password', fallback=''):\n"
-            f"    import secrets, string\n"
-            f"    cfg.set('security', 'admin_password', ''.join(secrets.choice(string.ascii_letters) for _ in range(10)))\n"
-            f"if not cfg.get('security', 'master_key_1', fallback=''):\n"
-            f"    import secrets\n"
-            f"    cfg.set('security', 'master_key_1', secrets.token_bytes(32).hex())\n"
-            f"with open('{CONFIG_PATH}', 'w') as f: cfg.write(f)\n"
-            f"\""
-        )
-        run_ssh(py_patch)
+        print("      Existing config.ini found on server. Preserving without modification.")
     else:
         print("      Generating new configuration with 10-letter pure letters admin password...")
         new_pwd = generate_10_letter_password()
