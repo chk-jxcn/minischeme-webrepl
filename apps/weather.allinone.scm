@@ -14,6 +14,8 @@
 ;;; ; types: text, number:min-max, bool, select:value=label,value=label
 ;;; ; (no ASCII ; or # in these lines: they start a comment)
 ;;; location = text | 位置 | auto 表示按公网 IP 定位，也可以填城市名（深圳）或 经度,纬度
+;;; update_interval = number:30-1440 | 更新频率(分钟) | 数据自动更新周期，默认 120 分钟（2小时），最低 30 分钟
+;;; refresh_times = text | 定时刷新点 | 每日指定时间立即刷新天气，最多4个，HH:MM 格式用逗号分隔（如 08:00,12:00,18:00,21:00）
 ;;; qweather_token = text | 和风天气 Token | 和风控制台生成的 API Token 或 Key。每个硬件可独立配置，代理端不存储
 ;;; qweather_host = text | 和风 API Host | 和风控制台“设置”页里的 API Host，如 xxxx.re.qweatherapi.com。留空时使用公共服务
 ;;; carousel = bool | 自动翻页 | 打开后按下面的时长依次显示各页
@@ -21,6 +23,8 @@
 ;;; 
 ;;; [config]
 ;;; location = auto ; auto (city of the public IP), a city name (深圳) or lon,lat
+;;; update_interval = 120 ; update interval in minutes (default 120, minimum 30)
+;;; refresh_times = ; up to 4 scheduled refresh times in HH:MM format, comma-separated (e.g. 08:00,12:00,18:00,21:00)
 ;;; qweather_token = ; QWeather (和风天气) API token / key; individual per hardware, never stored on proxy
 ;;; qweather_host = ; QWeather API Host (console > settings); empty: default host or fallback
 ;;; carousel = 0 ; 1: turn the pages by themselves
@@ -1206,7 +1210,43 @@
                             "&key=" (url-encode token)
                             "&host=" (url-encode (app-config "qweather_host" ""))))))
 
-(define WEATHER-INTERVAL 600000)        ; the proxy caches 10 minutes too
+(define (weather-update-interval-ms)
+  (let* ((raw (app-config "update_interval" "120"))
+         (num (if (number? raw) raw (string->number (if (string? raw) raw "120"))))
+         (mins (max 30 (if (and num (> num 0)) num 120))))
+    (* mins 60 1000)))
+
+(define WEATHER-INTERVAL (weather-update-interval-ms))
+
+(define (weather-normalize-time s)
+  (let* ((trimmed (let loop ((i 0) (j (string-length s)))
+                    (cond
+                      ((>= i j) "")
+                      ((char=? (string-ref s i) #\space) (loop (+ i 1) j))
+                      ((char=? (string-ref s (- j 1)) #\space) (loop i (- j 1)))
+                      (else (substring s i j)))))
+         (parts (str-split trimmed #\:)))
+    (if (= (length parts) 2)
+        (let ((h (string->number (car parts)))
+              (m (string->number (cadr parts))))
+          (if (and h m (>= h 0) (<= h 23) (>= m 0) (<= m 59))
+              (string-append (pad2 h) ":" (pad2 m))
+              #f))
+        #f)))
+
+(define (weather-parse-refresh-times)
+  (let* ((raw (app-config "refresh_times" ""))
+         (raw-list (if (string? raw) (str-split raw #\,) '())))
+    (let loop ((rest raw-list) (acc '()) (count 0))
+      (if (or (null? rest) (>= count 4))
+          (reverse acc)
+          (let ((norm (weather-normalize-time (car rest))))
+            (if norm
+                (loop (cdr rest) (cons norm acc) (+ count 1))
+                (loop (cdr rest) acc count)))))))
+
+(define weather-last-refresh-hm "")
+(define weather-refresh-times (weather-parse-refresh-times))
 
 ;; 2. Icons ------------------------------------------------------------------------
 
@@ -1516,10 +1556,28 @@
     (let ((loc (items-find items "loc")))
       (if loc (txt-fit 10 (- (body-bottom) 18) 300 (string-append "数据源: " (it-b loc)) theme-text-muted)))))
 
-;; 9. Pages -------------------------------------------------------------------------------------
+;; 9. Pages & Scheduled Refresh -----------------------------------------------------------------
 
 (set! app-subtitle-proc
       (lambda (items) (let ((loc (items-find items "loc"))) (if loc (it-a loc) #f))))
+
+(set! app-tick-proc
+      (lambda (tick)
+        (if (and (pair? weather-refresh-times)
+                 (string? app-time)
+                 (not (string=? app-time ""))
+                 (not (string=? app-time weather-last-refresh-hm)))
+            (let ((cur-hm (if (> (string-length app-time) 5)
+                              (substring app-time 0 5)
+                              app-time)))
+              (if (member cur-hm weather-refresh-times)
+                  (begin
+                    (set! weather-last-refresh-hm app-time)
+                    (set! app-cache
+                          (let ((url (weather-url)))
+                            (filter (lambda (e) (not (equal? (vector-ref e 0) url))) app-cache)))
+                    (app-start-feed!)
+                    (app-invalidate-all)))))))
 
 (app-define! "天气"
   (list (app-page "首页" weather-url WEATHER-INTERVAL weather-render-home)
@@ -1527,4 +1585,5 @@
         (app-page "24小时" weather-url WEATHER-INTERVAL weather-render-hours)
         (app-page "降水与空气" weather-url WEATHER-INTERVAL weather-render-rain)
         (app-page "生活指数" weather-url WEATHER-INTERVAL weather-render-index)))
+
 

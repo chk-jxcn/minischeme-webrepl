@@ -17,7 +17,43 @@
                             "&key=" (url-encode token)
                             "&host=" (url-encode (app-config "qweather_host" ""))))))
 
-(define WEATHER-INTERVAL 600000)        ; the proxy caches 10 minutes too
+(define (weather-update-interval-ms)
+  (let* ((raw (app-config "update_interval" "120"))
+         (num (if (number? raw) raw (string->number (if (string? raw) raw "120"))))
+         (mins (max 30 (if (and num (> num 0)) num 120))))
+    (* mins 60 1000)))
+
+(define WEATHER-INTERVAL (weather-update-interval-ms))
+
+(define (weather-normalize-time s)
+  (let* ((trimmed (let loop ((i 0) (j (string-length s)))
+                    (cond
+                      ((>= i j) "")
+                      ((char=? (string-ref s i) #\space) (loop (+ i 1) j))
+                      ((char=? (string-ref s (- j 1)) #\space) (loop i (- j 1)))
+                      (else (substring s i j)))))
+         (parts (str-split trimmed #\:)))
+    (if (= (length parts) 2)
+        (let ((h (string->number (car parts)))
+              (m (string->number (cadr parts))))
+          (if (and h m (>= h 0) (<= h 23) (>= m 0) (<= m 59))
+              (string-append (pad2 h) ":" (pad2 m))
+              #f))
+        #f)))
+
+(define (weather-parse-refresh-times)
+  (let* ((raw (app-config "refresh_times" ""))
+         (raw-list (if (string? raw) (str-split raw #\,) '())))
+    (let loop ((rest raw-list) (acc '()) (count 0))
+      (if (or (null? rest) (>= count 4))
+          (reverse acc)
+          (let ((norm (weather-normalize-time (car rest))))
+            (if norm
+                (loop (cdr rest) (cons norm acc) (+ count 1))
+                (loop (cdr rest) acc count)))))))
+
+(define weather-last-refresh-hm "")
+(define weather-refresh-times (weather-parse-refresh-times))
 
 ;; 2. Icons ------------------------------------------------------------------------
 
@@ -327,10 +363,28 @@
     (let ((loc (items-find items "loc")))
       (if loc (txt-fit 10 (- (body-bottom) 18) 300 (string-append "数据源: " (it-b loc)) theme-text-muted)))))
 
-;; 9. Pages -------------------------------------------------------------------------------------
+;; 9. Pages & Scheduled Refresh -----------------------------------------------------------------
 
 (set! app-subtitle-proc
       (lambda (items) (let ((loc (items-find items "loc"))) (if loc (it-a loc) #f))))
+
+(set! app-tick-proc
+      (lambda (tick)
+        (if (and (pair? weather-refresh-times)
+                 (string? app-time)
+                 (not (string=? app-time ""))
+                 (not (string=? app-time weather-last-refresh-hm)))
+            (let ((cur-hm (if (> (string-length app-time) 5)
+                              (substring app-time 0 5)
+                              app-time)))
+              (if (member cur-hm weather-refresh-times)
+                  (begin
+                    (set! weather-last-refresh-hm app-time)
+                    (set! app-cache
+                          (let ((url (weather-url)))
+                            (filter (lambda (e) (not (equal? (vector-ref e 0) url))) app-cache)))
+                    (app-start-feed!)
+                    (app-invalidate-all)))))))
 
 (app-define! "天气"
   (list (app-page "首页" weather-url WEATHER-INTERVAL weather-render-home)
@@ -338,3 +392,4 @@
         (app-page "24小时" weather-url WEATHER-INTERVAL weather-render-hours)
         (app-page "降水与空气" weather-url WEATHER-INTERVAL weather-render-rain)
         (app-page "生活指数" weather-url WEATHER-INTERVAL weather-render-index)))
+
