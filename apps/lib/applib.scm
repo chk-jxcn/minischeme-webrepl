@@ -258,8 +258,9 @@
 (define app-date "")
 (define app-utc-sec 0)                       ; second of the UTC day (the tick once the clock is synced)
 (define app-lunar "")                       ; the device's lunar month and day (八月十九), "" unsynced
-(define app-cache '())                       ; #(url items time) per fetched URL
+(define app-cache '())                       ; #(url items time second) per fetched URL
 (define app-error #f)                        ; message of the last error object
+(define app-error-url "")                    ; the page URL whose document carried it
 (define app-last-seq 0)
 (define app-feed-url "")
 (define app-loading #f)                      ; fetch requested, no document yet
@@ -298,7 +299,7 @@
 ;; Newest first; past (app-cache-max) documents the oldest one goes, never the
 ;; home page's (the page shown most)
 (define (app-cache-put! url items)
-  (let ((c (cons (vector url items app-time)
+  (let ((c (cons (vector url items app-time app-utc-sec)
                  (filter (lambda (e) (not (equal? (vector-ref e 0) url))) app-cache))))
     (set! app-cache
           (if (<= (length c) (app-cache-max))
@@ -308,6 +309,20 @@
                            (cond ((null? r) r)
                                  ((equal? (vector-ref (car r) 0) home) (cons (car r) (drop (cdr r))))
                                  (else (cdr r))))))))))
+
+;; Page i's data is younger than the page's interval: shown again without
+;; fetching (a page turn or the carousel does not fetch it every time)
+(define (app-fresh? i)
+  (let ((e (app-cache-entry (vector-ref app-urls i))))
+    (and e (< (* 1000 (modulo (- app-utc-sec (vector-ref e 3)) 86400))
+              (vector-ref (vector-ref app-pages i) 2)))))
+
+;; The one stream follows the page on screen once its data is due
+(define (app-follow-page!)
+  (if (and (not (equal? (vector-ref app-urls app-page-index) app-feed-url))
+           (not (app-local? app-page-index))
+           (not (app-fresh? app-page-index)))
+      (app-start-feed!)))
 
 (define (app-items)
   (let ((e (app-cache-entry (vector-ref app-urls app-page-index))))
@@ -369,16 +384,14 @@
                  (if (< i 0) acc (loop (- i 1) (cons (app-read-item i) acc))))))
     (set! app-loading #f)
     (if (and (pair? items) (eq? (it-t (car items)) 'error))
-        (set! app-error (it-a (car items)))
+        (begin (set! app-error (it-a (car items))) (set! app-error-url (json-feed-url)))
         (begin
           (set! app-error #f)
           (app-cache-put! (json-feed-url) items)
           (if app-data-proc (app-data-proc items))
           ;; every page cached: the firmware's one stream goes back to the
-          ;; page on screen, so it keeps refreshing (not the last prefetched one)
-          (if (and (not (app-prefetch-next!))
-                   (not (equal? (json-feed-url) (vector-ref app-urls app-page-index))))
-              (app-start-feed!))))
+          ;; page on screen when its data is due (app-tick checks again)
+          (if (not (app-prefetch-next!)) (app-follow-page!))))
     (app-invalidate-all)))
 
 ;; 7. Drawing --------------------------------------------------------------------------------
@@ -472,27 +485,33 @@
 (define (app-render-feed-footer)
   (let* ((y (- (gui-height) FTR-H))
          (w (scr-w))
-         (entry (app-cache-entry (vector-ref app-urls app-page-index)))
+         (url (vector-ref app-urls app-page-index))
+         (entry (app-cache-entry url))
          (upd (and entry (items-find (vector-ref entry 1) "upd")))  ; the server's data time
-         (state (app-status 'state))
+         ;; the time the server gives for its data ({"t": "upd"}), else when
+         ;; this device fetched it (unknown before the clock was set)
+         (last (cond ((and upd (it-a upd)) (string-append "更新于 " (it-a upd)))
+                     ((not entry) #f)
+                     ((string=? (vector-ref entry 2) "--:--") "已更新")
+                     (else (string-append "更新于 " (vector-ref entry 2)))))
+         ;; this page's fetch only: a prefetch of another page failing says nothing about it
+         (mine (equal? (json-feed-url) url))
+         (state (if mine (app-status 'state) 'ok))
+         (page-error (and app-error (or (eq? app-error APP-NO-PROXY) (equal? app-error-url url)) app-error))
          ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
          (step (app-status 'step))
          (busy (memq step '(clock register)))
-         (failed (and (not busy) (or app-error (eq? state 'error))))
+         (failed (and (not busy) (or page-error (eq? state 'error))))
          (text (cond ((eq? step 'register)
                       (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
                      ((eq? step 'clock) "等待网络对时...")
-                     (app-error (string-append "代理: " app-error))
+                     (page-error (string-append "代理: " page-error))
                      ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
-                     (app-loading (if entry "刷新中..." "加载中..."))
-                     ;; the time the server gives for its data ({"t": "upd"}), else when
-                     ;; this device fetched it (unknown before the clock was set)
-                     ((and upd (it-a upd)) (string-append "更新于 " (it-a upd)))
-                     (entry (if (string=? (vector-ref entry 2) "--:--") "已更新"
-                                (string-append "更新于 " (vector-ref entry 2))))
+                     ((and app-loading mine) (if last (string-append last "，刷新中...") "加载中..."))
+                     (last last)
                      (else "等待数据")))
          (ms (app-status 'fetch-ms))
-         (right (if (and (eq? state 'ok) (number? ms) (> ms 0))
+         (right (if (and mine (eq? state 'ok) (number? ms) (> ms 0))
                     (string-append (fixed->str (quotient (+ (app-status 'bytes) 51) 102) 1) "KB "
                                    (int->str ms) "ms")
                     "")))
@@ -559,8 +578,7 @@
 (define (app-goto! i)
   (set! app-page-index i)
   (app-carousel-reset!)
-  (if (not (equal? (vector-ref app-urls i) app-feed-url))
-      (app-start-feed!))
+  (app-follow-page!)                 ; its data still fresh: shown from the cache
   (app-invalidate-all))
 
 (define (app-next-page!) (app-goto! (remainder (+ app-page-index 1) (app-npages))))
@@ -619,6 +637,7 @@
         (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H))
     (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
         (app-carousel-tick!))
+    (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
     (if app-tick-proc (app-tick-proc tick))))
 
 ;; Short press: next page (the home page after the last; a carousel's
