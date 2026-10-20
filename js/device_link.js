@@ -9,6 +9,7 @@
  * - SerialDeviceLink: Web Serial + the firmware's UART line protocol
  *     "@INFO" | "@EXEC <base64>" | "@BEGIN <size> [path]" "@DATA <base64>" "@END run|save"
  *     | "@LS" | "@APPS" | "@READ <offset> <path>" | "@RM <path>" | "@MV <from> <to>" | "@RESET"
+ *     | "@INPUT button=1|0 [light=<n>|off]" | "@SCREEN <from>" (KEY 18, a screenshot)
  *   Every command is answered by exactly one "@OK {json}" / "@ERR {json}" line.
  *   Any other line is device log / display output and goes to onLog.
  *
@@ -405,6 +406,44 @@ class SerialDeviceLink {
     async fsRemove(path) { return expectSuccess(await this._request('@RM ' + path), '删除'); }
     async fsRename(from, to) { return expectSuccess(await this._request(`@MV ${from} ${to}`), '重命名'); }
     async reset() { return expectSuccess(await this._request('@RESET', 5000), '重启'); }
+
+    /* KEY 18 and the light sensor, as HttpDeviceLink.input (firmware 1.0.62+);
+     * the requests queue one after another, so a release never overtakes its press */
+    async input(params) {
+        const parts = [];
+        if (params.button !== undefined) parts.push('button=' + (params.button ? '1' : '0'));
+        if (params.light !== undefined) parts.push('light=' + String(params.light));
+        return expectSuccess(await this._request('@INPUT ' + parts.join(' '), 5000), '发送输入');
+    }
+
+    /* One screenshot (firmware 1.0.62+): the whole screen as /api/screen
+     * replies (minischeme_mirror.h), a few rows per request; onProgress(rows, height) */
+    async screenshot(onProgress) {
+        const replies = [];
+        let from = 0;
+        for (;;) {
+            const r = await this._request('@SCREEN ' + from, 10000);
+            if (!r || !r.success) {
+                const msg = (r && r.error) || '截图失败';
+                throw new Error(/unknown command/.test(msg) ? '固件不支持串口截图，请更新到 v1.0.62 以上' : msg);
+            }
+            const buf = base64ToBytes(r.data);
+            if (buf.length < 16 || String.fromCharCode(buf[0], buf[1], buf[2], buf[3]) !== 'MSCR') {
+                throw new Error('无法解析的截图数据');
+            }
+            replies.push(buf);
+            const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+            const h = dv.getUint16(8, true), nrows = dv.getUint16(10, true);
+            let at = 16, last = -1;
+            for (let i = 0; i < nrows; i++) {
+                last = dv.getUint16(at, true);
+                at += 4 + dv.getUint16(at + 2, true);
+            }
+            if (onProgress) onProgress(last + 1, h);
+            if (!(buf[5] & 1) || last < 0) return replies;   // no MORE: the screen is complete
+            from = last + 1;
+        }
+    }
 }
 
 class SimDeviceLink {

@@ -276,6 +276,15 @@ class HardwareMirror {
         }
     }
 
+    /** Draws a whole screen fetched another way (the serial link's
+     *  screenshot replies) without a mirror running; returns the last flags */
+    drawReplies(replies) {
+        this.image = null;
+        let flags = 0;
+        for (const buf of replies) flags = this._apply(buf);
+        return flags;
+    }
+
     /** Applies one /api/screen reply to the canvas; returns its flags */
     _apply(buf) {
         const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);

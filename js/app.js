@@ -67,6 +67,7 @@ let currentLcdHeight = 480;
 let lastFlushTimestamp = 0;
 
 let vfbImageData = null;
+let serialStill = false;   // a serial screenshot is on the canvas (app.js: takeSerialScreenshot)
 let vfbPixelBuf32 = null;
 let isTouchDown = false;
 let appActive = false;
@@ -668,6 +669,12 @@ function httpDevice() {
     return activeLink && activeLink.kind === 'http' && typeof activeLink.input === 'function' ? activeLink : null;
 }
 
+/** The board that takes KEY 18: linked over HTTP or the serial port */
+function inputDevice() {
+    return activeLink && (activeLink.kind === 'http' || activeLink.kind === 'serial') &&
+        typeof activeLink.input === 'function' ? activeLink : null;
+}
+
 /* Color bits and scheme of the panel applied on the board and kept in its config.ini */
 async function syncDisplayToDevice() {
     const link = httpDevice();
@@ -697,7 +704,7 @@ function adoptDeviceDisplay(st) {
 
 function renderVfbToCanvas(forceFull = false) {
     if (!wasmInstance || !wasmMemory || !canvas) return;
-    if (hwMirror.active) return; // the board's screen is shown (HTTP mirror)
+    if (hwMirror.active || serialStill) return; // the board's screen is shown (HTTP mirror, serial screenshot)
     const ctx = canvas.getContext('2d');
     const width = wasmInstance.exports.wasm_get_vfb_width ? wasmInstance.exports.wasm_get_vfb_width() : currentLcdWidth;
     const height = wasmInstance.exports.wasm_get_vfb_height ? wasmInstance.exports.wasm_get_vfb_height() : currentLcdHeight;
@@ -1118,7 +1125,7 @@ function k18Press(e) {
     if (e) e.preventDefault();
     if (k18Down) return;
     btnHwK18.classList.add('pressed');
-    const link = httpDevice();
+    const link = inputDevice();
     k18Down = { t0: performance.now(), link, timer: null };
     if (link) {
         const send = () => link.input({ button: true }).catch((err) => appendTerminalLine('error', `按键发送失败: ${err.message}`));
@@ -1156,6 +1163,54 @@ if (btnHwK18) {
     btnHwK18.addEventListener('pointercancel', k18Release);
     btnHwK18.addEventListener('lostpointercapture', k18Release);
     btnHwK18.addEventListener('contextmenu', (e) => e.preventDefault()); // long touch
+}
+
+// Serial link: the page cannot follow the board's screen, a click takes one
+// screenshot (@SCREEN); it stays on the canvas until the link closes
+const btnHwShot = document.getElementById('btn-hw-shot');
+const serialShotView = new HardwareMirror({ canvas });
+
+async function takeSerialScreenshot() {
+    const link = activeLink;
+    if (!link || link.kind !== 'serial' || typeof link.screenshot !== 'function') return;
+    btnHwShot.disabled = true;
+    const label = btnHwShot.textContent;
+    const t0 = performance.now();
+    try {
+        const replies = await link.screenshot((rows, h) => {
+            btnHwShot.textContent = `⏳ ${Math.round(rows * 100 / Math.max(1, h))}%`;
+        });
+        if (activeLink !== link) return;
+        serialStill = true;
+        const flags = serialShotView.drawReplies(replies);
+        const secs = ((performance.now() - t0) / 1000).toFixed(1);
+        if (flags & 2) {
+            appendTerminalLine('error', '📷 设备是 direct 显示模式，不保存像素，无法截图 (config.ini 中改用 band 或 full)');
+            return;
+        }
+        const bytes = replies.reduce((n, b) => n + b.length, 0);
+        if (lcdModeTagEl) {
+            lcdModeTagEl.textContent = `📷 串口截图 ${new Date().toLocaleTimeString()}`;
+            lcdModeTagEl.title = '设备屏幕的一次截图 (串口)，再点“截图”更新';
+        }
+        appendTerminalLine('info', `📷 [串口截图] ${(bytes / 1024).toFixed(1)} KB，${secs} s`);
+    } catch (e) {
+        appendTerminalLine('error', `串口截图失败: ${e.message}`);
+    } finally {
+        btnHwShot.textContent = label;
+        btnHwShot.disabled = false;
+    }
+}
+
+if (btnHwShot) btnHwShot.addEventListener('click', takeSerialScreenshot);
+
+/* Back to the simulator's picture after a serial screenshot */
+function clearSerialStill() {
+    if (!serialStill) return;
+    serialStill = false;
+    vfbImageData = null;
+    showWasmModeTag();
+    renderVfbToCanvas(true);
 }
 
 // Photoresistor Light Sensor Slider (IO35 / ADC1_CH7). With "Simulate Light Sensor"
@@ -1871,7 +1926,7 @@ let wasmFrames = 0;
 let wasmFps = 0;
 
 function showWasmModeTag() {
-    if (!lcdModeTagEl || hwMirror.active) return;
+    if (!lcdModeTagEl || hwMirror.active || serialStill) return;
     lcdModeTagEl.textContent = `${DISPLAY_MODE_NAMES[WASM_MODE_KEYS[wasmDisplayMode]]} · ${wasmFps} 帧/s`;
     lcdModeTagEl.title = '模拟器的显示模式与每秒画出的帧数';
 }
@@ -2073,6 +2128,7 @@ async function disconnectDevice() {
     }
     activeLink = null;
     stopHardwareMirror();
+    clearSerialStill();
     if (simLightVal) { // the slider's value again, not the board's reading
         const v = lightSliderValue();
         simLightVal.textContent = `${v} (${Math.round(v * 1000 / 4095)} lux)`;
@@ -2144,6 +2200,7 @@ async function connectDeviceOnce() {
             appendTerminalLine('info', '📡 页面显示硬件实际画面；点击“🔄 刷新”可获取最新负荷数据 (断开或切回 WASM 仿真即恢复)');
             if (simLightRemote && simLightRemote.checked) sendLightToDevice(lightSliderValue());
         } else if (link.kind === 'serial') {
+            appendTerminalLine('info', '🔘 KEY 18 的按下和松开经串口发送到设备；点击“📷 截图”从串口取一次设备画面');
             // Auto-trigger initial setup wizard ONLY on serial connection if unconfigured (no WiFi SSID yet)
             await deviceSetupWizard.checkSerialAndOpenIfUnconfigured(link);
         }
@@ -2261,6 +2318,7 @@ function refreshTargetUi() {
     if (devicePwdLabel) devicePwdLabel.style.display = mode === 'http' ? '' : 'none';
     if (devicePwdToggleLabel) devicePwdToggleLabel.style.display = mode === 'http' ? 'inline-flex' : 'none';
     if (btnLinkDeviceSetup) btnLinkDeviceSetup.style.display = isLinkedHw ? '' : 'none';
+    if (btnHwShot) btnHwShot.style.display = isLinkedHw && activeLink.kind === 'serial' ? '' : 'none';
     if (btnDeviceSetup) btnDeviceSetup.style.display = (mode === 'wasm' || isLinkedHw) ? '' : 'none';
     if (mode === 'wasm') {
         targetDesc.textContent = "WASM 编译 ➔ MSBC 字节码 ➔ 浏览器内设备 VM (堆/原语/条带渲染与固件一致)";
