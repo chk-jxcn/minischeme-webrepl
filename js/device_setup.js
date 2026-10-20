@@ -327,6 +327,14 @@ class DeviceSetupWizard {
                         <div id="ds-hw-password-hint" style="font-size: 11px; color: #eab308; margin-left: 130px;">
                             ⚠️ 提示：固件连接服务器时用硬件密码在本地算出 hash 密钥并自动注册加密通道（密码不发给服务器）；它同时也是设备网页和 HTTP API 的访问密码；一旦设置将以明文显示且禁止修改。
                         </div>
+                        <div id="ds-panel-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-top: 10px;">
+                            <label for="ds-panel" style="font-size: 13px;">屏幕类型:</label>
+                            <select id="ds-panel" class="compact-select" style="height: 32px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 2px 8px;">
+                                <option value="ips">IPS（默认，驱动中设置反色）</option>
+                                <option value="tft">TFT（不反色）</option>
+                            </select>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-left: 130px; margin-top: 4px;">颜色像底片一样反了就选另一种；之后也可以在设备网页的"常用设置"里改，立即生效。</div>
                     </div>
                 </div>
                 <div class="fm-toolbar" style="padding: 12px 24px; border-top: 1px solid var(--border-color); display: flex; gap: 10px; justify-content: flex-end;">
@@ -364,6 +372,7 @@ class DeviceSetupWizard {
             hwPassRow: q('#ds-hw-password-row'),
             hwPass: q('#ds-hw-password'),
             hwPassHint: q('#ds-hw-password-hint'),
+            panel: q('#ds-panel'),
             fillPublicBtn: q('#ds-fill-public-proxy'),
             fillLocalBtn: q('#ds-fill-local-proxy'),
         };
@@ -700,6 +709,7 @@ class DeviceSetupWizard {
         if (this.el.wifiEnable) {
             this.el.wifiEnable.checked = true;
         }
+        if (this.el.panel) this.el.panel.value = 'ips';
         this.el.wifiSsid.value = '';
         this.el.wifiPass.value = '';
         this.el.proxyUrl.value = defaultProxy;
@@ -796,6 +806,8 @@ class DeviceSetupWizard {
         const existingHwPass = kv['server.hardware_password'] || kv['http.http_password'] || '';
         this._applyHwPasswordLockState(existingHwPass);
 
+        if (this.el.panel) this.el.panel.value = /^tft$/i.test(kv['display.panel'] || '') ? 'tft' : 'ips';
+
         if (kv['system.boot_app']) {
             this.existingBootApp = kv['system.boot_app'];
         }
@@ -859,6 +871,7 @@ class DeviceSetupWizard {
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
+                panel: this.el.panel ? this.el.panel.value : 'ips',
                 bootApp: this.existingBootApp || 'settings',
                 isSimulator: isSim,
                 existingIni: this.existingIniText || '',
@@ -903,6 +916,7 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
+            panel = 'ips',
             bootApp = 'settings',
             existingIni = ''
         } = opts;
@@ -914,6 +928,7 @@ class DeviceSetupWizard {
         const effectiveSsid = isSim ? '' : wifiSsid;
         const effectivePass = isSim ? '' : wifiPassword;
         const effectiveHwPass = isSim ? '' : hwPassword;
+        const panelType = panel === 'tft' ? 'tft' : 'ips';   // [display] panel: IPS needs the driver's inversion
 
         // If existing INI text is provided and non-empty, merge into it
         if (existingIni && existingIni.trim().length > 0) {
@@ -985,6 +1000,7 @@ class DeviceSetupWizard {
 
             setSectionKey('app', 'proxy', keepKey('app.proxy', proxyUrl));
             setSectionKey('app', 'https_proxy', keepKey('app.https_proxy', converterUrl));
+            setSectionKey('display', 'panel', panelType);
 
             setSectionKey('system', 'boot_app', bootApp || 'settings');
 
@@ -1031,6 +1047,7 @@ class DeviceSetupWizard {
             'band_lines = 13',
             'color_bits = 16',
             'palette = color',
+            `panel = ${panelType}`,
             'auto_backlight = 1',
             'backlight = 220',
             'color_format = rgb565',
