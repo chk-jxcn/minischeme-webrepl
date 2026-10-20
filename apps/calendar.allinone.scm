@@ -1243,6 +1243,7 @@
 ;; 2. Today -------------------------------------------------------------------------
 
 (define cal-clock-y 0)                   ; where the clock is drawn (redrawn every second)
+(define cal-clock-h 82)                  ; the height of its row
 (define cal-world-y 0)                   ; where the world clocks are (redrawn every minute), 0: none
 (define cal-world-hm "")                 ; the minute they show
 (define cal-world-h 0)                   ; the height of their row (it takes the page's spare room)
@@ -1261,11 +1262,35 @@
             (txt x y (car (car ps)) (cadr (car ps)))
             (loop (cdr ps) (+ x (txt-w (car (car ps))))))))))
 
-(define (cal-clock y)
+;; Seven-segment sizes for digits dh tall: (dw dh dt sw sh st), the
+;; hours:minutes and the seconds beside them (70 px: 38 wide, 7 thick)
+(define (cal-clock-dims dh)
+  (list (quotient (* dh 38) 70) dh (max 4 (quotient (* dh 7) 70))
+        (quotient (* dh 18) 70) (quotient (* dh 34) 70) (max 3 (quotient (* dh 4) 70))))
+
+;; The tallest clock up to dh (not below 70) that fits the screen's width;
+;; kept for the last (dh . width) asked (it runs for every band and second)
+(define cal-clock-fit-cache #f)
+
+(define (cal-clock-fit dh)
+  (let ((key (cons dh (scr-w))))
+    (if (and cal-clock-fit-cache (equal? (car cal-clock-fit-cache) key))
+        (cdr cal-clock-fit-cache)
+        (let loop ((h dh))
+          (let* ((d (cal-clock-dims h))
+                 (w (+ (gui-seg7-width (car d) (caddr d) "88:88") 10
+                       (gui-seg7-width (list-ref d 3) (list-ref d 5) "88"))))
+            (if (or (<= w (- (scr-w) 16)) (<= h 70))
+                (begin (set! cal-clock-fit-cache (cons key d)) d)
+                (loop (- h 2))))))))
+
+(define (cal-clock y size)
   (let* ((hm app-time)
          (n (string-length app-sec))      ; the device gives ":30" (":--" unsynced)
          (sec (cond ((= n 3) (substring app-sec 1 3)) ((= n 2) app-sec) (else "--")))
-         (dw 38) (dh 70) (dt 7) (sw 18) (sh 34) (st 4)
+         (d (cal-clock-fit size))
+         (dw (list-ref d 0)) (dh (list-ref d 1)) (dt (list-ref d 2))
+         (sw (list-ref d 3)) (sh (list-ref d 4)) (st (list-ref d 5))
          (hm-w (gui-seg7-width dw dt hm))
          (total (+ hm-w 10 (gui-seg7-width sw st sec)))
          (x (quotient (- (scr-w) total) 2)))
@@ -1395,8 +1420,11 @@
     (for-each (lambda (cd) (cal-countdown y cd) (set! y (+ y 24))) shown)
     (if (pair? shown) (set! y (+ y 6)))
     (set! cal-clock-y y)
-    (cal-clock (+ y 4))
-    (set! y (+ y 80))
+    (if (and (null? shown) (string=? (app-config "countdown" "") ""))
+        ;; no countdown set: the clock also takes the room of the usual
+        ;; countdown row (30 px), so what follows stays where it is with one
+        (begin (cal-clock (+ y 4) 100) (set! cal-clock-h 112) (set! y (+ y 110)))
+        (begin (cal-clock (+ y 4) 70) (set! cal-clock-h 82) (set! y (+ y 80))))
     (set! cal-world-y 0)
     (let ((date (items-find items "cdate")) (lunar (items-find items "lunar"))
           (term (items-find items "term")) (fest (items-find items "fest"))
@@ -1596,7 +1624,7 @@
 (set! app-tick-proc
       (lambda (tick)
         (if (and (= app-page-index 0) (not (info-active?)) (> cal-clock-y 0))
-            (gui-invalidate 0 cal-clock-y (scr-w) 82))
+            (gui-invalidate 0 cal-clock-y (scr-w) cal-clock-h))
         (if (and (= app-page-index 0) (not (info-active?)) (> cal-world-y 0) (not (string=? app-time cal-world-hm)))
             (gui-invalidate 0 cal-world-y (scr-w) cal-world-h))
         (if (and (> (string-length app-date) 0) (not (string=? app-date cal-day-seen)))

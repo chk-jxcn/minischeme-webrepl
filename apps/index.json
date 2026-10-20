@@ -25,9 +25,9 @@
   "pages": 3,
   "web": false,
   "file": "calendar.msbc",
-  "size": 52932,
+  "size": 53828,
   "scm": "calendar.allinone.scm",
-  "hash": "536385d5"
+  "hash": "cc2167c7"
  },
  {
   "id": "crypto",

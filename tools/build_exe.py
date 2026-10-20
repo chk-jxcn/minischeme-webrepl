@@ -61,9 +61,19 @@ def main():
         "--hidden-import", "proxy.channel",
         "--hidden-import", "proxy.security",
         "--hidden-import", "proxy.hwkey_js",
+        "--hidden-import", "proxy.admin_password",
+        "--hidden-import", "proxy.calendar_data",
+        # the calendar's lunar_python, vendored in proxy/vendor (MIT)
+        "--paths", os.path.join("proxy", "vendor"),
+        "--collect-submodules", "lunar_python",
         "--hidden-import", "make_font",
-        "server.py",
     ])
+    try:   # zoneinfo has no time zone database on Windows: the world clocks need tzdata
+        import tzdata  # noqa: F401
+        cmd.extend(["--collect-all", "tzdata"])
+    except ImportError:
+        print("[!] tzdata is not installed: the exe's world clocks will be empty (pip install tzdata)")
+    cmd.append("server.py")
 
     print("[*] Running PyInstaller:", " ".join(cmd))
     subprocess.run(cmd, check=True)

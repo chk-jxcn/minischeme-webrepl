@@ -24,7 +24,7 @@ jobs:
       - name: Install PyInstaller and dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pillow fonttools cryptography
+          pip install pyinstaller pillow fonttools cryptography tzdata
 
       - name: Run Test Suite
         run: |
@@ -44,6 +44,14 @@ jobs:
           if (-not $resp.success -or $resp.port -ne 18087) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             throw "MiniScheme-WebREPL.exe verification failed"
+          }
+          # the calendar's lunar_python and the world clocks' tzdata are in the exe
+          $cal = Invoke-RestMethod -Uri "http://127.0.0.1:18087/app/calendar?view=today&wc=New_York%3DAmerica%2FNew_York" -TimeoutSec 10
+          $tags = @($cal.items | ForEach-Object { $_.t })
+          Write-Host "Calendar items:" ($tags -join ",")
+          if (-not ($tags -contains "lunar") -or -not ($tags -contains "wclk")) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            throw "MiniScheme-WebREPL.exe: calendar data incomplete (lunar_python / tzdata missing?)"
           }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 
