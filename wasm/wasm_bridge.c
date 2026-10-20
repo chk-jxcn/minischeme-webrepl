@@ -782,6 +782,7 @@ static char g_app_id[32] = "app";
 static char g_app_name[64] = "";      /* its display name (metadata), for the error screen */
 static char g_app_ini[80] = "";
 static char g_app_dir[64] = "";        /* the running app's folder (minischeme_device.h) */
+static char g_app_members[160] = "";   /* a combined app's [combo] members: their configs it may read */
 static bool g_settings_mode;           /* the system settings run (set by wasm_reboot) */
 
 static const char *mock_meta(int slot, size_t *len) {
@@ -819,6 +820,7 @@ static int mock_select_boot_app(void) {
     mini_app_dir_of(g_app_path, g_app_id, g_app_dir, sizeof(g_app_dir));
     snprintf(g_app_ini, sizeof(g_app_ini), "%s/config.ini", g_app_dir);
     if (!text || !mini_device_config_value(text, "name", g_app_name, sizeof(g_app_name))) g_app_name[0] = '\0';
+    if (!text || !mini_device_config_value(text, "members", g_app_members, sizeof(g_app_members))) g_app_members[0] = '\0';
     const char *defaults = text ? mini_app_meta_config(text) : NULL;
     int ini_slot = mock_fs_find(g_app_ini);
     if (defaults && ini_slot >= 0) {
@@ -856,6 +858,44 @@ static bool mock_ini_value(const char *path, const char *key, char *val, size_t 
     return slot >= 0 && mini_device_config_value((const char *)g_mock_fs[slot].data, key, val, cap);
 }
 
+/* id is one of the running combined app's members ([combo] members = a, b) */
+static bool mock_member_ok(const char *id) {
+    size_t n = strlen(id);
+    if (n == 0 || n >= 32) return false;
+    for (const char *p = id; *p; p++) {
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_' || *p == '-')) return false;
+    }
+    for (const char *p = g_app_members; *p; ) {
+        while (*p == ' ' || *p == ',') p++;
+        const char *e = p;
+        while (*e && *e != ',' && *e != ' ') e++;
+        if ((size_t)(e - p) == n && strncmp(p, id, n) == 0) return true;
+        p = e;
+    }
+    return false;
+}
+
+/* A member's own config.ini (apps/<id>/, else user/<id>/) into out; whether it exists */
+static bool mock_member_ini_path(const char *id, char *out, size_t cap) {
+    snprintf(out, cap, "/spiffs/apps/%s/config.ini", id);
+    if (mock_fs_find(out) >= 0) return true;
+    snprintf(out, cap, "/spiffs/user/%s/config.ini", id);
+    return mock_fs_find(out) >= 0;
+}
+
+/* (app-has-config? app-id): as the firmware */
+static Value prim_mock_app_has_config(MiniVM *vm, int argc, Value *argv) {
+    if (argc < 1 || !mini_is_string(argv[0]) || !mock_member_ok(mini_string_data(argv[0]))) {
+        vm_error(vm, "app-has-config?: expected a member of this combined app");
+        return mini_void();
+    }
+    mock_fs_seed();
+    char path[80];
+    return mock_member_ini_path(mini_string_data(argv[0]), path, sizeof(path)) ? mini_true() : mini_false();
+}
+
+/* (config-get key [app-id]): as the firmware; app-id, a member of the
+ * running combined app, reads that app's own config.ini */
 static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
     if (argc < 1 || !mini_is_string(argv[0])) {
         vm_error(vm, "config-get: expected a key string");
@@ -864,8 +904,19 @@ static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
     mock_fs_seed();
     char val[160];
     const char *key = mini_string_data(argv[0]);
+    const char *ini = g_app_ini;
+    char member_ini[80];
+    if (argc >= 2 && mini_is_string(argv[1]) && strcmp(mini_string_data(argv[1]), g_app_id) != 0) {
+        const char *id = mini_string_data(argv[1]);
+        if (!mock_member_ok(id)) {
+            vm_error(vm, "config-get: %s is not a member of this combined app", id);
+            return mini_void();
+        }
+        mock_member_ini_path(id, member_ini, sizeof(member_ini));
+        ini = member_ini;
+    }
     /* as the firmware: a key left empty in the app's ini is the system's */
-    if ((mock_ini_value(g_app_ini, key, val, sizeof(val)) && val[0]) ||
+    if ((mock_ini_value(ini, key, val, sizeof(val)) && val[0]) ||
         (mini_app_config_key_ok(key) && mock_ini_value("/spiffs/config.ini", key, val, sizeof(val)))) {
         /* the simulator's requests go through server.py on the PC that runs
          * the app proxy: an unset proxy is that PC's */
@@ -1328,6 +1379,7 @@ static void register_device_prims(MiniVM *vm) {
         { "deep-sleep",         prim_mock_noop },
         { "chip-model",         prim_mock_chip_model },
         { "config-get",         prim_mock_config_get },
+        { "app-has-config?",    prim_mock_app_has_config },
         { "app-config-set!",    prim_mock_app_config_set },
         { "app-info",           prim_mock_app_info },
         { "app-list",           prim_mock_app_list },

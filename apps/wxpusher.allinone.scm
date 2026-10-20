@@ -4,6 +4,7 @@
 ;;; =========================================================================
 ;;; [app]
 ;;; pages = 1
+;;; page_ids = messages ; English page names: <app>.<id> in a combined app (front: the first)
 ;;; id = wxpusher
 ;;; name = WxPusher
 ;;; description = WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）
@@ -815,6 +816,8 @@
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
+(define app-views '())                       ; (name . (lambda (items i) ...)): views a combined app can show
+(define app-index-always #f)                 ; #t: the page number also on page 1 (a combined app)
 (define app-footer-text "")                  ; the footer of a local page (no proxy data)
 (define app-pages (vector))
 (define app-urls (vector))
@@ -837,6 +840,9 @@
 (define (app-keys! . names) (set! APP-KEYS (append APP-BASE-KEYS names)))
 
 (define (app-page name url-proc interval render) (vector name url-proc interval render))
+;; A view of the app's data a combined app (apps/lib/combo.scm) may show as
+;; one of its pages: "news[0]" calls (proc items 0) on the page it belongs to
+(define (app-view! name page proc) (set! app-views (cons (list name page proc) app-views)))
 ;; A page drawn from the app's own data (memos, messages): no fetch, render gets '()
 (define (app-local-page name render) (vector name (lambda () "") 0 render))
 (define (app-local? i) (string=? (vector-ref app-urls i) ""))
@@ -1010,7 +1016,7 @@
 (define (app-render-header items)
   (let* ((w (scr-w))
          (tw (txt-w app-time))
-         (ind (if (> app-page-index 0)
+         (ind (if (or app-index-always (> app-page-index 0))
                   (string-append (int->str (+ app-page-index 1)) "/" (int->str (app-npages)))
                   #f))
          (iw (if ind (+ (txt-w ind) 12) 0))
@@ -1739,6 +1745,13 @@
 (wx-load!)
 (app-keys! "topic")                    ; beyond t, a..e: the message's topic
 (set! app-render-empty-pages '(0))     ; the board's own messages, also before (or without) the proxy
+
+;; For a combined app (apps/lib/combo.scm): wxpusher.news[i], message i (0 the
+;; newest), the list when there are fewer
+(app-view! "news" 0
+           (lambda (items i)
+             (let ((m (and (< i (length wx-list)) (list-ref wx-list i))))
+               (if m (wx-render-message m) (wx-render-list)))))
 
 (app-define! "WxPusher"
   (list (app-page "消息" wx-url WX-INTERVAL wx-render)))

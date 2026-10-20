@@ -4,6 +4,7 @@
 ;;; =========================================================================
 ;;; [app]
 ;;; pages = 5
+;;; page_ids = front, sevendays, hourly, rain, life ; English page names: <app>.<id> in a combined app (front: the first)
 ;;; id = weather
 ;;; name = 天气预报
 ;;; description = 当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数
@@ -829,6 +830,8 @@
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
+(define app-views '())                       ; (name . (lambda (items i) ...)): views a combined app can show
+(define app-index-always #f)                 ; #t: the page number also on page 1 (a combined app)
 (define app-footer-text "")                  ; the footer of a local page (no proxy data)
 (define app-pages (vector))
 (define app-urls (vector))
@@ -851,6 +854,9 @@
 (define (app-keys! . names) (set! APP-KEYS (append APP-BASE-KEYS names)))
 
 (define (app-page name url-proc interval render) (vector name url-proc interval render))
+;; A view of the app's data a combined app (apps/lib/combo.scm) may show as
+;; one of its pages: "news[0]" calls (proc items 0) on the page it belongs to
+(define (app-view! name page proc) (set! app-views (cons (list name page proc) app-views)))
 ;; A page drawn from the app's own data (memos, messages): no fetch, render gets '()
 (define (app-local-page name render) (vector name (lambda () "") 0 render))
 (define (app-local? i) (string=? (vector-ref app-urls i) ""))
@@ -1024,7 +1030,7 @@
 (define (app-render-header items)
   (let* ((w (scr-w))
          (tw (txt-w app-time))
-         (ind (if (> app-page-index 0)
+         (ind (if (or app-index-always (> app-page-index 0))
                   (string-append (int->str (+ app-page-index 1)) "/" (int->str (app-npages)))
                   #f))
          (iw (if ind (+ (txt-w ind) 12) 0))

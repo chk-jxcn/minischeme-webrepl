@@ -8,11 +8,14 @@
   "extensions": "",
   "kind": "app",
   "pages": 1,
+  "page_ids": [
+   "photos"
+  ],
   "web": true,
   "file": "album.msbc",
-  "size": 58011,
+  "size": 58260,
   "scm": "album.allinone.scm",
-  "hash": "97471ff2"
+  "hash": "b7292c53"
  },
  {
   "id": "calendar",
@@ -23,11 +26,32 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "today",
+   "month",
+   "moon"
+  ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 56423,
+  "size": 56684,
   "scm": "calendar.allinone.scm",
-  "hash": "18c60529"
+  "hash": "af137aa1"
+ },
+ {
+  "id": "combo",
+  "name": "合集",
+  "description": "把几个应用的页面合成一个轮播：天气、万年历、最新消息、股票等，每页标出所属应用和序号；各应用的设置仍在它自己的配置里",
+  "version": "1",
+  "api": "1.6",
+  "extensions": "",
+  "kind": "app",
+  "pages": 5,
+  "page_ids": [],
+  "web": false,
+  "file": "combo.msbc",
+  "size": 101831,
+  "scm": "combo.allinone.scm",
+  "hash": "34a9e892"
  },
  {
   "id": "crypto",
@@ -38,11 +62,16 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "quotes",
+   "day",
+   "week"
+  ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 42772,
+  "size": 43032,
   "scm": "crypto.allinone.scm",
-  "hash": "dfa3599b"
+  "hash": "238f6ad8"
  },
  {
   "id": "futures",
@@ -53,11 +82,16 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "quotes",
+   "intraday",
+   "trend30"
+  ],
   "web": false,
   "file": "futures.msbc",
-  "size": 42805,
+  "size": 43073,
   "scm": "futures.allinone.scm",
-  "hash": "095d72ae"
+  "hash": "543fea7a"
  },
  {
   "id": "memo",
@@ -68,11 +102,15 @@
   "extensions": "",
   "kind": "app",
   "pages": 2,
+  "page_ids": [
+   "todo",
+   "done"
+  ],
   "web": true,
   "file": "memo.msbc",
-  "size": 52730,
+  "size": 52983,
   "scm": "memo.allinone.scm",
-  "hash": "95dbfd05"
+  "hash": "aa27a617"
  },
  {
   "id": "news",
@@ -83,11 +121,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 5,
+  "page_ids": [
+   "hot",
+   "society",
+   "finance",
+   "sports"
+  ],
   "web": false,
   "file": "news.msbc",
-  "size": 40467,
+  "size": 40739,
   "scm": "news.allinone.scm",
-  "hash": "a531b7b7"
+  "hash": "a68f6d1f"
  },
  {
   "id": "notifier",
@@ -98,11 +142,15 @@
   "extensions": "",
   "kind": "app",
   "pages": 2,
+  "page_ids": [
+   "latest",
+   "all"
+  ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 54858,
+  "size": 55112,
   "scm": "notifier.allinone.scm",
-  "hash": "e61910fd"
+  "hash": "db170eb6"
  },
  {
   "id": "pcmonitor",
@@ -113,6 +161,7 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [],
   "web": false,
   "file": "pcmonitor.msbc",
   "size": 33751,
@@ -128,6 +177,7 @@
   "extensions": "",
   "kind": "system",
   "pages": 4,
+  "page_ids": [],
   "web": false,
   "file": "settings.msbc",
   "size": 30508,
@@ -143,11 +193,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 4,
+  "page_ids": [
+   "front",
+   "watchlist",
+   "intraday",
+   "trend30"
+  ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 45289,
+  "size": 45567,
   "scm": "stocks.allinone.scm",
-  "hash": "924b44c4"
+  "hash": "0fb5a1c3"
  },
  {
   "id": "usage",
@@ -158,11 +214,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 4,
+  "page_ids": [
+   "overview",
+   "claude",
+   "gemini",
+   "models"
+  ],
   "web": false,
   "file": "usage.msbc",
-  "size": 46164,
+  "size": 46439,
   "scm": "usage.allinone.scm",
-  "hash": "089be446"
+  "hash": "4858e774"
  },
  {
   "id": "weather",
@@ -173,11 +235,18 @@
   "extensions": "",
   "kind": "app",
   "pages": 5,
+  "page_ids": [
+   "front",
+   "sevendays",
+   "hourly",
+   "rain",
+   "life"
+  ],
   "web": false,
   "file": "weather.msbc",
-  "size": 54855,
+  "size": 55134,
   "scm": "weather.allinone.scm",
-  "hash": "2785455a"
+  "hash": "bf65c9f1"
  },
  {
   "id": "wxpusher",
@@ -188,10 +257,13 @@
   "extensions": "",
   "kind": "app",
   "pages": 1,
+  "page_ids": [
+   "messages"
+  ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 58606,
+  "size": 59018,
   "scm": "wxpusher.allinone.scm",
-  "hash": "bc1c437f"
+  "hash": "1583466a"
  }
 ]

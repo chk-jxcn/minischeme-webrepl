@@ -391,5 +391,12 @@
 (app-keys! "topic")                    ; beyond t, a..e: the message's topic
 (set! app-render-empty-pages '(0))     ; the board's own messages, also before (or without) the proxy
 
+;; For a combined app (apps/lib/combo.scm): wxpusher.news[i], message i (0 the
+;; newest), the list when there are fewer
+(app-view! "news" 0
+           (lambda (items i)
+             (let ((m (and (< i (length wx-list)) (list-ref wx-list i))))
+               (if m (wx-render-message m) (wx-render-list)))))
+
 (app-define! "WxPusher"
   (list (app-page "消息" wx-url WX-INTERVAL wx-render)))
