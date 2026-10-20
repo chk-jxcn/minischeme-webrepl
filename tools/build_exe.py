@@ -63,6 +63,8 @@ def main():
         "--hidden-import", "proxy.hwkey_js",
         "--hidden-import", "proxy.admin_password",
         "--hidden-import", "proxy.calendar_data",
+        "--hidden-import", "proxy.wxpusher",
+        "--hidden-import", "proxy.qr",
         # the calendar's lunar_python, vendored in proxy/vendor (MIT)
         "--paths", os.path.join("proxy", "vendor"),
         "--collect-submodules", "lunar_python",

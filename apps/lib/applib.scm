@@ -245,6 +245,7 @@
 (define app-title "APP")
 (define app-subtitle-proc #f)                ; (items) -> text after the title on page 1
 (define app-header-proc #f)                  ; (items x w): draws page 1's title in [x, x + w) itself
+(define app-page-title-only #f)              ; #t: pages after the first are titled by their name alone
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
@@ -460,8 +461,9 @@
           (txt (+ badge 6) 8 ind theme-accent)))
     (if (and app-header-proc (= app-page-index 0))
         (app-header-proc items 8 (- right 14))
-        (let* ((title (app-header-title items))
-               (sub (app-header-sub items))
+        (let* ((named (and app-page-title-only (> app-page-index 0)))
+               (title (if named (vector-ref (app-cur) 0) (app-header-title items)))
+               (sub (if named #f (app-header-sub items)))
                (title-w (txt-w title)))
           (txt-fit 8 8 (- right 14) title theme-text-main)
           (if (and (not (str-empty? sub)) (< (+ 8 title-w 10) (- right 20)))
@@ -500,11 +502,12 @@
          (page-error (and app-error (or (eq? app-error APP-NO-PROXY) (equal? app-error-url url)) app-error))
          ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
          (step (app-status 'step))
-         (busy (memq step '(clock register)))
+         (busy (memq step '(clock register wifi)))
          (failed (and (not busy) (or page-error (eq? state 'error))))
          (text (cond ((eq? step 'register)
                       (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
                      ((eq? step 'clock) "等待网络对时...")
+                     ((eq? step 'wifi) "等待 WiFi 连接...")      ; firmware 1.0.61+
                      (page-error (string-append "代理: " page-error))
                      ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
                      ((and app-loading mine) (if last (string-append last "，刷新中...") "加载中..."))

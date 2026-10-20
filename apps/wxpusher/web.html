@@ -8,7 +8,7 @@
 <style>
 .msg.unread .t{font-weight:600}
 .new{color:var(--bad);border-color:var(--bad)}
-#qr img{width:220px;height:220px;image-rendering:pixelated;background:#fff;padding:8px;border-radius:6px}
+#qr canvas{width:220px;height:220px;image-rendering:pixelated;background:#fff;border-radius:6px}
 </style>
 </head>
 <body>
@@ -24,9 +24,9 @@
 <div id="qr"></div>
 <div class="desc" id="info"></div>
 <button class="plain small" id="logout" onclick="logout()" hidden>退出登录</button>
-<div class="desc" style="margin-top:8px">消息由应用代理（tools/app_proxy.py）以 WxPusher 客户端的身份接收：
-代理保持与 WxPusher 的 WebSocket 连接，设备每 5 秒取一次。登录信息只保存在代理电脑的
-<code>tools/app_proxy.wxpusher.json</code>。</div>
+<div class="desc" style="margin-top:8px">消息由应用代理以 WxPusher 客户端的身份接收：
+代理保持与 WxPusher 的 WebSocket 连接，设备每 5 秒取一次。登录信息只保存在代理上
+（公网代理按设备分开保存，本地代理由本网络的设备共用）。</div>
 <div class="desc" style="margin-top:8px">设备上：短按从新到旧看完整消息，看完回到列表；首页长按（0.8 秒）全部标为已读；在消息上长按标为已读，已读的消息长按回到列表。</div>
 </section>
 </main>
@@ -51,9 +51,27 @@ function take(r) {
   $('state').textContent = STATE[r.state] || '等待代理';
   $('info').textContent = !proxy ? '没有设置应用代理（系统设置 → 应用代理）'
     : r.state === 'login' ? '用手机微信扫描屏幕或下面的二维码登录' : (r.info || '');
-  $('qr').innerHTML = proxy && r.state === 'login'
-    ? `<img alt="登录二维码" src="${esc(proxy)}/wxpusher/qr.jpg?t=${Date.now() >> 16}">` : '';
-  $('logout').hidden = !(proxy && r.state === 'ok');
+  drawQr(r.qr || '', r.qrn || 0);
+  $('logout').hidden = !(proxy && r.state === 'ok' && !r.logout);
+  if (r.logout) $('info').textContent = '退出登录等待同步到代理...';
+}
+
+/* The login QR code as the board has it (rows of hex, 4 modules a digit,
+   the first the high bit), with a quiet zone of 4 modules */
+function drawQr(rows, n) {
+  if (!rows || !n) { $('qr').innerHTML = ''; return; }
+  const side = n + 8, c = document.createElement('canvas');
+  c.width = c.height = side;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, side, side);
+  g.fillStyle = '#000';
+  rows.split(',').forEach((hex, y) => {
+    for (let x = 0; x < n; x++) {
+      if ((parseInt(hex[x >> 2] || '0', 16) >> (3 - (x & 3))) & 1) g.fillRect(x + 4, y + 4, 1, 1);
+    }
+  });
+  c.setAttribute('aria-label', '登录二维码');
+  $('qr').replaceChildren(c);
 }
 
 async function load() { await attempt(async () => take(await appCall('list'))); }
@@ -68,9 +86,8 @@ async function clearAll() {
 async function logout() {
   if (!confirm('让应用代理退出 WxPusher 登录？之后需要重新扫码。')) return;
   await attempt(async () => {
-    const r = await fetch(proxy + '/wxpusher/logout', {method: 'POST'}).then((x) => x.json());
-    if (!r.success) throw new Error(r.error || '退出失败');
-    say('已退出登录，稍后屏幕显示新的二维码', 'ok');
+    take(await appCall('logout'));
+    say('设备下次取消息时退出登录，稍后屏幕显示新的二维码', 'ok');
   });
 }
 

@@ -298,11 +298,25 @@
 
 (define CAL-WEEK '("日" "一" "二" "三" "四" "五" "六"))
 
+;; The days of the months before and after ("xday", d "p" or "n"), drawn
+;; dimmed in gray
+(define CAL-OTHER-NUM 23243)                ; #5a5a5a
+(define CAL-OTHER-LABEL 16936)              ; #464646
+
+(define (cal-xdays items side)
+  (filter (lambda (d) (string=? (it-d d) side)) (items-all items "xday")))
+
+;; Six weeks as a wall calendar shows them: the month's days and around them
+;; the adjacent months' (an older proxy sends the month's days only)
 (define (cal-render-month items)
-  (let* ((m (items-find items "month")) (days (items-all items "day"))
+  (let* ((m (items-find items "month"))
+         (cells (append (map (lambda (d) (cons #f d)) (cal-xdays items "p"))
+                        (map (lambda (d) (cons #t d)) (items-all items "day"))
+                        (map (lambda (d) (cons #f d)) (cal-xdays items "n"))))
          (w (scr-w)) (cw (quotient (- w 4) 7)) (x0 (quotient (- w (* cw 7)) 2))
-         (first (if m (it-int m 2) 0)) (today (if m (it-int m 4) 0))
-         (rows (quotient (+ first (length days) 6) 7))
+         (first (- (if m (it-int m 2) 0) (length (cal-xdays items "p"))))
+         (today (if m (it-int m 4) 0))
+         (rows (quotient (+ first (length cells) 6) 7))
          (top (body-top)))
     (if m (txt-center (quotient w 2) top (it-a m) theme-text-main))
     (let loop ((i 0) (names CAL-WEEK))      ; 日 一 ... 六
@@ -313,23 +327,28 @@
             (loop (+ i 1) (cdr names)))))
     (gui-line x0 (+ top 48) (- w x0) (+ top 48) theme-divider)
     (let* ((gy (+ top 52)) (rh (min 60 (quotient (- (body-bottom) gy) (max rows 1)))))
-      (let loop ((ds days) (k first))
-        (if (pair? ds)
-            (let* ((d (car ds)) (col (remainder k 7)) (row (quotient k 7))
+      (let loop ((cs cells) (k first))
+        (if (pair? cs)
+            (let* ((mine (car (car cs))) (d (cdr (car cs)))
+                   (col (remainder k 7)) (row (quotient k 7))
                    (x (+ x0 (* col cw))) (y (+ gy (* row rh))) (n (it-int d 1))
+                   (now (and mine today (= n today)))
                    (num (it-a d)) (num-h (if (= cal-day-font F-TEXT) 18 26)))
-              (if (and today (= n today))
+              (if now
                   (begin
                     (gui-round-rect (+ x 1) (+ y 1) (- cw 2) (- rh 2) 8 theme-accent-dark #t)
                     (gui-round-rect (+ x 1) (+ y 1) (- cw 2) (- rh 2) 8 theme-accent #f)))
               (gui-text-styled (- (+ x (quotient cw 2)) (quotient (gui-text-width num cal-day-font) 2)) (+ y 5)
-                               num (cond ((and today (= n today)) theme-accent)
+                               num (cond ((not mine) CAL-OTHER-NUM)
+                                         (now theme-accent)
                                          ((or (= col 0) (= col 6)) theme-danger)
                                          (else theme-text-main))
                                cal-day-font)
               (txt-center (+ x (quotient cw 2)) (+ y 5 num-h) (it-b d)
-                          (if (string=? (it-c d) "1") theme-accent theme-text-muted))
-              (loop (cdr ds) (+ k 1))))))))
+                          (cond ((not mine) CAL-OTHER-LABEL)
+                                ((string=? (it-c d) "1") theme-accent)
+                                (else theme-text-muted)))
+              (loop (cdr cs) (+ k 1))))))))
 
 ;; 4. The sky -----------------------------------------------------------------------
 
@@ -463,6 +482,7 @@
 (set! app-render-empty-pages '(0))      ; the clock needs no proxy
 
 (set! app-header-proc cal-header)        ; page 1's title: the date and the weekday
+(set! app-page-title-only #t)            ; the other pages: their name alone
 
 (app-define! "万年历"
   (list (app-page "今日" cal-today-url 600000 cal-render-today)

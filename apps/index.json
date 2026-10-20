@@ -10,24 +10,24 @@
   "pages": 1,
   "web": true,
   "file": "album.msbc",
-  "size": 57829,
+  "size": 58011,
   "scm": "album.allinone.scm",
-  "hash": "8a7b5c94"
+  "hash": "97471ff2"
  },
  {
   "id": "calendar",
   "name": "万年历",
   "description": "时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度",
-  "version": "4",
+  "version": "5",
   "api": "1.0",
   "extensions": "",
   "kind": "app",
   "pages": 3,
   "web": false,
   "file": "calendar.msbc",
-  "size": 55763,
+  "size": 56423,
   "scm": "calendar.allinone.scm",
-  "hash": "d7b5d7d2"
+  "hash": "18c60529"
  },
  {
   "id": "crypto",
@@ -40,9 +40,9 @@
   "pages": 3,
   "web": false,
   "file": "crypto.msbc",
-  "size": 42590,
+  "size": 42772,
   "scm": "crypto.allinone.scm",
-  "hash": "87f4062b"
+  "hash": "dfa3599b"
  },
  {
   "id": "futures",
@@ -55,9 +55,9 @@
   "pages": 3,
   "web": false,
   "file": "futures.msbc",
-  "size": 42623,
+  "size": 42805,
   "scm": "futures.allinone.scm",
-  "hash": "a8434a0a"
+  "hash": "095d72ae"
  },
  {
   "id": "memo",
@@ -70,9 +70,9 @@
   "pages": 2,
   "web": true,
   "file": "memo.msbc",
-  "size": 52548,
+  "size": 52730,
   "scm": "memo.allinone.scm",
-  "hash": "6f29db4d"
+  "hash": "95dbfd05"
  },
  {
   "id": "news",
@@ -85,24 +85,24 @@
   "pages": 5,
   "web": false,
   "file": "news.msbc",
-  "size": 40285,
+  "size": 40467,
   "scm": "news.allinone.scm",
-  "hash": "d68eacf9"
+  "hash": "a531b7b7"
  },
  {
   "id": "notifier",
   "name": "消息提示",
   "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
-  "version": "2",
+  "version": "3",
   "api": "1.1",
   "extensions": "",
   "kind": "app",
   "pages": 2,
   "web": true,
   "file": "notifier.msbc",
-  "size": 54539,
+  "size": 54858,
   "scm": "notifier.allinone.scm",
-  "hash": "3696229a"
+  "hash": "e61910fd"
  },
  {
   "id": "pcmonitor",
@@ -145,9 +145,9 @@
   "pages": 4,
   "web": false,
   "file": "stocks.msbc",
-  "size": 45107,
+  "size": 45289,
   "scm": "stocks.allinone.scm",
-  "hash": "b44f589a"
+  "hash": "924b44c4"
  },
  {
   "id": "usage",
@@ -160,9 +160,9 @@
   "pages": 4,
   "web": false,
   "file": "usage.msbc",
-  "size": 45982,
+  "size": 46164,
   "scm": "usage.allinone.scm",
-  "hash": "82e4b0ea"
+  "hash": "089be446"
  },
  {
   "id": "weather",
@@ -175,23 +175,23 @@
   "pages": 5,
   "web": false,
   "file": "weather.msbc",
-  "size": 54673,
+  "size": 54855,
   "scm": "weather.allinone.scm",
-  "hash": "a57ada30"
+  "hash": "2785455a"
  },
  {
   "id": "wxpusher",
   "name": "WxPusher",
   "description": "WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）",
-  "version": "5",
+  "version": "6",
   "api": "1.4",
   "extensions": "",
   "kind": "app",
   "pages": 1,
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 57789,
+  "size": 58606,
   "scm": "wxpusher.allinone.scm",
-  "hash": "debb055f"
+  "hash": "bc1c437f"
  }
 ]

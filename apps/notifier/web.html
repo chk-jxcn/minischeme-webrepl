@@ -35,6 +35,7 @@ code{font:12px/1.4 ui-monospace,Consolas,monospace;color:var(--muted);word-break
 <h2>从其他地方推送</h2>
 <div class="desc">脚本或手机可以推送到应用代理，设备每 5 秒取一次：</div>
 <code id="proxyhint">-</code>
+<div class="desc" style="margin-top:4px">公网代理按设备分开保存消息：网址再加 <code>&amp;to=设备ID</code>（设备的 MAC），并带上用户门户登录得到的令牌（请求头 <code>X-Session-Token</code>）。</div>
 <div class="desc" style="margin-top:8px">也可以直接推送到这台设备（运行本应用时）：</div>
 <code id="devhint">-</code>
 <div class="desc" style="margin-top:8px">电脑上：<code>python tools/notify.py "内容" --title 标题 --level warn</code></div>

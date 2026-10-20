@@ -7,7 +7,7 @@
 ;;; id = wxpusher
 ;;; name = WxPusher
 ;;; description = WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）
-;;; version = 5
+;;; version = 6
 ;;; api = 1.4 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 4 (gui-bitmap for the QR code)
 ;;; 
 ;;; [fields]
@@ -811,6 +811,7 @@
 (define app-title "APP")
 (define app-subtitle-proc #f)                ; (items) -> text after the title on page 1
 (define app-header-proc #f)                  ; (items x w): draws page 1's title in [x, x + w) itself
+(define app-page-title-only #f)              ; #t: pages after the first are titled by their name alone
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
@@ -1026,8 +1027,9 @@
           (txt (+ badge 6) 8 ind theme-accent)))
     (if (and app-header-proc (= app-page-index 0))
         (app-header-proc items 8 (- right 14))
-        (let* ((title (app-header-title items))
-               (sub (app-header-sub items))
+        (let* ((named (and app-page-title-only (> app-page-index 0)))
+               (title (if named (vector-ref (app-cur) 0) (app-header-title items)))
+               (sub (if named #f (app-header-sub items)))
                (title-w (txt-w title)))
           (txt-fit 8 8 (- right 14) title theme-text-main)
           (if (and (not (str-empty? sub)) (< (+ 8 title-w 10) (- right 20)))
@@ -1066,11 +1068,12 @@
          (page-error (and app-error (or (eq? app-error APP-NO-PROXY) (equal? app-error-url url)) app-error))
          ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
          (step (app-status 'step))
-         (busy (memq step '(clock register)))
+         (busy (memq step '(clock register wifi)))
          (failed (and (not busy) (or page-error (eq? state 'error))))
          (text (cond ((eq? step 'register)
                       (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
                      ((eq? step 'clock) "等待网络对时...")
+                     ((eq? step 'wifi) "等待 WiFi 连接...")      ; firmware 1.0.61+
                      (page-error (string-append "代理: " page-error))
                      ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
                      ((and app-loading mine) (if last (string-append last "，刷新中...") "加载中..."))
@@ -1346,11 +1349,13 @@
 ;;; =========================================================================
 ;;; =========================================================================
 ;;; WxPusher receiver, 320x480 portrait, on the app framework (applib.scm).
-;;; The app proxy (tools/app_proxy.py) is a WxPusher client device: it keeps
+;;; The app proxy (minischeme-proxy) is a WxPusher client device: it keeps
 ;;; the service's WebSocket and collects the messages pushed to the user's
 ;;; WeChat; this app polls them at /app/wxpusher every 5 s and keeps them on
 ;;; the board (wxpusher.txt in its folder). Without a login the proxy sends
-;;; the login QR code, drawn here to scan with WeChat.
+;;; the login QR code (its modules), drawn here with gui-bitmap to scan with
+;;; WeChat. A public proxy keeps one login per device (the encrypted channel
+;;; names it); a local one, one for the boards of its network.
 ;;;   home: the messages: the subject (【新】 on the right while unread), under
 ;;;   it the topic on the left and the time on the right
 ;;;   short press: the full messages, newest to oldest, then home again
@@ -1358,7 +1363,8 @@
 ;;;   long press on a message: unread -> read; already read -> home
 ;;; Messages deleted here (the web page) are deleted at the proxy too: the
 ;;; feed URL carries ?del=<ids> until a document from it arrives; the proxy
-;;; drops them and deletes them on the WxPusher service.
+;;; drops them and deletes them on the WxPusher service. 退出登录 on the web
+;;; page goes the same way: ?logout=1 until a document comes back.
 ;;; File: first line "L|<newest id taken>", then "D|<ids to delete at the
 ;;; proxy>" while there are any, then "id|read|time|title|text"; time is
 ;;; "MM-DD HH:MM", then after a space the topic (the item's "topic").
@@ -1383,6 +1389,7 @@
 (define wx-qr-key "")                   ; the rows as sent: decoded again only when they change
 (define wx-alert 0)                     ; seconds of LED blinking left
 (define wx-del '())                     ; ids deleted here, not yet taken by the proxy
+(define wx-logout #f)                   ; the web page's 退出登录, not yet taken by the proxy
 
 ;; 1. Storage ---------------------------------------------------------------------------------
 
@@ -1461,10 +1468,13 @@
                               (list->string (list #\newline))))
   (app-invalidate-all))
 
-;; The feed URL: with ?del=<ids> while deletions wait for the proxy
+;; The feed URL: with del=<ids> while deletions wait for the proxy, and
+;; logout=1 while the logout does
 (define (wx-base-url) (app-url "/app/wxpusher"))
 (define (wx-url)
-  (if (null? wx-del) (wx-base-url) (string-append (wx-base-url) "?del=" (web-join wx-del ","))))
+  (let ((q (append (if (null? wx-del) '() (list (string-append "del=" (web-join wx-del ","))))
+                   (if wx-logout '("logout=1") '()))))
+    (if (null? q) (wx-base-url) (string-append (wx-base-url) "?" (web-join q "&")))))
 
 ;; Messages deleted here: gone from the board, sent to the proxy with the next fetch
 (define (wx-delete! ids)
@@ -1538,10 +1548,11 @@
 ;; "h" was read on the service before (history); new unread ones blink the LED.
 (set! app-data-proc
       (lambda (items)
-        ;; a document fetched with ?del=: the proxy has the deletions
-        (if (and (pair? wx-del) (equal? (json-feed-url) (wx-url)))
+        ;; a document fetched with del= or logout=1: the proxy has them
+        (if (and (or (pair? wx-del) wx-logout) (equal? (json-feed-url) (wx-url)))
             (begin
               (set! wx-del '())
+              (set! wx-logout #f)
               (wx-save!)
               (app-set-url! 0 (wx-url))))
         (let ((st (items-find items "state")))
@@ -1596,7 +1607,7 @@
             (if (str-empty? wx-info) "等待代理生成登录二维码..." wx-info) theme-text-sub))
 
 (define (wx-hint)
-  (cond ((str-empty? (app-proxy)) "在系统设置中填写应用代理（运行 tools/app_proxy.py 的电脑）")
+  (cond ((str-empty? (app-proxy)) "在系统设置中填写应用代理")
         ((string=? wx-state "error") (string-append "代理连接 WxPusher 失败：" wx-info))
         (else "推送到你微信的消息会显示在这里")))
 
@@ -1698,7 +1709,9 @@
 (define (wx-answer)
   (web-ok (cons 'messages (map wx->alist wx-list)) (cons 'unread (wx-unread)) (cons 'state wx-state)
           (cons 'info wx-info) (cons 'proxy (app-proxy))
-          (cons 'pending (length wx-del))))
+          (cons 'pending (length wx-del)) (cons 'logout wx-logout)
+          ;; the login QR code as the proxy sent it: rows of hex, n modules a side
+          (cons 'qr (if (and wx-qr (string=? wx-state "login")) wx-qr-key "")) (cons 'qrn wx-qr-n)))
 
 (define (app-web name body)
   (cond
@@ -1714,6 +1727,10 @@
        (wx-answer)))
     ((string=? name "clear")
      (wx-delete! (map wx-id wx-list))
+     (wx-answer))
+    ((string=? name "logout")             ; sent with the next fetch
+     (set! wx-logout #t)
+     (app-set-url! 0 (wx-url))
      (wx-answer))
     (else (web-error (string-append "unknown call: " name)))))
 
