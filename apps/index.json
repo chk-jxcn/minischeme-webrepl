@@ -13,9 +13,9 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 57686,
+  "size": 58078,
   "scm": "album.allinone.scm",
-  "hash": "9dd5edba"
+  "hash": "4710945f"
  },
  {
   "id": "calendar",
@@ -33,9 +33,9 @@
   ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 55632,
+  "size": 56024,
   "scm": "calendar.allinone.scm",
-  "hash": "4ba40cac"
+  "hash": "b3d4c23f"
  },
  {
   "id": "crypto",
@@ -53,9 +53,9 @@
   ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 42458,
+  "size": 42850,
   "scm": "crypto.allinone.scm",
-  "hash": "54d6feb4"
+  "hash": "45cd873b"
  },
  {
   "id": "futures",
@@ -73,9 +73,9 @@
   ],
   "web": false,
   "file": "futures.msbc",
-  "size": 42499,
+  "size": 42891,
   "scm": "futures.allinone.scm",
-  "hash": "be035432"
+  "hash": "bbc972cf"
  },
  {
   "id": "memo",
@@ -92,9 +92,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 52409,
+  "size": 52801,
   "scm": "memo.allinone.scm",
-  "hash": "bde5c6f2"
+  "hash": "b76bb709"
  },
  {
   "id": "news",
@@ -113,9 +113,9 @@
   ],
   "web": false,
   "file": "news.msbc",
-  "size": 40165,
+  "size": 40557,
   "scm": "news.allinone.scm",
-  "hash": "ab3d526b"
+  "hash": "c34aa894"
  },
  {
   "id": "notifier",
@@ -132,9 +132,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 54401,
+  "size": 54793,
   "scm": "notifier.allinone.scm",
-  "hash": "3b24007d"
+  "hash": "861aefc2"
  },
  {
   "id": "pcmonitor",
@@ -185,9 +185,9 @@
   ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 44993,
+  "size": 45385,
   "scm": "stocks.allinone.scm",
-  "hash": "e17f346d"
+  "hash": "2b8ced41"
  },
  {
   "id": "usage",
@@ -206,9 +206,9 @@
   ],
   "web": false,
   "file": "usage.msbc",
-  "size": 45865,
+  "size": 46257,
   "scm": "usage.allinone.scm",
-  "hash": "65c4bef4"
+  "hash": "03a2f3a5"
  },
  {
   "id": "weather",
@@ -228,9 +228,9 @@
   ],
   "web": false,
   "file": "weather.msbc",
-  "size": 54560,
+  "size": 54952,
   "scm": "weather.allinone.scm",
-  "hash": "7325df39"
+  "hash": "752fe6c4"
  },
  {
   "id": "wxpusher",
@@ -246,8 +246,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 57809,
+  "size": 58201,
   "scm": "wxpusher.allinone.scm",
-  "hash": "27ec3f29"
+  "hash": "4cb72824"
  }
 ]
