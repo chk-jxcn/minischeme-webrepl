@@ -820,6 +820,7 @@
 
 (define app-title "APP")
 (define app-subtitle-proc #f)                ; (items) -> text after the title on page 1
+(define app-header-proc #f)                  ; (items x w): draws page 1's title in [x, x + w) itself
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
@@ -1020,12 +1021,14 @@
         (begin
           (gui-round-rect badge 5 iw 22 6 theme-accent-dark #t)
           (txt (+ badge 6) 8 ind theme-accent)))
-    (let* ((title (app-header-title items))
-           (sub (app-header-sub items))
-           (title-w (txt-w title)))
-      (txt-fit 8 8 (- right 14) title theme-text-main)
-      (if (and (not (str-empty? sub)) (< (+ 8 title-w 10) (- right 20)))
-          (txt-fit (+ 8 title-w 10) 8 (- right 14 title-w 10) sub theme-accent)))))
+    (if (and app-header-proc (= app-page-index 0))
+        (app-header-proc items 8 (- right 14))
+        (let* ((title (app-header-title items))
+               (sub (app-header-sub items))
+               (title-w (txt-w title)))
+          (txt-fit 8 8 (- right 14) title theme-text-main)
+          (if (and (not (str-empty? sub)) (< (+ 8 title-w 10) (- right 20)))
+              (txt-fit (+ 8 title-w 10) 8 (- right 14 title-w 10) sub theme-accent))))))
 
 (define (app-render-local-footer)
   (let ((y (- (gui-height) FTR-H)))
@@ -1244,6 +1247,42 @@
 
 (define cal-clock-y 0)                   ; where the clock is drawn (redrawn every second)
 (define cal-clock-h 82)                  ; the height of its row
+(define cal-lunar-y 0)                   ; the lunar line with the 时辰 and 刻 (redrawn when they change)
+(define cal-shike-seen "")
+
+;; The traditional time of day from the device's clock: the 时辰 (子 from
+;; 23:00, two hours each) and the quarter hours (刻) gone in it: 巳时初刻 at
+;; 9:00, 巳时六刻 at 10:30; "" before the clock is set
+(define CAL-SHICHEN '("子" "丑" "寅" "卯" "辰" "巳" "午" "未" "申" "酉" "戌" "亥"))
+(define CAL-KE '("初" "一" "二" "三" "四" "五" "六" "七"))
+
+(define (cal-shike)
+  (let ((h (and (>= (string-length app-time) 5) (string->number (substring app-time 0 2))))
+        (m (and (>= (string-length app-time) 5) (string->number (substring app-time 3 5)))))
+    (if (and h m)
+        (let ((since (modulo (+ (* h 60) m 60) 1440)))   ; minutes since 23:00
+          (string-append (list-ref CAL-SHICHEN (quotient since 120)) "时"
+                         (list-ref CAL-KE (quotient (remainder since 120) 15)) "刻"))
+        "")))
+
+;; Page 1's title: the date, and the weekday at a fixed place after it (the
+;; width of the longest date), so it does not move as the date gets longer.
+;; The year from the proxy's date; the month, day and weekday from the
+;; device's clock (right at midnight before the page is fetched again).
+(define (cal-header items x w)
+  (let* ((d (and (pair? items) (items-find items "cdate")))
+         (iso (and d (it-c d)))
+         (year (and iso (>= (string-length iso) 4) (substring iso 0 4)))
+         (date (cond ((str-empty? app-date) "")
+                     (year (string-append year "年" app-date))
+                     (else app-date)))
+         (week (if (str-starts? app-week "周")
+                   (string-append "星期" (substring app-week (string-length "周") (string-length app-week)))
+                   app-week))
+         (wx (+ x (txt-w "0000年00月00日") 12)))
+    (txt-fit x 8 (- wx x 4) date theme-text-main)
+    (if (<= (+ wx (txt-w week)) (+ x w))
+        (txt wx 8 week theme-text-main))))
 (define cal-world-y 0)                   ; where the world clocks are (redrawn every minute), 0: none
 (define cal-world-hm "")                 ; the minute they show
 (define cal-world-h 0)                   ; the height of their row (it takes the page's spare room)
@@ -1441,18 +1480,21 @@
             (cal-world y h dh wcs)
             (set! y (+ y h)))
           (set! y (+ y 6)))
-      ;; the full date from the document (a new day fetches it again, see below)
-      (txt-center cx y (if date (string-append (it-a date) "  " (it-b date)) (string-append app-date "  " app-week))
-                  theme-text-main)
-      (set! y (+ y 26))
+      ;; the date is in the title: here the lunar date and the 时辰 / 刻, the
+      ;; year's and the day's stem-branches, then 属 / 冲 / 煞 (the same 74 px
+      ;; the date and two lunar lines took, so the rest stays in place)
+      (set! cal-lunar-y y)
+      (set! cal-shike-seen (cal-shike))
       (cond (lunar
-             (txt-center cx y (string-append "农历" (it-a lunar) "  " (it-b lunar)) theme-accent)
-             (txt-center cx (+ y 22) (it-c lunar) theme-text-muted))
+             (txt-center cx y (string-append "农历" (it-a lunar) "  " cal-shike-seen) theme-text-main)
+             (txt-center cx (+ y 24) (string-append (it-b lunar) "  " (it-c lunar)) theme-text-sub)
+             (if (not (str-empty? (it-d lunar)))
+                 (txt-center cx (+ y 48) (it-d lunar) theme-text-muted)))
             ((null? items)                  ; no proxy yet: the device's own lunar date
-             (if (> (string-length app-lunar) 0)
-                 (txt-center cx y app-lunar theme-accent))  ; already "农历..."
-             (txt-center cx (+ y 22) "节气与宜忌等待代理数据" theme-text-muted)))
-      (set! y (+ y 48))
+             (if (> (string-length app-lunar) 0)       ; already "农历..."
+                 (txt-center cx y (string-append app-lunar "  " cal-shike-seen) theme-text-main))
+             (txt-center cx (+ y 24) "节气与宜忌等待代理数据" theme-text-muted)))
+      (set! y (+ y 74))
       (if term
           (txt-fit 12 y (- w 24)
                    (string-append (if (string=? (it-b term) "今日") (string-append "今日" (it-a term))
@@ -1625,6 +1667,9 @@
       (lambda (tick)
         (if (and (= app-page-index 0) (not (info-active?)) (> cal-clock-y 0))
             (gui-invalidate 0 cal-clock-y (scr-w) cal-clock-h))
+        (if (and (= app-page-index 0) (not (info-active?)) (> cal-lunar-y 0)
+                 (not (string=? (cal-shike) cal-shike-seen)))
+            (gui-invalidate 0 cal-lunar-y (scr-w) 24))
         (if (and (= app-page-index 0) (not (info-active?)) (> cal-world-y 0) (not (string=? app-time cal-world-hm)))
             (gui-invalidate 0 cal-world-y (scr-w) cal-world-h))
         (if (and (> (string-length app-date) 0) (not (string=? app-date cal-day-seen)))
@@ -1635,8 +1680,7 @@
 
 (set! app-render-empty-pages '(0))      ; the clock needs no proxy
 
-(set! app-subtitle-proc
-      (lambda (items) (let ((l (items-find items "lunar"))) (if l (string-append "农历" (it-a l)) ""))))
+(set! app-header-proc cal-header)        ; page 1's title: the date and the weekday
 
 (app-define! "万年历"
   (list (app-page "今日" cal-today-url 600000 cal-render-today)
