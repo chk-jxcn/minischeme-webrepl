@@ -4,6 +4,7 @@
 ;;; =========================================================================
 ;;; [app]
 ;;; pages = 5
+;;; page_ids = front, sevendays, hourly, rain, life ; English page names: <app>.<id> in a combined app (front: the first)
 ;;; id = weather
 ;;; name = 天气预报
 ;;; description = 当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数
@@ -828,6 +829,8 @@
 (define app-tick-proc #f)                    ; (tick) -> called every second
 (define app-render-empty-pages '())          ; pages drawn before their data comes (with no items)
 (define app-data-proc #f)                    ; (items) -> called when a new document arrives
+(define app-views '())                       ; (name . (lambda (items i) ...)): views a combined app can show
+(define app-index-always #f)                 ; #t: the page number also on page 1 (a combined app)
 (define app-footer-text "")                  ; the footer of a local page (no proxy data)
 (define app-pages (vector))
 (define app-urls (vector))
@@ -840,6 +843,7 @@
 (define app-lunar "")                       ; the device's lunar month and day (八月十九), "" unsynced
 (define app-cache '())                       ; #(url items time) per fetched URL
 (define app-error #f)                        ; message of the last error object
+(define app-error-url "")                    ; the page URL whose document carried it
 (define app-last-seq 0)
 (define app-feed-url "")
 (define app-loading #f)                      ; fetch requested, no document yet
@@ -849,6 +853,9 @@
 (define (app-keys! . names) (set! APP-KEYS (append APP-BASE-KEYS names)))
 
 (define (app-page name url-proc interval render) (vector name url-proc interval render))
+;; A view of the app's data a combined app (apps/lib/combo.scm) may show as
+;; one of its pages: "news[0]" calls (proc items 0) on the page it belongs to
+(define (app-view! name page proc) (set! app-views (cons (list name page proc) app-views)))
 ;; A page drawn from the app's own data (memos, messages): no fetch, render gets '()
 (define (app-local-page name render) (vector name (lambda () "") 0 render))
 (define (app-local? i) (string=? (vector-ref app-urls i) ""))
@@ -949,7 +956,7 @@
                  (if (< i 0) acc (loop (- i 1) (cons (app-read-item i) acc))))))
     (set! app-loading #f)
     (if (and (pair? items) (eq? (it-t (car items)) 'error))
-        (set! app-error (it-a (car items)))
+        (begin (set! app-error (it-a (car items))) (set! app-error-url (json-feed-url)))
         (begin
           (set! app-error #f)
           (app-cache-put! (json-feed-url) items)
@@ -1010,7 +1017,7 @@
 (define (app-render-header items)
   (let* ((w (scr-w))
          (tw (txt-w app-time))
-         (ind (if (> app-page-index 0)
+         (ind (if (or app-index-always (> app-page-index 0))
                   (string-append (int->str (+ app-page-index 1)) "/" (int->str (app-npages)))
                   #f))
          (iw (if ind (+ (txt-w ind) 12) 0))
@@ -1054,15 +1061,21 @@
          (w (scr-w))
          (entry (app-cache-entry (vector-ref app-urls app-page-index)))
          (upd (and entry (items-find (vector-ref entry 1) "upd")))  ; the server's data time
-         (state (app-status 'state))
+         ;; this page's fetch only: a prefetch of another page (or a combined
+         ;; app's other entry) failing says nothing about this one
+         (mine (equal? (json-feed-url) (vector-ref app-urls app-page-index)))
+         (state (if mine (app-status 'state) 'ok))
+         (page-error (and app-error (or (eq? app-error APP-NO-PROXY)
+                                        (equal? app-error-url (vector-ref app-urls app-page-index)))
+                          app-error))
          ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
          (step (app-status 'step))
          (busy (memq step '(clock register)))
-         (failed (and (not busy) (or app-error (eq? state 'error))))
+         (failed (and (not busy) (or page-error (eq? state 'error))))
          (text (cond ((eq? step 'register)
                       (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
                      ((eq? step 'clock) "等待网络对时...")
-                     (app-error (string-append "代理: " app-error))
+                     (page-error (string-append "代理: " page-error))
                      ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
                      (app-loading (if entry "刷新中..." "加载中..."))
                      ;; the time the server gives for its data ({"t": "upd"}), else when
@@ -1072,7 +1085,7 @@
                                 (string-append "更新于 " (vector-ref entry 2))))
                      (else "等待数据")))
          (ms (app-status 'fetch-ms))
-         (right (if (and (eq? state 'ok) (number? ms) (> ms 0))
+         (right (if (and mine (eq? state 'ok) (number? ms) (> ms 0))
                     (string-append (fixed->str (quotient (+ (app-status 'bytes) 51) 102) 1) "KB "
                                    (int->str ms) "ms")
                     "")))

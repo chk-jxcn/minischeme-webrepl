@@ -8,11 +8,14 @@
   "extensions": "",
   "kind": "app",
   "pages": 1,
+  "page_ids": [
+   "photos"
+  ],
   "web": true,
   "file": "album.msbc",
-  "size": 57224,
+  "size": 57686,
   "scm": "album.allinone.scm",
-  "hash": "d8602f39"
+  "hash": "9dd5edba"
  },
  {
   "id": "calendar",
@@ -23,11 +26,16 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "today",
+   "month",
+   "moon"
+  ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 55158,
+  "size": 55632,
   "scm": "calendar.allinone.scm",
-  "hash": "947902b2"
+  "hash": "4ba40cac"
  },
  {
   "id": "crypto",
@@ -38,11 +46,16 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "quotes",
+   "day",
+   "week"
+  ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 41985,
+  "size": 42458,
   "scm": "crypto.allinone.scm",
-  "hash": "fc36a887"
+  "hash": "54d6feb4"
  },
  {
   "id": "futures",
@@ -53,11 +66,16 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [
+   "quotes",
+   "intraday",
+   "trend30"
+  ],
   "web": false,
   "file": "futures.msbc",
-  "size": 42018,
+  "size": 42499,
   "scm": "futures.allinone.scm",
-  "hash": "29e10482"
+  "hash": "be035432"
  },
  {
   "id": "memo",
@@ -68,11 +86,15 @@
   "extensions": "",
   "kind": "app",
   "pages": 2,
+  "page_ids": [
+   "todo",
+   "done"
+  ],
   "web": true,
   "file": "memo.msbc",
-  "size": 51943,
+  "size": 52409,
   "scm": "memo.allinone.scm",
-  "hash": "0ad4a519"
+  "hash": "bde5c6f2"
  },
  {
   "id": "news",
@@ -83,11 +105,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 5,
+  "page_ids": [
+   "hot",
+   "society",
+   "finance",
+   "sports"
+  ],
   "web": false,
   "file": "news.msbc",
-  "size": 39680,
+  "size": 40165,
   "scm": "news.allinone.scm",
-  "hash": "f152dafb"
+  "hash": "ab3d526b"
  },
  {
   "id": "notifier",
@@ -98,11 +126,15 @@
   "extensions": "",
   "kind": "app",
   "pages": 2,
+  "page_ids": [
+   "latest",
+   "all"
+  ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 53934,
+  "size": 54401,
   "scm": "notifier.allinone.scm",
-  "hash": "35173189"
+  "hash": "3b24007d"
  },
  {
   "id": "pcmonitor",
@@ -113,6 +145,7 @@
   "extensions": "",
   "kind": "app",
   "pages": 3,
+  "page_ids": [],
   "web": false,
   "file": "pcmonitor.msbc",
   "size": 33751,
@@ -128,6 +161,7 @@
   "extensions": "",
   "kind": "system",
   "pages": 4,
+  "page_ids": [],
   "web": false,
   "file": "settings.msbc",
   "size": 30508,
@@ -143,11 +177,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 4,
+  "page_ids": [
+   "front",
+   "watchlist",
+   "intraday",
+   "trend30"
+  ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 44502,
+  "size": 44993,
   "scm": "stocks.allinone.scm",
-  "hash": "7babff54"
+  "hash": "e17f346d"
  },
  {
   "id": "usage",
@@ -158,11 +198,17 @@
   "extensions": "",
   "kind": "app",
   "pages": 4,
+  "page_ids": [
+   "overview",
+   "claude",
+   "gemini",
+   "models"
+  ],
   "web": false,
   "file": "usage.msbc",
-  "size": 45377,
+  "size": 45865,
   "scm": "usage.allinone.scm",
-  "hash": "e15fa144"
+  "hash": "65c4bef4"
  },
  {
   "id": "weather",
@@ -173,11 +219,18 @@
   "extensions": "",
   "kind": "app",
   "pages": 5,
+  "page_ids": [
+   "front",
+   "sevendays",
+   "hourly",
+   "rain",
+   "life"
+  ],
   "web": false,
   "file": "weather.msbc",
-  "size": 54068,
+  "size": 54560,
   "scm": "weather.allinone.scm",
-  "hash": "493c8995"
+  "hash": "7325df39"
  },
  {
   "id": "wxpusher",
@@ -188,10 +241,13 @@
   "extensions": "",
   "kind": "app",
   "pages": 1,
+  "page_ids": [
+   "messages"
+  ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 57184,
+  "size": 57809,
   "scm": "wxpusher.allinone.scm",
-  "hash": "fc985360"
+  "hash": "27ec3f29"
  }
 ]

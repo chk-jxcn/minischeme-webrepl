@@ -1614,6 +1614,14 @@ const appManager = new AppManager({
 const btnAppManager = document.getElementById('btn-app-manager');
 if (btnAppManager) btnAppManager.addEventListener('click', () => appManager.open());
 
+// 合并应用: several apps' pages in one app, built here (js/combo_builder.js)
+const comboBuilder = new ComboBuilder({
+    getBackend: () => appManager.getBackend(),
+    log: (kind, text) => appendTerminalLine(kind, text),
+});
+const btnComboBuilder = document.getElementById('btn-combo-builder');
+if (btnComboBuilder) btnComboBuilder.addEventListener('click', () => comboBuilder.open());
+
 const deviceSetupWizard = new DeviceSetupWizard({
     getBackend: () => appManager.getBackend(),
     log: (kind, text) => appendTerminalLine(kind, text),
