@@ -533,9 +533,11 @@ class WebSerialFirmwareFlasher {
 
     /* The firmware set: firmware-manifest.json and the three images it lists,
      * all from ONE source (never a mix of versions), each checked against the
-     * manifest's sha256. Sources in order: the local server (its bundle or the
-     * latest Release), the latest Release itself, this site's firmware/ (synced
-     * with each Release), the repository's firmware/. */
+     * manifest's sha256. The sources: the local server's bundled copy, the
+     * latest Release fetched by the local server, the latest Release itself,
+     * this site's firmware/, the repository's firmware/. Their manifests are
+     * read first and the newest version wins (the bundled copy of an older
+     * exe does not hide a newer Release); equal versions keep this order. */
     async fetchGithubAssets() {
         const statusEl = document.getElementById('flasher-gh-status');
         const btn = document.getElementById('flasher-fetch-gh-btn');
@@ -564,7 +566,8 @@ class WebSerialFirmwareFlasher {
             { name: 'minischeme_esp32.bin', key: 'firmware', offset: 0x10000 }
         ];
         const sources = [
-            { label: '本地服务 (/api/release_asset)', url: (n) => `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(n)}` },
+            { label: '本地服务自带的固件', url: (n) => `/api/release_asset?repo=minischeme-esp32&asset=${encodeURIComponent(n)}` },
+            { label: `GitHub Release ${releaseTag} (经本地服务)`, url: (n) => `/api/release_asset?repo=minischeme-esp32&source=github&asset=${encodeURIComponent(n)}` },
             { label: `GitHub Release ${releaseTag}`, url: (n) => assetMap[n] || '' },
             { label: '本站 firmware/', url: (n) => `./firmware/${n}` },
             { label: 'minischeme-esp32 仓库 firmware/', url: (n) => `https://raw.githubusercontent.com/chk-jxcn/minischeme-esp32/main/firmware/${n}` }
@@ -581,9 +584,33 @@ class WebSerialFirmwareFlasher {
             }
         };
 
+        // the newest version first: every source's manifest (a few hundred bytes)
+        const versionOf = (bytes) => {
+            try {
+                const v = JSON.parse(new TextDecoder().decode(bytes)).version;
+                return String(v || '').split('.').map((x) => parseInt(x, 10) || 0);
+            } catch (e) {
+                return null;
+            }
+        };
+        const newer = (a, b) => {
+            for (let i = 0; i < Math.max(a.length, b.length); i++) {
+                if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+            }
+            return false;
+        };
+        const versions = await Promise.all(sources.map(async (s) => {
+            const m = await get(s.url('firmware-manifest.json'));
+            return m ? versionOf(m) : null;
+        }));
+        const ranked = sources.map((s, i) => ({ s, v: versions[i], i }))
+            .sort((a, b) => (!a.v ? 1 : !b.v ? -1 : newer(a.v, b.v) ? -1 : newer(b.v, a.v) ? 1 : a.i - b.i));
+        const found = ranked.filter((r) => r.v).map((r) => `${r.s.label} v${r.v.join('.')}`);
+        if (found.length) this.log('info', `可用固件: ${found.join('，')}`);
+
         try {
             let done = false;
-            for (const src of sources) {
+            for (const src of ranked.map((r) => r.s)) {
                 const manBytes = await get(src.url('firmware-manifest.json'));
                 if (!manBytes) continue;
                 let manifest;
