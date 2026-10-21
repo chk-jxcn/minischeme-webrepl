@@ -743,9 +743,13 @@ class WebSerialFirmwareFlasher {
                 })
             };
 
+            // romBaudrate: the ROM bootloader's handshake; baudrate: the flashing
+            // speed esptool-js switches to after it (it stayed at 115200 before,
+            // whatever was selected). A board that cannot keep up falls back.
             const esploader = new ESPLoader({
                 transport: transport,
-                baudrate: 115200,
+                baudrate: baudrate,
+                romBaudrate: 115200,
                 terminal: term,
                 resetConstructors: resetConstructors
             });
@@ -780,6 +784,24 @@ class WebSerialFirmwareFlasher {
                 this.log('info', '同时写入系统字库 (宋体 16px，GB2312 一、二级汉字) 到 0x190000');
             }
 
+            // A region the chip already holds byte for byte (its MD5 read from the
+            // flash) is not written again: an update rewrites the application only,
+            // not the unchanged bootloader, partition table and 768 KB font ROM
+            if (!eraseAll && typeof esploader.flashMd5sum === 'function') {
+                for (let i = filesToFlash.length - 1; i >= 0; i--) {
+                    const f = filesToFlash[i];
+                    try {
+                        const onChip = String(await esploader.flashMd5sum(f.address, f.data.length)).toLowerCase();
+                        if (onChip === md5Hex(f.data)) {
+                            this.log('info', `0x${f.address.toString(16)} (${this._formatSize(f.data.length)}) 与芯片上相同，跳过`);
+                            filesToFlash.splice(i, 1);
+                        }
+                    } catch (e) {
+                        // no MD5 from the chip: write it as before
+                    }
+                }
+            }
+
             const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);
             this.log('info', `准备写入 Flash：共 ${filesToFlash.length} 个分区，总计 ${this._formatSize(totalBytes)}`);
 
@@ -800,8 +822,12 @@ class WebSerialFirmwareFlasher {
                 }
             };
 
-            this.log('info', '开始写入 Flash (SLIP 压缩传输)...');
-            await esploader.writeFlash(flashOptions);
+            if (filesToFlash.length) {
+                this.log('info', `开始写入 Flash (SLIP 压缩传输, ${baudrate} baud)...`);
+                await esploader.writeFlash(flashOptions);
+            } else {
+                this.log('ok', '芯片上的固件与所选版本完全相同，无需写入');
+            }
 
             this.setProgress(100, '烧录成功 100%');
             this.log('ok', '🎉 固件烧写完成！正在通过硬件引脚复位芯片重启进入 MiniScheme 系统...');
