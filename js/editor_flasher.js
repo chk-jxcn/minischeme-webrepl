@@ -667,13 +667,9 @@ class WebSerialFirmwareFlasher {
 
         const eraseAllCheck = document.getElementById('flasher-erase-all');
         const eraseAll = eraseAllCheck && eraseAllCheck.checked;
-        // by default the application only; an erased chip needs its bootloader and partition table
-        const bootCheck = document.getElementById('flasher-write-boot');
-        const writeBoot = eraseAll || !!(bootCheck && bootCheck.checked);
-        if (!src.firmware || (writeBoot && (!src.bootloader || !src.partition))) {
-            alert(writeBoot
-                ? '请先准备好全部 3 个固件文件：引导程序 (bootloader)、分区表 (partition-table) 与主固件 (minischeme_esp32)！'
-                : '请先准备好主固件 (minischeme_esp32.bin)！');
+        // always all three: a first flash needs the bootloader and partition table
+        if (!src.bootloader || !src.partition || !src.firmware) {
+            alert('请先准备好全部 3 个固件文件：引导程序 (bootloader)、分区表 (partition-table) 与主固件 (minischeme_esp32)！');
             return;
         }
 
@@ -776,14 +772,11 @@ class WebSerialFirmwareFlasher {
                 return new Uint8Array(d);
             };
 
-            const filesToFlash = writeBoot ? [
+            const filesToFlash = [
                 { data: toUint8(src.bootloader), address: 0x1000 },
                 { data: toUint8(src.partition), address: 0x8000 },
                 { data: toUint8(src.firmware), address: 0x10000 }
-            ] : [
-                { data: toUint8(src.firmware), address: 0x10000 }
             ];
-            if (!writeBoot) this.log('info', '只写主固件 (0x10000)，引导程序和分区表保持不变');
             // the release's font ROM (replaces the fontrom partition: fonts installed before are removed)
             const fontCheck = document.getElementById('flasher-write-fontrom');
             if (isGhMode && src.fontrom && fontCheck && fontCheck.checked) {
