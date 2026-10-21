@@ -665,16 +665,20 @@ class WebSerialFirmwareFlasher {
         const isGhMode = document.getElementById('flasher-mode-gh').checked;
         const src = isGhMode ? this.githubFirmware : this.manualFirmware;
 
-        if (!src.bootloader || !src.partition || !src.firmware) {
-            alert('请先准备好全部 3 个固件文件：引导程序 (bootloader)、分区表 (partition-table) 与主固件 (minischeme_esp32)！');
+        const eraseAllCheck = document.getElementById('flasher-erase-all');
+        const eraseAll = eraseAllCheck && eraseAllCheck.checked;
+        // by default the application only; an erased chip needs its bootloader and partition table
+        const bootCheck = document.getElementById('flasher-write-boot');
+        const writeBoot = eraseAll || !!(bootCheck && bootCheck.checked);
+        if (!src.firmware || (writeBoot && (!src.bootloader || !src.partition))) {
+            alert(writeBoot
+                ? '请先准备好全部 3 个固件文件：引导程序 (bootloader)、分区表 (partition-table) 与主固件 (minischeme_esp32)！'
+                : '请先准备好主固件 (minischeme_esp32.bin)！');
             return;
         }
 
         const baudSelect = document.getElementById('flasher-baud-select');
         const baudrate = parseInt((baudSelect && baudSelect.value) || '460800', 10);
-
-        const eraseAllCheck = document.getElementById('flasher-erase-all');
-        const eraseAll = eraseAllCheck && eraseAllCheck.checked;
 
         this.isFlashing = true;
         this._setButtonsDisabled(true);
@@ -772,34 +776,19 @@ class WebSerialFirmwareFlasher {
                 return new Uint8Array(d);
             };
 
-            const filesToFlash = [
+            const filesToFlash = writeBoot ? [
                 { data: toUint8(src.bootloader), address: 0x1000 },
                 { data: toUint8(src.partition), address: 0x8000 },
                 { data: toUint8(src.firmware), address: 0x10000 }
+            ] : [
+                { data: toUint8(src.firmware), address: 0x10000 }
             ];
+            if (!writeBoot) this.log('info', '只写主固件 (0x10000)，引导程序和分区表保持不变');
             // the release's font ROM (replaces the fontrom partition: fonts installed before are removed)
             const fontCheck = document.getElementById('flasher-write-fontrom');
-            if (isGhMode && src.fontrom && (!fontCheck || fontCheck.checked)) {
+            if (isGhMode && src.fontrom && fontCheck && fontCheck.checked) {
                 filesToFlash.push({ data: toUint8(src.fontrom), address: 0x190000 });
                 this.log('info', '同时写入系统字库 (宋体 16px，GB2312 一、二级汉字) 到 0x190000');
-            }
-
-            // A region the chip already holds byte for byte (its MD5 read from the
-            // flash) is not written again: an update rewrites the application only,
-            // not the unchanged bootloader, partition table and 768 KB font ROM
-            if (!eraseAll && typeof esploader.flashMd5sum === 'function') {
-                for (let i = filesToFlash.length - 1; i >= 0; i--) {
-                    const f = filesToFlash[i];
-                    try {
-                        const onChip = String(await esploader.flashMd5sum(f.address, f.data.length)).toLowerCase();
-                        if (onChip === md5Hex(f.data)) {
-                            this.log('info', `0x${f.address.toString(16)} (${this._formatSize(f.data.length)}) 与芯片上相同，跳过`);
-                            filesToFlash.splice(i, 1);
-                        }
-                    } catch (e) {
-                        // no MD5 from the chip: write it as before
-                    }
-                }
             }
 
             const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);
@@ -822,12 +811,8 @@ class WebSerialFirmwareFlasher {
                 }
             };
 
-            if (filesToFlash.length) {
-                this.log('info', `开始写入 Flash (SLIP 压缩传输, ${baudrate} baud)...`);
-                await esploader.writeFlash(flashOptions);
-            } else {
-                this.log('ok', '芯片上的固件与所选版本完全相同，无需写入');
-            }
+            this.log('info', `开始写入 Flash (SLIP 压缩传输, ${baudrate} baud)...`);
+            await esploader.writeFlash(flashOptions);
 
             this.setProgress(100, '烧录成功 100%');
             this.log('ok', '🎉 固件烧写完成！正在通过硬件引脚复位芯片重启进入 MiniScheme 系统...');

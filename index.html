@@ -503,13 +503,18 @@
                     </select>
                 </div>
                 <div class="flasher-opt-group">
-                    <label>
+                    <label title="默认只写主固件 (0x10000)；第一次烧录、分区表变化或板子无法启动时再勾选">
+                        <input type="checkbox" id="flasher-write-boot"> 同时写入引导程序和分区表
+                    </label>
+                </div>
+                <div class="flasher-opt-group">
+                    <label title="擦除整片 Flash (包括配置、应用和字库)，同时会写入引导程序和分区表">
                         <input type="checkbox" id="flasher-erase-all"> 烧录前全片擦除 (Erase All Flash)
                     </label>
                 </div>
                 <div class="flasher-opt-group">
                     <label title="固件 Release 自带的系统字库：宋体 16px，GB2312 一、二级汉字全集。写入会替换整个字库分区（之前安装的字库需重新安装）">
-                        <input type="checkbox" id="flasher-write-fontrom" checked> 写入系统字库 (宋体 16px，GB2312 一二级汉字)
+                        <input type="checkbox" id="flasher-write-fontrom"> 写入系统字库 (宋体 16px，GB2312 一二级汉字)
                     </label>
                 </div>
             </div>
