@@ -701,7 +701,7 @@ class WebSerialFirmwareFlasher {
         }
 
         const baudSelect = document.getElementById('flasher-baud-select');
-        const baudrate = parseInt((baudSelect && baudSelect.value) || '460800', 10);
+        const baudrate = parseInt((baudSelect && baudSelect.value) || '921600', 10);
 
         this.isFlashing = true;
         this._setButtonsDisabled(true);
