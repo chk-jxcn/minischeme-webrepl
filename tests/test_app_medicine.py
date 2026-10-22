@@ -92,6 +92,11 @@ CHECKS = [
      '(= (ent-amount (car (slot-entries (car slot-list)))) 5) (string=? (car (med-read "slots.txt")) "1|08:00|1.0.0.5")))'),
     ("a medicine's delete takes it off the time points",
      '(begin (app-web "delete" "id=1") (null? (slot-entries (car slot-list))))'),
+    ("a shape and a color are kept", '(begin (app-web "save" "name=S&unit=片&plan=long&shape=oval&color=yellow") '
+                                     '(let ((m (med-find (- (med-next-id) 1)))) (and (string=? (med-shape m) "oval") (string=? (med-color m) "yellow"))))'),
+    ("an unknown shape is refused", '(str-contains? (app-web "save" "name=T&shape=star") "\\"success\\":false")'),
+    ("auto shapes follow the unit", '(equal? (map (lambda (u) (med-shape-of (vector 0 "x" u "long" 0 0 0 "auto" "white"))) '
+                                    '(list "粒" "片" "颗" "袋" "毫升")) (list "capsule" "tablet" "ball" "sachet" "none"))'),
     ("a size out of range is refused", '(str-contains? (app-web "settings" "name_size=9") "\\"success\\":false")'),
     ("settings are saved", '(begin (app-web "settings" "max_minutes=30&name_size=4") '
                            '(and (= med-max-minutes 30) (= (med-scale "name_size") 4)))'),

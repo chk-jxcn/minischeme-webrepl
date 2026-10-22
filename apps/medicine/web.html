@@ -68,6 +68,13 @@
 <div><label for="f_unit">单位（粒、片、颗、包…）</label><input id="f_unit" maxlength="6" list="units" placeholder="粒">
 <datalist id="units"><option value="粒"><option value="片"><option value="颗"><option value="袋"><option value="包"><option value="支"><option value="毫升"><option value="滴"><option value="喷"></datalist></div>
 </div>
+<div class="row">
+<div><label for="f_shape">提醒画面上的药丸形状</label>
+<select id="f_shape"><option value="auto">自动（按单位：粒→胶囊，片→圆片，颗/丸→球形，袋/包→袋装）</option><option value="capsule">胶囊</option><option value="tablet">圆片</option><option value="ball">球形</option><option value="oval">椭圆片</option><option value="sachet">袋装</option><option value="none">不显示</option></select></div>
+<div><label for="f_color">颜色</label>
+<select id="f_color"><option value="white">白色</option><option value="yellow">黄色</option><option value="orange">橙色</option><option value="red">红色</option><option value="pink">粉色</option><option value="blue">蓝色</option><option value="green">绿色</option><option value="brown">棕色</option></select></div>
+</div>
+<div class="desc">服用量 5 个以内时，在用量后面画出相应个数的药丸（半个用半个），超过 5 个只显示数字。</div>
 <label for="f_photo">照片（拍药盒或药片，可不选）</label>
 <input type="file" id="f_photo" accept="image/*" onchange="previewPhoto()">
 <img id="preview" alt=""><div class="desc" id="photoNote"></div>
@@ -248,12 +255,14 @@ function planShow() {
 }
 
 function editMed(id) {
-  const m = medById(id) || {name: '', unit: '粒', plan: 'long', n: 7, start: S.today, left: ''};
+  const m = medById(id) || {name: '', unit: '粒', plan: 'long', n: 7, start: S.today, left: '', shape: 'auto', color: 'white'};
   editing = id;
   photoBlob = null;
   $('formTitle').textContent = id ? '编辑：' + m.name : '添加药品';
   $('f_name').value = m.name;
   $('f_unit').value = m.unit;
+  $('f_shape').value = m.shape || 'auto';
+  $('f_color').value = m.color || 'white';
   document.querySelector(`input[name=plan][value=${m.plan}]`).checked = true;
   $('f_days').value = m.plan === 'days' ? m.n : 7;
   $('f_start').value = dayDate(m.start || S.today || 0);
@@ -297,7 +306,8 @@ async function saveMed() {
   const name = $('f_name').value.trim();
   if (!name) return say('请填写药品名称', 'warn');
   const plan = document.querySelector('input[name=plan]:checked').value;
-  const f = {id: String(editing || 0), name, unit: $('f_unit').value.trim() || '粒', plan};
+  const f = {id: String(editing || 0), name, unit: $('f_unit').value.trim() || '粒', plan,
+             shape: $('f_shape').value, color: $('f_color').value};
   if (plan === 'days') {
     f.n = $('f_days').value;
     if (!$('f_start').value) return say('请选择开始日期', 'warn');

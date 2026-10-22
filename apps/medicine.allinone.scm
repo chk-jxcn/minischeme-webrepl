@@ -1508,6 +1508,8 @@
 (define (med-n m) (vector-ref m 4))             ; days, or tenths bought
 (define (med-start m) (vector-ref m 5))         ; first day
 (define (med-units m) (vector-ref m 6))         ; tenths left (count plan)
+(define (med-shape m) (vector-ref m 7))         ; auto, capsule, tablet, ball, oval, sachet, none
+(define (med-color m) (vector-ref m 8))         ; white, yellow, orange, red, pink, blue, green, brown
 (define (med-photo-path m) (string-append "photos/m" (number->string (med-id m)) ".jpg"))
 
 ;; meds.txt: 7 fields; the 8 of version 3 (id|name|dose|per|plan|n|start|left,
@@ -1516,11 +1518,13 @@
 
 (define (med-parse line)
   (let ((f (str-split line #\|)))
-    (cond ((= (length f) 7)
+    (cond ((or (= (length f) 7) (= (length f) 9))
            (let ((id (med-int (car f) #f)) (plan (list-ref f 3)))
              (and id (member plan '("long" "days" "count"))
                   (vector id (cadr f) (caddr f) plan (max 0 (med-int (list-ref f 4) 0)) (med-int (list-ref f 5) 0)
-                          (max 0 (med-int (list-ref f 6) 0))))))
+                          (max 0 (med-int (list-ref f 6) 0))
+                          (if (and (= (length f) 9) (member (list-ref f 7) MED-SHAPES)) (list-ref f 7) "auto")
+                          (if (and (= (length f) 9) (assoc (list-ref f 8) MED-COLORS)) (list-ref f 8) "white")))))
           ((= (length f) 8)
            (let ((id (med-int (car f) #f)) (plan (list-ref f 4)) (d (dose-split (caddr f))))
              (and id (member plan '("long" "days" "count"))
@@ -1528,12 +1532,13 @@
                     (set! med-v3-amounts (cons (cons id (car d)) med-v3-amounts))
                     (vector id (cadr f) (cdr d) plan
                             (* (if (string=? plan "count") 10 1) (max 0 (med-int (list-ref f 5) 0)))
-                            (med-int (list-ref f 6) 0) (* 10 (max 0 (med-int (list-ref f 7) 0))))))))
+                            (med-int (list-ref f 6) 0) (* 10 (max 0 (med-int (list-ref f 7) 0))) "auto" "white")))))
           (else #f))))
 
 (define (med-line m)
   (web-join (list (number->string (med-id m)) (med-name m) (med-unit m) (med-plan m)
-                  (number->string (med-n m)) (number->string (med-start m)) (number->string (med-units m)))
+                  (number->string (med-n m)) (number->string (med-start m)) (number->string (med-units m))
+                  (med-shape m) (med-color m))
             "|"))
 
 (define (med-find id)
@@ -1641,7 +1646,7 @@
                (tline (let loop ((l ini)) (cond ((null? l) #f) ((str-starts? (med-trim (car l)) "times") (car l)) (else (loop (cdr l))))))
                (tval (and tline (let ((kv (str-split tline #\=))) (and (pair? (cdr kv)) (car (str-split (cadr kv) #\;))))))
                (times (if tval (filter (lambda (t) t) (map med-hm (str-split tval #\,))) '())))
-          (set! med-list (map (lambda (f) (vector (med-int (car f) 0) (cadr f) (cdr (dose-split (caddr f))) "long" 0 0 0)) old))
+          (set! med-list (map (lambda (f) (vector (med-int (car f) 0) (cadr f) (cdr (dose-split (caddr f))) "long" 0 0 0 "auto" "white")) old))
           (set! slot-list
                 (let loop ((ts times) (k 1) (acc '()))
                   (if (null? ts)
@@ -1841,41 +1846,119 @@
              (gui-text-scaled (+ x 1) y text color k F-TEXT))
       (begin (txt x y text color) (txt (+ x 1) y text color))))
 
-;; The amount, then that many pills (a half one for .5) for pill-like units,
-;; at most 5; the line centered at y, k times the font's size
-(define MED-PILL-UNITS '("粒" "片" "颗" "丸"))
+;; The amount, then the dose drawn as that many shapes of the medicine's
+;; kind (a half one for .5), at most 5, tilted: their boxes overlap, the
+;; shapes do not
 (define MED-PILL-MAX 5)
+(define MED-SHAPES '("auto" "capsule" "tablet" "ball" "oval" "sachet" "none"))
+(define MED-COLORS '(("white" 235 235 228) ("yellow" 240 200 60) ("orange" 240 140 50) ("red" 215 60 60)
+                     ("pink" 240 150 180) ("blue" 80 140 230) ("green" 90 190 110) ("brown" 165 110 70)))
 
-(define (med-pill x y w h half)
-  (let ((r (quotient h 2)) (mid (quotient w 2)))
-    (gui-round-rect x y w h r theme-accent #t)
-    (if half
-        (gui-rect (+ x mid) y (- w mid) h theme-bg #t)                 ; cut in the middle
-        (begin (gui-rect (+ x mid) y (- w mid r) h theme-text-main #t)  ; the other color's half
-               (gui-round-rect (+ x (- w (* 2 r))) y (* 2 r) h r theme-text-main #t)))))
+(define (med-rgb name)
+  (let ((c (assoc name MED-COLORS))) (if c (gui-rgb (cadr c) (caddr c) (cadddr c)) (gui-rgb 235 235 228))))
 
-(define (med-amount-line y a unit color k)
-  (let* ((text (string-append (amt-text a) " " unit))
+;; The shape drawn: the medicine's, or one from its unit ("auto")
+(define (med-shape-of m)
+  (let ((sh (med-shape m)) (u (med-unit m)))
+    (if (not (string=? sh "auto"))
+        sh
+        (cond ((member u '("粒")) "capsule")
+              ((member u '("片")) "tablet")
+              ((member u '("颗" "丸")) "ball")
+              ((member u '("袋" "包")) "sachet")
+              (else "none")))))
+
+(define (med-isqrt n) (if (<= n 0) 0 (inexact->exact (floor (sqrt (exact->inexact n))))))
+
+;; The left half of a disk (a broken tablet)
+(define (med-half-disk cx cy r color)
+  (let loop ((dy (- r)))
+    (if (<= dy r)
+        (let ((dx (med-isqrt (- (* r r) (* dy dy)))))
+          (gui-rect (- cx dx) (+ cy dy) (+ dx 1) 1 color #t)
+          (loop (+ dy 1))))))
+
+;; An oval tablet along the rising diagonal, semi-axes a and b; half: its lower-left half
+(define (med-oval cx cy a b color half)
+  (let* ((fa (exact->inexact a)) (fb (exact->inexact b))
+         (qa (/ 1.0 (* 2.0 fa fa))) (qb (/ 1.0 (* 2.0 fb fb)))
+         (aa (+ qa qb)))
+    (let loop ((dy (- a)))
+      (if (<= dy a)
+          (let* ((y (exact->inexact dy))
+                 (bb (* 2.0 y (- qb qa)))
+                 (cc (- (* aa y y) 1.0))
+                 (disc (- (* bb bb) (* 4.0 aa cc))))
+            (if (>= disc 0.0)
+                (let* ((r (sqrt disc))
+                       (lo (/ (- (- bb) r) (* 2.0 aa)))
+                       (hi (/ (+ (- bb) r) (* 2.0 aa)))
+                       (hi (if half (min hi y) hi))
+                       (x0 (inexact->exact (round lo)))
+                       (x1 (inexact->exact (round hi))))
+                  (if (>= x1 x0) (gui-rect (+ cx x0) (+ cy dy) (+ 1 (- x1 x0)) 1 color #t))))
+            (loop (+ dy 1)))))))
+
+;; One dose shape in the box x y (s x s)
+(define (med-pill shape x y s color half)
+  (let* ((cx (+ x (quotient s 2))) (cy (+ y (quotient s 2)))
+         (light (gui-rgb 235 235 228)) (shade (gui-rgb 120 120 120)))
+    (cond
+      ((string=? shape "capsule")              ; two halves along the rising diagonal
+       (let* ((r (max 2 (quotient s 6)))
+              (e (quotient (* (- s (* 2 r)) 4) 10))
+              (steps (max 2 e))
+              (other (if (= color light) (gui-rgb 190 190 185) light)))
+         (let loop ((i 0))
+           (if (<= i (if half steps (* 2 steps)))
+               (let ((px (+ (- cx e) (quotient (* i e) steps)))
+                     (py (- (+ cy e) (quotient (* i e) steps))))
+                 (gui-circle px py r (if (<= i steps) color other) #t)
+                 (loop (+ i 2)))))))
+      ((string=? shape "tablet")               ; a round tablet with its score line
+       (let ((r (quotient (* s 3) 10)) (d (quotient (* s 2) 10)))
+         (if half
+             (med-half-disk cx cy r color)
+             (begin (gui-circle cx cy r color #t)
+                    (gui-line (- cx d) (+ cy d) (+ cx d) (- cy d) shade)))))
+      ((string=? shape "ball")                 ; a ball with a highlight
+       (let ((r (quotient (* s 3) 10)))
+         (if half (med-half-disk cx cy r color) (gui-circle cx cy r color #t))
+         (gui-circle (- cx (quotient r 3)) (- cy (quotient r 3)) (max 1 (quotient r 4)) light #t)))
+      ((string=? shape "oval")                 ; an oval tablet along the diagonal
+       (med-oval cx cy (quotient (* s 45) 100) (quotient (* s 2) 10) color half))
+      ((string=? shape "sachet")               ; a sachet, crimped at both ends
+       (let* ((w (quotient (* s 55) 100)) (h (quotient (* s 8) 10)) (h (if half (quotient h 2) h))
+              (x0 (- cx (quotient w 2))) (y0 (- (+ cy (quotient (* s 4) 10)) h)) (c (max 2 (quotient h 8))))
+         (gui-rect x0 y0 w h color #t)
+         (gui-rect x0 y0 w c shade #t)
+         (gui-rect x0 (- (+ y0 h) c) w c shade #t)))
+      (else #f))))
+
+(define (med-amount-line y m a color k)
+  (let* ((text (string-append (amt-text a) " " (med-unit m)))
          (k (med-fit-scale k text))
          (tw (+ 1 (* k (txt-w text))))
+         (shape (med-shape-of m))
          (whole (quotient a 10))
          (half (>= (remainder a 10) 5))
          (n (+ whole (if half 1 0)))
-         (gap 6)
          (avail (- (scr-w) 16 tw 12))
-         (pw (if (and (member unit MED-PILL-UNITS) (> n 0) (<= a (* 10 MED-PILL-MAX)))
-                 (min (* 18 k) (- (quotient avail n) gap))
-                 0))
-         (pills (>= pw 12))
-         (ph (quotient pw 2))
-         (total (if pills (+ tw 12 (* n (+ pw gap)) (- gap)) tw))
+         (want (* 16 k))                                   ; a box as tall as the text
+         (span (lambda (sz) (+ sz (quotient (* (- n 1) sz 62) 100))))
+         (s (if (and (not (string=? shape "none")) (> n 0) (<= a (* 10 MED-PILL-MAX)))
+                (if (<= (span want) avail) want (quotient (* avail 100) (+ 100 (* (- n 1) 62))))
+                0))
+         (pills (>= s 12))
+         (step (quotient (* s 62) 100))
+         (total (if pills (+ tw 12 (span s)) tw))
          (x0 (quotient (- (scr-w) total) 2)))
     (med-bold-at x0 y text color k)
     (if pills
         (let loop ((i 0) (x (+ x0 tw 12)))
           (if (< i n)
-              (begin (med-pill x (+ y (quotient (- (* 16 k) ph) 2)) pw ph (and half (= i (- n 1))))
-                     (loop (+ i 1) (+ x pw gap))))))))
+              (begin (med-pill shape x (+ y (quotient (- (* 16 k) s) 2)) s (med-rgb (med-color m)) (and half (= i (- n 1))))
+                     (loop (+ i 1) (+ x step))))))))
 
 ;; Bold text centered at y, k times the font's size: drawn twice, 1 px apart
 (define (med-bold y text color k)
@@ -1971,7 +2054,7 @@
                (amount-y (+ name-y (* 16 kn) 8)))
           (med-render-photo m (car place))
           (med-bold name-y (med-name m) theme-text-main kn)
-          (if nd (med-amount-line amount-y (caddr nd) (med-unit m) theme-accent ka))
+          (if nd (med-amount-line amount-y m (caddr nd) theme-accent ka))
           (med-info-line m (- (gui-height) FTR-H))))
     (let ((next (med-next-time)))
       (med-footer (cond ((null? slot-list) "未设置服药时间") (next (string-append "下次提醒 " next)) (else ""))
@@ -1997,7 +2080,7 @@
                        (if med-blink theme-bg theme-text-main))   ; white, dark on the yellow (white would not show)
     (med-render-photo m (car place))
     (med-bold name-y (med-name m) theme-text-main kn)
-    (med-amount-line amount-y (cdr x) (med-unit m) theme-accent kq)
+    (med-amount-line amount-y m (cdr x) theme-accent kq)
     (med-info-line m bar-y)
     (gui-rect 0 bar-y (scr-w) bar-h theme-accent-dark #t)
     (med-bold-at (max 0 (quotient (- (scr-w) (* kb (txt-w confirm))) 2)) (+ bar-y 6) confirm theme-text-main kb)))
@@ -2090,6 +2173,7 @@
           (cons 'plan (med-plan m)) (cons 'n (med-n m)) (cons 'start (med-start m)) (cons 'left (med-units m))
           (cons 'status (symbol->string (med-status m d))) (cons 'text (med-plan-text m d))
           (cons 'next (if nd (string-append (next-text nd) " · " (amt-text (caddr nd)) " " (med-unit m)) ""))
+          (cons 'shape (med-shape m)) (cons 'drawn (med-shape-of m)) (cons 'color (med-color m))
           (cons 'photo (if (med-photo-info m) #t #f)))))
 
 (define (slot->alist s d)
@@ -2125,8 +2209,12 @@
          (plan (or (web-field body "plan") "long"))
          (n (med-int (web-field body "n") 0))
          (start (med-int (web-field body "start") (or (med-today) 0)))
-         (left (web-field body "left")))
+         (left (web-field body "left"))
+         (shape (or (web-field body "shape") (if old (med-shape old) "auto")))
+         (color (or (web-field body "color") (if old (med-color old) "white"))))
     (cond ((str-empty? name) "药品名称不能为空")
+          ((not (member shape MED-SHAPES)) "shape: auto, capsule, tablet, ball, oval, sachet or none")
+          ((not (assoc color MED-COLORS)) "color: white, yellow, orange, red, pink, blue, green or brown")
           ((not (member plan '("long" "days" "count"))) "plan: long, days or count")
           ((and (string=? plan "days") (or (< n 1) (> n 3650))) "服用天数应为 1..3650")
           ((and (string=? plan "count") (or (< n 1) (> n 1000000))) "总数量应为 0.1..100000")
@@ -2137,7 +2225,7 @@
            (let* ((units (cond ((and (string? left) (string=? plan "count")) (clamp (med-int left n) 0 1000000))
                                ((and old (string=? (med-plan old) plan) (= (med-n old) n)) (med-units old))
                                (else n)))
-                  (m (vector (if old id (med-next-id)) name (if (str-empty? unit) "粒" unit) plan n start units)))
+                  (m (vector (if old id (med-next-id)) name (if (str-empty? unit) "粒" unit) plan n start units shape color)))
              (set! med-list (if old (map (lambda (x) (if (eq? x old) m x)) med-list) (append med-list (list m))))
              (med-save!)
              (med-id m))))))
