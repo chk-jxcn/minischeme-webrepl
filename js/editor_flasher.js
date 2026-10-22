@@ -42,6 +42,8 @@ function detectApiRequirement(sourceCode) {
     const tokens = new Set(sourceCode.match(/[a-zA-Z0-9_\-+*/<=>!?:%]+/g) || []);
     let maxVer = "1.0";
     
+    // v1.6 APIs (combined apps)
+    if (tokens.has('app-has-config?')) return "1.6";
     // v1.5 APIs
     const v15Apis = ['gui-marquee', 'backlight-auto', 'json-feed-status', 'app-carousel-pause', 'app-carousel-resume'];
     for (const api of v15Apis) {

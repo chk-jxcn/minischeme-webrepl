@@ -315,6 +315,39 @@ class AppManager {
         await this.backend.fsWrite(path, new TextEncoder().encode(text));
     }
 
+    /* An app's server addresses: shown without the device's key, each with its
+     * app service password below it (real boards: the device registers there) */
+    static get SERVER_KEYS() { return ['proxy_url', 'proxy', 'converter_url']; }
+
+    _serverPwHtml(i, key, password, relay) {
+        const id = `am-f${i}-${key}_password`;
+        return `<label class="am-label" for="${id}">${amEsc(key)} 的应用服务密码</label>
+            <input type="text" id="${id}" value="${amEsc(password)}" autocomplete="off" spellcheck="false" maxlength="64"
+                placeholder="留空：系统配置里同一服务器的密码">
+            <div class="am-help">明文显示；设备用它在这台服务器注册加密通道，注册后与服务器绑定：改了服务器地址才能修改。留空：不加密，明文 HTTP，请求头带设备 ID</div>
+            <label class="am-check"><input type="checkbox" id="am-f${i}-${key}_relay"${relay ? ' checked' : ''}>
+                没有密码时经系统协议转换器转发（有密码时只用这台服务器自己的转换器）</label>`;
+    }
+
+    /* bound (the device registered there) and the address unchanged: read-only */
+    _applyServerPwLock(i) {
+        const st = (this.formState_ || {})[i];
+        if (!st) return;
+        const W = window.DeviceSetupWizard;
+        for (const k of AppManager.SERVER_KEYS) {
+            const srv = document.getElementById(`am-f${i}-${k}`), pw = document.getElementById(`am-f${i}-${k}_password`);
+            if (!srv || !pw) continue;
+            const sv = st.servers[k] || {};
+            const bound = !!sv.key && !!W && W.urlOrigin(srv.value.trim()) === W.urlOrigin(sv.url);
+            if (bound) pw.value = st.passwords[k] || '';
+            pw.readOnly = bound;
+            pw.style.opacity = bound ? '0.85' : '1';
+            pw.title = bound ? '已在这台服务器注册：密码与服务器绑定，改了服务器地址才能修改' : '';
+            const relay = document.getElementById(`am-f${i}-${k}_relay`);
+            if (relay) relay.disabled = !!pw.value.trim();   // a password: its own converter only
+        }
+    }
+
     _fieldHtml(i, f, value) {
         if ((f.key === 'proxy_url' && value === 'http://proxy.local:8087') ||
             (f.key === 'converter_url' && value === 'http://converter.local:8087')) {
@@ -339,7 +372,10 @@ class AppManager {
             const ph = (f.key === 'proxy_url' || f.key === 'converter_url' || f.def === '') ? ' placeholder="留空默认使用系统配置"' : '';
             input = `<input type="text" id="${id}" value="${amEsc(value)}"${ph}>`;
         }
-        return `<label class="am-label" for="${id}">${amEsc(f.label)}</label>${input}${help}`;
+        const st = (this.formState_ || {})[i];
+        const pw = st && st.withPasswords && AppManager.SERVER_KEYS.includes(f.key)
+            ? this._serverPwHtml(i, f.key, st.passwords[f.key] || '', st.relay[f.key]) : '';
+        return `<label class="am-label" for="${id}">${amEsc(f.label)}</label>${input}${help}${pw}`;
     }
 
     async _toggleForm(i) {
@@ -348,6 +384,28 @@ class AppManager {
         const app = this.apps[i];
         const text = await this._run(`读取 ${amRel(app.ini)}…`, () => this._readIni(app));
         const values = amIniValues(text || amDefaultIni(app));
+        // the server addresses without the device's key; their passwords (a
+        // value registered before per-server passwords used the hardware password)
+        const W = window.DeviceSetupWizard;
+        const st = { servers: {}, passwords: {}, relay: {}, withPasswords: this.backend.kind !== 'wasm' && !!W };
+        let legacy = null;
+        for (const k of AppManager.SERVER_KEYS) {
+            if (!(k in values) || !W) continue;
+            st.servers[k] = W.splitKeyedUrl(values[k]);
+            values[k] = st.servers[k].url;
+            st.relay[k] = values[k + '_relay'] === '1';
+            if ((k + '_password') in values) st.passwords[k] = values[k + '_password'];
+            else if (st.servers[k].key && st.withPasswords) {
+                if (legacy === null) {
+                    try {
+                        const sys = new TextDecoder('utf-8').decode(await this.backend.fsRead('/spiffs/config.ini'));
+                        legacy = (W.parseIniMap(sys)['server.hardware_password'] || '').trim();
+                    } catch (e) { legacy = ''; }
+                }
+                st.passwords[k] = legacy;
+            }
+        }
+        (this.formState_ = this.formState_ || {})[i] = st;
         this.open_[i] = 'form';
         box.innerHTML = `<div class="am-form">
             ${amAppFields(app.meta).map((f) => this._fieldHtml(i, f, f.key in values ? values[f.key] : f.def)).join('')}
@@ -357,6 +415,13 @@ class AppManager {
             </div>
             <div class="am-help">${text == null ? '还没有配置文件，显示的是默认值；保存后写入 ' : '保存到 '}${amEsc(app.ini)}，应用重启后生效</div>
         </div>`;
+        for (const k of AppManager.SERVER_KEYS) {
+            for (const id of [`am-f${i}-${k}`, `am-f${i}-${k}_password`]) {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('input', () => this._applyServerPwLock(i));
+            }
+        }
+        this._applyServerPwLock(i);
     }
 
     async _saveForm(i) {
@@ -364,11 +429,26 @@ class AppManager {
         const ok = await this._run(`保存 ${amRel(app.ini)}…`, async () => {
             let text = (await this._readIni(app)) || amDefaultIni(app);
             const values = amIniValues(text);
+            const st = (this.formState_ || {})[i] || { servers: {}, passwords: {} };
+            const W = window.DeviceSetupWizard;
             for (const f of amAppFields(app.meta)) {
                 const el = document.getElementById(`am-f${i}-${f.key}`);
-                const v = f.type === 'bool' ? (el.checked ? '1' : '0') : el.value.trim();
+                let v = f.type === 'bool' ? (el.checked ? '1' : '0') : el.value.trim();
                 if (/[;#\n]/.test(v)) throw new Error(`${f.label}：不能含有 ; 或 #`);
+                const sv = st.servers[f.key];
+                if (sv && sv.key && v && W && W.urlOrigin(v) === W.urlOrigin(sv.url)) v = `${sv.key}@${v}`;   // the same server keeps its key
                 if (values[f.key] !== v) text = amIniSet(text, 'config', f.key, v);
+                const pw = document.getElementById(`am-f${i}-${f.key}_password`);
+                if (pw && !pw.readOnly) {
+                    const pv = pw.value.trim();
+                    if (/[;#\s]/.test(pv)) throw new Error(`${f.key} 的应用服务密码：不能含有空格、; 或 #`);
+                    if ((values[f.key + '_password'] || '') !== pv) text = amIniSet(text, 'config', f.key + '_password', pv);
+                }
+                const relay = document.getElementById(`am-f${i}-${f.key}_relay`);
+                if (relay) {
+                    const rv = relay.checked ? '1' : '0';
+                    if ((values[f.key + '_relay'] || '0') !== rv) text = amIniSet(text, 'config', f.key + '_relay', rv);
+                }
             }
             await this._writeText(app.ini, text);
             return true;

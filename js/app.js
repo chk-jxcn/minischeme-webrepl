@@ -975,7 +975,7 @@ async function marketService(ex) {
     marketFetching = true;
     let bytes = null, status = 0;
     try {
-        const base = window.LOCAL_SERVER_BASE || '';
+        const base = localServerBase();
         let res = null;
         if (base) {
             try {
@@ -1357,10 +1357,24 @@ async function pcmonPump() {
     pumpDisplay();
 }
 
+/* The simulator's id (SIM-...): its requests carry it in X-MiniScheme-Device,
+ * as a board's carry its MAC, so an app's own server can tell devices apart */
+/* The local server's address: '' when the page comes from it (same origin),
+ * which LOCAL_SERVER_BASE leaves empty */
+function localServerBase() {
+    return window.LOCAL_SERVER_BASE || (window.LOCAL_SERVER_INFO ? window.location.origin : '');
+}
+
+function simDeviceHeaders() {
+    let id = '';
+    try { id = localStorage.getItem('minischeme_sim_uuid') || ''; } catch (e) { /* private window */ }
+    return id ? { 'X-MiniScheme-Device': id } : {};
+}
+
 async function feedFetch(ex, url) {
     let bytes = null;
     let problem = '';
-    const base = window.LOCAL_SERVER_BASE || '';
+    const base = localServerBase();
     let effectiveUrl = String(url || '').trim();
     if (/^https?:\/\/(proxy|converter)\.local(:\d+)?\//i.test(effectiveUrl)) {
         const localBase = base || 'http://127.0.0.1:8087';
@@ -1375,7 +1389,8 @@ async function feedFetch(ex, url) {
             let res = null;
             if (base) {
                 try {
-                    res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl), { cache: 'no-store' });
+                    res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(effectiveUrl),
+                                      { cache: 'no-store', headers: simDeviceHeaders() });
                 } catch (be) {}
             }
             if (!res || !res.ok) {

@@ -312,20 +312,31 @@ class DeviceSetupWizard {
                             <label for="ds-proxy-url" style="font-size: 13px;">应用代理地址:</label>
                             <input type="text" id="ds-proxy-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
                         </div>
+                        <div id="ds-proxy-pw-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
+                            <label for="ds-proxy-pw" style="font-size: 13px;">应用服务密码:</label>
+                            <input type="text" id="ds-proxy-pw" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false" maxlength="64">
+                        </div>
                         <div style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-converter-url" style="font-size: 13px;">协议转换器:</label>
                             <input type="text" id="ds-converter-url" placeholder="http://127.0.0.1:8087" value="http://127.0.0.1:8087" class="device-host-input" style="width: 100%;">
+                        </div>
+                        <div id="ds-conv-pw-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
+                            <label for="ds-conv-pw" style="font-size: 13px;">转换器服务密码:</label>
+                            <input type="text" id="ds-conv-pw" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false" maxlength="64">
+                        </div>
+                        <div id="ds-server-pw-hint" style="font-size: 11px; color: var(--text-secondary); margin-left: 130px; margin-bottom: 10px;">
+                            应用服务密码与服务器绑定：设备用它在该服务器注册加密通道（只发送它的 hash，不发送密码），也是该服务器用户门户的登录密码。设备已在该服务器注册后，不改服务器地址就不能改密码。明文显示；转换器与应用代理是同一台服务器时共用同一个密码。
                         </div>
                         <div style="display: flex; gap: 8px; margin-left: 130px; margin-bottom: 10px; flex-wrap: wrap;">
                             <button type="button" class="pill-btn" id="ds-fill-public-proxy" style="font-size: 11.5px; padding: 3px 8px;">🌐 快捷填入公网服务器 (124.222.231.186:8087)</button>
                             <button type="button" class="pill-btn" id="ds-fill-local-proxy" style="font-size: 11.5px; padding: 3px 8px;">🏠 快捷填入当前服务 IP</button>
                         </div>
                         <div id="ds-hw-password-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 6px;">
-                            <label for="ds-hw-password" style="font-size: 13px;">硬件安全密码:</label>
-                            <input type="text" id="ds-hw-password" placeholder="设置硬件密码 (已设置后将明文显示且不可修改)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
+                            <label for="ds-hw-password" style="font-size: 13px;">硬件密码:</label>
+                            <input type="text" id="ds-hw-password" placeholder="设备网页和 HTTP 接口的访问密码 (不小于 6 位字符)" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false">
                         </div>
-                        <div id="ds-hw-password-hint" style="font-size: 11px; color: #eab308; margin-left: 130px;">
-                            ⚠️ 提示：固件连接服务器时用硬件密码在本地算出 hash 密钥并自动注册加密通道（密码不发给服务器）；它同时也是设备网页和 HTTP API 的访问密码；一旦设置将以明文显示且禁止修改。
+                        <div id="ds-hw-password-hint" style="font-size: 11px; color: var(--text-secondary); margin-left: 130px;">
+                            硬件密码只保护设备网页和 HTTP 接口，可以随时修改；连接服务器用上面的应用服务密码。
                         </div>
                         <div id="ds-panel-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-top: 10px;">
                             <label for="ds-panel" style="font-size: 13px;">屏幕类型:</label>
@@ -369,6 +380,11 @@ class DeviceSetupWizard {
             applyInterfaceBtn: q('#ds-apply-interface-btn'),
             proxyUrl: q('#ds-proxy-url'),
             converterUrl: q('#ds-converter-url'),
+            proxyPw: q('#ds-proxy-pw'),
+            proxyPwRow: q('#ds-proxy-pw-row'),
+            convPw: q('#ds-conv-pw'),
+            convPwRow: q('#ds-conv-pw-row'),
+            serverPwHint: q('#ds-server-pw-hint'),
             hwPassRow: q('#ds-hw-password-row'),
             hwPass: q('#ds-hw-password'),
             hwPassHint: q('#ds-hw-password-hint'),
@@ -376,6 +392,11 @@ class DeviceSetupWizard {
             fillPublicBtn: q('#ds-fill-public-proxy'),
             fillLocalBtn: q('#ds-fill-local-proxy'),
         };
+
+        // a bound password unlocks when its address names another server
+        for (const el of [this.el.proxyUrl, this.el.converterUrl]) {
+            if (el) el.addEventListener('input', () => this._applyServerPwLock());
+        }
 
         if (this.el.interfaceSelect) {
             this.el.interfaceSelect.addEventListener('change', () => {
@@ -449,40 +470,59 @@ class DeviceSetupWizard {
         return !!(this.backend && this.backend.kind === 'wasm');
     }
 
+    /* The hardware password guards the board's web page and HTTP API only:
+     * shown in plain text and editable (savedHwPassword: what the file has) */
     _applyHwPasswordLockState(existingPassword) {
         const pwd = String(existingPassword || '').trim();
-        this.el.hwPass.type = 'text'; // Always plaintext when shown
-        if (this._isSimulator()) {
-            this.lockedHwPassword = '';
-            this.el.hwPass.value = '';
-            this.el.hwPass.readOnly = true;
-            this.el.hwPass.disabled = true;
-            return;
+        this.el.hwPass.type = 'text';
+        this.savedHwPassword = this._isSimulator() ? '' : pwd;
+        this.lockedHwPassword = '';   // never locked any more (kept for older callers)
+        this.el.hwPass.value = this.savedHwPassword;
+        this.el.hwPass.readOnly = this._isSimulator();
+        this.el.hwPass.disabled = this._isSimulator();
+        this.el.hwPass.style.opacity = '1';
+        this.el.hwPass.style.cursor = '';
+    }
+
+    /* A random app service password for a new server: letters and digits */
+    static randomPassword(n = 12) {
+        const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        const r = new Uint32Array(n);
+        (window.crypto || window.msCrypto).getRandomValues(r);
+        return Array.from(r, (v) => abc[v % abc.length]).join('');
+    }
+
+    /* The saved server of a config value and its app service password: the
+     * value's <key>_password, else (devices from before per-server passwords,
+     * registered with it) the hardware password */
+    static serverEntry(kv, urlKey, pwKey) {
+        const sv = DeviceSetupWizard.splitKeyedUrl(kv[urlKey]);
+        const legacy = (kv['server.hardware_password'] || '').trim();
+        const password = kv[pwKey] !== undefined ? String(kv[pwKey]).trim() : (sv.url ? legacy : '');
+        return { url: sv.url, key: sv.key, password };
+    }
+
+    /* Bound (registered there) and the address still names that server: read-only */
+    _applyServerPwLock() {
+        const isSim = this._isSimulator();
+        const st = this.serverState || {};
+        const sameOrigin = (a, b) => !!a && DeviceSetupWizard.urlOrigin(a) === DeviceSetupWizard.urlOrigin(b);
+        const convShared = sameOrigin(this.el.converterUrl.value.trim(), this.el.proxyUrl.value.trim()) ||
+                           !this.el.converterUrl.value.trim();
+        for (const [input, entry, url] of [[this.el.proxyPw, st.proxy, this.el.proxyUrl.value.trim()],
+                                           [this.el.convPw, st.conv, this.el.converterUrl.value.trim()]]) {
+            if (!input) continue;
+            const bound = !!(entry && entry.key && sameOrigin(entry.url, url));
+            if (bound) input.value = entry.password;
+            else if (input.readOnly) input.value = '';   // just unlocked: a new server, a new password
+            if (!bound && !input.value && !isSim) input.value = DeviceSetupWizard.randomPassword();
+            input.readOnly = bound;
+            input.style.opacity = bound ? '0.85' : '1';
+            input.title = bound ? '已在这台服务器注册：密码与服务器绑定，改了服务器地址才能修改' : '';
         }
-        if (pwd.length > 0) {
-            this.lockedHwPassword = pwd;
-            this.el.hwPass.value = pwd;
-            this.el.hwPass.readOnly = true;
-            this.el.hwPass.disabled = true;
-            this.el.hwPass.style.opacity = '0.85';
-            this.el.hwPass.style.cursor = 'not-allowed';
-            if (this.el.hwPassHint) {
-                this.el.hwPassHint.style.color = '#4ade80';
-                this.el.hwPassHint.textContent = '🔒 硬件密码已设置（明文显示），已设置的硬件密码禁止修改。';
-            }
-        } else {
-            this.lockedHwPassword = '';
-            this.el.hwPass.value = '';
-            this.el.hwPass.readOnly = false;
-            this.el.hwPass.disabled = false;
-            this.el.hwPass.style.opacity = '1';
-            this.el.hwPass.style.cursor = '';
-            this.el.hwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
-            if (this.el.hwPassHint) {
-                this.el.hwPassHint.style.color = '#eab308';
-                this.el.hwPassHint.textContent = '⚠️ 必填项：固件用硬件密码自动注册加密通道（密码不发给服务器），它同时也是设备网页和 HTTP API 的访问密码（长度不小于 6 位字符）；一旦设置将以明文显示且禁止修改。';
-            }
-        }
+        if (this.el.proxyPwRow) this.el.proxyPwRow.style.display = isSim ? 'none' : 'grid';
+        if (this.el.convPwRow) this.el.convPwRow.style.display = isSim || convShared ? 'none' : 'grid';
+        if (this.el.serverPwHint) this.el.serverPwHint.hidden = isSim;
     }
 
     _updateModeUi() {
@@ -490,6 +530,7 @@ class DeviceSetupWizard {
         if (this.el.wifiSection) this.el.wifiSection.hidden = isSim;
         if (this.el.hwPassRow) this.el.hwPassRow.style.display = isSim ? 'none' : 'grid';
         if (this.el.hwPassHint) this.el.hwPassHint.hidden = isSim;
+        if (this.el.proxyPw) this._applyServerPwLock();
         if (this.el.title) {
             this.el.title.textContent = isSim ? '⚙️ 本地模拟设备初始化配置' : '⚙️ ESP32 设备初始化配置';
         }
@@ -714,9 +755,7 @@ class DeviceSetupWizard {
         this.el.wifiPass.value = '';
         this.el.proxyUrl.value = defaultProxy;
         this.el.converterUrl.value = defaultProxy;
-        if (!this._isSimulator() && !this.lockedHwPassword) {
-            this.el.hwPass.value = '';
-        }
+        this._applyServerPwLock();
         this.populateInterfaceList();
         this._status('已填入推荐默认设置', 'ok');
     }
@@ -803,8 +842,15 @@ class DeviceSetupWizard {
             this.el.converterUrl.value = DeviceSetupWizard.getPublicProxyServer();
         }
 
-        const existingHwPass = kv['server.hardware_password'] || kv['http.http_password'] || '';
+        const existingHwPass = kv['http.http_password'] || kv['server.hardware_password'] || '';
         this._applyHwPasswordLockState(existingHwPass);
+        this.serverState = {
+            proxy: DeviceSetupWizard.serverEntry(kv, 'server.proxy_url', 'server.proxy_url_password'),
+            conv: DeviceSetupWizard.serverEntry(kv, 'server.converter_url', 'server.converter_url_password'),
+        };
+        if (this.el.proxyPw) this.el.proxyPw.value = '';
+        if (this.el.convPw) this.el.convPw.value = '';
+        this._applyServerPwLock();
 
         if (this.el.panel) this.el.panel.value = /^tft$/i.test(kv['display.panel'] || '') ? 'tft' : 'ips';
 
@@ -821,22 +867,35 @@ class DeviceSetupWizard {
         const proxy = this.el.proxyUrl.value.trim();
         const conv = this.el.converterUrl.value.trim() || proxy;
 
-        let hwPass = '';
+        let hwPass = '', proxyPw = '', convPw = '';
         if (!isSim) {
-            hwPass = this.lockedHwPassword || (this.el.hwPass ? this.el.hwPass.value.trim() : '');
-            if (!this.lockedHwPassword) {
-                if (!hwPass) {
-                    const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
-                    this._status(msg, 'error');
-                    this.log('error', `⚙️ ${msg}`);
-                    if (this.el.hwPass) this.el.hwPass.focus();
-                    return;
-                }
+            hwPass = this.el.hwPass ? this.el.hwPass.value.trim() : '';
+            if (!hwPass) {
+                const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
+                this._status(msg, 'error');
+                this.log('error', `⚙️ ${msg}`);
+                if (this.el.hwPass) this.el.hwPass.focus();
+                return;
+            }
+            if (hwPass !== (this.savedHwPassword || '')) {   // a password kept as it was is not judged again
                 const chk = DeviceSetupWizard.validatePasswordSecurity(hwPass);
                 if (!chk.valid) {
                     this._status(chk.message, 'error');
                     this.log('error', `⚙️ 硬件密码校验失败: ${chk.message}`);
                     if (this.el.hwPass) this.el.hwPass.focus();
+                    return;
+                }
+            }
+            // each server's app service password: plain text, no spaces, ; or #
+            const shared = !conv || DeviceSetupWizard.urlOrigin(conv) === DeviceSetupWizard.urlOrigin(proxy);
+            proxyPw = this.el.proxyPw ? this.el.proxyPw.value.trim() : '';
+            convPw = shared ? proxyPw : (this.el.convPw ? this.el.convPw.value.trim() : '');
+            for (const [pw, el, name] of [[proxyPw, this.el.proxyPw, '应用服务密码'], [convPw, this.el.convPw, '转换器服务密码']]) {
+                if (!pw || /[\s;#]/.test(pw) || pw.length > 64) {
+                    const msg = `${name}为必填项：1..64 个字符，不能含有空格、; 或 #`;
+                    this._status(msg, 'error');
+                    this.log('error', `⚙️ ${msg}`);
+                    if (el) el.focus();
                     return;
                 }
             }
@@ -871,6 +930,8 @@ class DeviceSetupWizard {
                 proxyUrl: proxy,
                 converterUrl: conv,
                 hwPassword: hwPass,
+                proxyPassword: proxyPw,
+                converterPassword: convPw,
                 panel: this.el.panel ? this.el.panel.value : 'ips',
                 bootApp: this.existingBootApp || 'settings',
                 isSimulator: isSim,
@@ -883,6 +944,8 @@ class DeviceSetupWizard {
 
             if (!isSim && hwPass) {
                 this._applyHwPasswordLockState(hwPass);
+                this.log('info', `🔑 应用服务密码（请记下，登录服务器用户门户也用它）：${proxy} → ${proxyPw}` +
+                    (convPw !== proxyPw ? `；${conv} → ${convPw}` : ''));
                 // the board asks for this password ([http] http_password) after the restart
                 try { localStorage.setItem('minischeme_http_password', hwPass); } catch (_) {}
                 if (this.backend) this.backend.password = hwPass;
@@ -916,6 +979,8 @@ class DeviceSetupWizard {
             proxyUrl = defaultProxy,
             converterUrl = defaultConv,
             hwPassword = '',
+            proxyPassword = '',
+            converterPassword = '',
             panel = 'ips',
             bootApp = 'settings',
             existingIni = ''
@@ -928,6 +993,9 @@ class DeviceSetupWizard {
         const effectiveSsid = isSim ? '' : wifiSsid;
         const effectivePass = isSim ? '' : wifiPassword;
         const effectiveHwPass = isSim ? '' : hwPassword;
+        // each server value's app service password (the firmware registers with it)
+        const proxyPw = isSim ? '' : proxyPassword;
+        const convPw = isSim ? '' : (converterPassword || proxyPassword);
         const panelType = panel === 'tft' ? 'tft' : 'ips';   // [display] panel: IPS needs the driver's inversion
 
         // If existing INI text is provided and non-empty, merge into it
@@ -997,9 +1065,17 @@ class DeviceSetupWizard {
             if (effectiveHwPass) {
                 setSectionKey('server', 'hardware_password', effectiveHwPass);
             }
+            if (proxyPw) {
+                setSectionKey('server', 'proxy_url_password', proxyPw);
+                setSectionKey('server', 'converter_url_password', convPw);
+            }
 
             setSectionKey('app', 'proxy', keepKey('app.proxy', proxyUrl));
             setSectionKey('app', 'https_proxy', keepKey('app.https_proxy', converterUrl));
+            if (proxyPw) {
+                setSectionKey('app', 'proxy_password', proxyPw);
+                setSectionKey('app', 'https_proxy_password', convPw);
+            }
             setSectionKey('display', 'panel', panelType);
 
             setSectionKey('system', 'boot_app', bootApp || 'settings');
@@ -1033,12 +1109,16 @@ class DeviceSetupWizard {
             '',
             '[server]',
             `proxy_url = ${proxyUrl}`,
+            `proxy_url_password = ${proxyPw}`,
             `converter_url = ${converterUrl}`,
+            `converter_url_password = ${convPw}`,
             `hardware_password = ${effectiveHwPass}`,
             '',
             '[app]',
             `proxy = ${proxyUrl}`,
+            `proxy_password = ${proxyPw}`,
             `https_proxy = ${converterUrl}`,
+            `https_proxy_password = ${convPw}`,
             'carousel = 1',
             'carousel_seconds = 10',
             '',

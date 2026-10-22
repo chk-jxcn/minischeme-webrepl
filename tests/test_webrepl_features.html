@@ -356,12 +356,27 @@
             proxyUrl: "http://proxy.test:8087",
             converterUrl: "http://conv.test:8087",
             hwPassword: "HardPassword888",
+            proxyPassword: "SvcProxyPw1",
+            converterPassword: "SvcConvPw2",
             bootApp: "apps/calendar/app.msbc"
         });
         assert(ini.includes("ssid = HomeWiFi"), "Missing wifi ssid");
         assert(ini.includes("password = SecretPassword123"), "Missing wifi password");
         assert(ini.includes("proxy_url = http://proxy.test:8087"), "Missing proxy_url");
         assert(ini.includes("hardware_password = HardPassword888"), "Missing hardware_password");
+        assert(ini.includes("proxy_url_password = SvcProxyPw1"), "Missing proxy_url_password");
+        assert(ini.includes("converter_url_password = SvcConvPw2"), "Missing converter_url_password");
+        assert(ini.includes("proxy_password = SvcProxyPw1"), "Missing [app] proxy_password");
+        assert(ini.includes("https_proxy_password = SvcConvPw2"), "Missing [app] https_proxy_password");
+        // merged into an existing file: the same server keeps its key, the passwords are written
+        const key = "a".repeat(64);
+        const merged = setup.buildConfigIni({
+            existingIni: `config_version = 3\n[server]\nproxy_url = ${key}@http://proxy.test:8087\n[app]\nproxy = ${key}@http://proxy.test:8087\n`,
+            proxyUrl: "http://proxy.test:8087", converterUrl: "http://proxy.test:8087",
+            hwPassword: "HardPassword888", proxyPassword: "SvcProxyPw1"
+        });
+        assert(merged.includes(`proxy_url = ${key}@http://proxy.test:8087`), "The same server must keep its key");
+        assert(merged.includes("converter_url_password = SvcProxyPw1"), "One server, one password");
         assert(ini.includes("boot_app = apps/calendar/app.msbc"), "Missing default boot app");
     });
 
@@ -399,7 +414,7 @@
         assert(threw, "Simulator buildConfigIni must reject non-local proxy URLs");
     });
 
-    addTest("5.3 Serial-Only Auto-Trigger & Plaintext Locked Hardware Password", async () => {
+    addTest("5.3 Serial-Only Auto-Trigger, Editable Hardware Password & Bound App Service Passwords", async () => {
         const setup = new DeviceSetupWizard();
         // Verify unconfigured detection
         assert(DeviceSetupWizard.isConfigUnconfigured(""), "Empty config must be detected as unconfigured");
@@ -413,20 +428,29 @@
         });
         assertEqual(triggeredHttp, false, "HTTP connection must never auto-trigger initial setup");
 
-        // Verify hardware password plaintext display & immutability when already set
+        // The hardware password guards the HTTP API only: plain text and editable
         setup.backend = { kind: "device", label: "ESP32 Serial" };
-        setup._parseToForm("[wifi]\nssid = OfficeNet\n[server]\nproxy_url = http://192.168.1.10:8087\nhardware_password = PlainTextFixed999\n");
+        const key = "b".repeat(64);
+        setup._parseToForm(`[wifi]\nssid = OfficeNet\n[server]\nproxy_url = ${key}@http://192.168.1.10:8087\nhardware_password = PlainTextFixed999\n`);
         assertEqual(setup.el.hwPass.type, "text", "Hardware password must be displayed in plaintext (type=text)");
         assertEqual(setup.el.hwPass.value, "PlainTextFixed999", "Hardware password value mismatch");
-        assertEqual(setup.el.hwPass.readOnly, true, "Already-set hardware password must be readOnly");
-        assertEqual(setup.el.hwPass.disabled, true, "Already-set hardware password must be disabled");
-        assertEqual(setup.lockedHwPassword, "PlainTextFixed999", "lockedHwPassword must preserve existing password");
+        assertEqual(setup.el.hwPass.readOnly, false, "The hardware password must stay editable");
 
-        // Verify unset hardware password remains editable
-        setup._parseToForm("[wifi]\nssid = OfficeNet\n[server]\nhardware_password = \n");
-        assertEqual(setup.el.hwPass.readOnly, false, "Unset hardware password must be editable");
-        assertEqual(setup.el.hwPass.disabled, false, "Unset hardware password must not be disabled");
-        assertEqual(setup.lockedHwPassword, "", "lockedHwPassword must be empty when unset");
+        // A registered server (its value carries the key) binds its password:
+        // a device from before per-server passwords registered with the hardware password
+        assertEqual(setup.el.proxyPw.value, "PlainTextFixed999", "Legacy registration: the hardware password is the server's");
+        assertEqual(setup.el.proxyPw.readOnly, true, "A bound app service password must be read-only");
+
+        // Another server unlocks it with a new (generated) password
+        setup.el.proxyUrl.value = "http://10.0.0.9:8087";
+        setup.el.proxyUrl.dispatchEvent(new Event("input"));
+        assertEqual(setup.el.proxyPw.readOnly, false, "Another server must unlock the password");
+        assert(setup.el.proxyPw.value && setup.el.proxyPw.value !== "PlainTextFixed999", "A new server must get a new password");
+
+        // Its own <key>_password wins over the hardware password
+        setup._parseToForm(`[server]\nproxy_url = ${key}@http://192.168.1.10:8087\nproxy_url_password = OwnPw42x\nhardware_password = PlainTextFixed999\n`);
+        assertEqual(setup.el.proxyPw.value, "OwnPw42x", "The server's own password must be shown");
+        assertEqual(setup.el.proxyPw.readOnly, true, "Bound again with the original address");
     });
 
     // 6. App Market & INI Parser Tests (app_manager.js)
@@ -580,7 +604,7 @@ theme = dark # Slate theme`;
         assertEqual(panel.el.panes.app.hidden, false);
     });
 
-    addTest("8.4 System Configuration Subsystem (WiFi, INI Parser, and Plaintext Password Lock)", () => {
+    addTest("8.4 System Configuration Subsystem (WiFi, INI Parser, and Plaintext Editable Password)", () => {
         const mockTarget = {
             kind: "wasm",
             exports: () => ({}),
@@ -623,12 +647,12 @@ theme = dark # Slate theme`;
         assert(window.DeviceSetupWizard.isLocalProxyUrl("http://192.168.1.100:8087"), "192.168.x must be local proxy");
         assert(!window.DeviceSetupWizard.isLocalProxyUrl("http://remote.server.org:8087"), "remote domain must not be allowed for simulator");
 
-        // Test hardware password locking
+        // The hardware password guards the HTTP API only: plain text and editable
         panel.readConfigIni = () => sampleIni;
         panel.loadSystemTab();
         assertEqual(panel.el.sysHwPass.value, "LockHwPassword123", "Hardware password must be shown in plaintext");
-        assertEqual(panel.el.sysHwPass.disabled, true, "Hardware password must be locked/disabled");
-        assertEqual(panel.el.sysHwPass.readOnly, true, "Hardware password must be uneditable");
+        assertEqual(panel.el.sysHwPass.disabled, false, "Hardware password must stay editable");
+        assertEqual(panel.el.sysHwPass.readOnly, false, "Hardware password must stay editable");
         assertEqual(panel.el.sysHwPass.type, "text", "Hardware password must be plaintext type=text");
 
         // Test unset hardware password: must be required and >= 6 characters
@@ -652,14 +676,14 @@ theme = dark # Slate theme`;
         panel.saveSystemConfig();
         assertEqual(savedIni, null, "Must reject saving when hardware password is less than 6 characters");
 
-        // Validation: >= 6 characters must be accepted and locked upon reload
+        // Validation: >= 6 characters must be accepted (and stays editable)
         panel.el.sysHwPass.value = "SecurePass888";
         savedIni = null;
         panel.readConfigIni = () => savedIni || sampleNoPass;
         panel.saveSystemConfig();
         assert(savedIni !== null && savedIni.includes("hardware_password = SecurePass888"), "Must save hardware password with >= 6 chars");
         assertEqual(panel.el.sysHwPass.value, "SecurePass888", "Must display saved password in plaintext");
-        assertEqual(panel.el.sysHwPass.disabled, true, "Must lock input after saving");
+        assertEqual(panel.el.sysHwPass.disabled, false, "The hardware password stays editable after saving");
     });
 
     addTest("Test 31: Proxy Admin Portal Manager and URL resolution", async () => {

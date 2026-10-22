@@ -129,13 +129,22 @@ class AppWebPanel {
                                 <label>协议转换地址 (converter_url)
                                     <input type="text" id="aw-sys-conv-url" placeholder="http://127.0.0.1:8087">
                                 </label>
+                                <label id="aw-sys-proxy-pw-row">应用服务密码 (proxy_url_password)
+                                    <input type="text" id="aw-sys-proxy-pw" autocomplete="off" spellcheck="false" maxlength="64">
+                                </label>
+                                <label id="aw-sys-conv-pw-row">转换器服务密码 (converter_url_password)
+                                    <input type="text" id="aw-sys-conv-pw" autocomplete="off" spellcheck="false" maxlength="64" placeholder="与应用代理同一台服务器时留空">
+                                </label>
+                            </div>
+                            <div id="aw-sys-pw-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
+                                应用服务密码与服务器绑定：设备用它在该服务器注册加密通道（不发送密码），也是该服务器用户门户的登录密码；已注册后不改服务器地址就不能改密码。明文显示。
                             </div>
                             <div style="margin-top: 10px;">
                                 <label>硬件密码 (hardware_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
                                     <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
                                 </label>
                                 <div id="aw-sys-hw-pass-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                    硬件密码用于加密通道的设备注册，同时也是设备网页和 HTTP API 的访问密码；一旦设置将直接明文显示并锁定禁止修改。
+                                    硬件密码只保护设备网页和 HTTP 接口，可以随时修改；连接服务器用上面的应用服务密码。
                                 </div>
                             </div>
                         </section>
@@ -273,6 +282,11 @@ class AppWebPanel {
             sysWifiPass: root.querySelector('#aw-sys-wifi-pass'),
             sysProxyUrl: root.querySelector('#aw-sys-proxy-url'),
             sysConvUrl: root.querySelector('#aw-sys-conv-url'),
+            sysProxyPw: root.querySelector('#aw-sys-proxy-pw'),
+            sysConvPw: root.querySelector('#aw-sys-conv-pw'),
+            sysProxyPwRow: root.querySelector('#aw-sys-proxy-pw-row'),
+            sysConvPwRow: root.querySelector('#aw-sys-conv-pw-row'),
+            sysPwNote: root.querySelector('#aw-sys-pw-note'),
             sysHwPass: root.querySelector('#aw-sys-hw-pass'),
             sysHwPassNote: root.querySelector('#aw-sys-hw-pass-note'),
             sysOrientation: root.querySelector('#aw-sys-orientation'),
@@ -749,38 +763,39 @@ class AppWebPanel {
         if (this.el.sysProxyUrl) this.el.sysProxyUrl.value = srv['proxy_url'] || appSec['proxy'] || sys['proxy_url'] || '';
         if (this.el.sysConvUrl) this.el.sysConvUrl.value = srv['converter_url'] || appSec['https_proxy'] || sys['converter_url'] || '';
 
-        // 4. Hardware password
-        const hwPass = (srv['hardware_password'] || httpSec['http_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
-        this.lockedHwPassword = hwPass;
-        const reqBadge = this.el.root.querySelector('#aw-sys-hw-pass-req');
+        // 4. Hardware password (the HTTP API only, editable) and each server's
+        //    app service password (bound to the server once registered there)
+        const hwPass = (httpSec['http_password'] || srv['hardware_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
+        this.savedHwPassword = hwPass;
+        this.lockedHwPassword = '';
+        const isWasm = !this.target || this.target.kind === 'wasm';
         if (this.el.sysHwPass) {
-            this.el.sysHwPass.type = 'text'; // Always plaintext
-            if (hwPass) {
-                this.el.sysHwPass.value = hwPass;
-                this.el.sysHwPass.disabled = true;
-                this.el.sysHwPass.readOnly = true;
-                this.el.sysHwPass.style.opacity = '0.85';
-                this.el.sysHwPass.style.cursor = 'not-allowed';
-                this.el.sysHwPass.title = '硬件密码已设置，显示为不可编辑框，并以明文显示密码';
-                if (reqBadge) reqBadge.style.display = 'none';
-                if (this.el.sysHwPassNote) {
-                    this.el.sysHwPassNote.textContent = '🔒 硬件密码已设置（config.ini 中已有），显示为不可编辑框，并以明文显示密码。';
-                    this.el.sysHwPassNote.style.color = '#4ade80';
-                }
-            } else {
-                this.el.sysHwPass.value = '';
-                this.el.sysHwPass.disabled = false;
-                this.el.sysHwPass.readOnly = false;
-                this.el.sysHwPass.style.opacity = '1';
-                this.el.sysHwPass.style.cursor = '';
-                this.el.sysHwPass.placeholder = '必填项：请输入不小于 6 位字符的硬件密码';
-                if (reqBadge) reqBadge.style.display = 'inline';
-                if (this.el.sysHwPassNote) {
-                    this.el.sysHwPassNote.textContent = '⚠️ 硬件密码未设置，为必选项，且保存时长度不能小于 6 位字符（保存后明文显示且禁止修改）。';
-                    this.el.sysHwPassNote.style.color = '#eab308';
-                }
+            this.el.sysHwPass.type = 'text';
+            this.el.sysHwPass.value = hwPass;
+            this.el.sysHwPass.disabled = false;
+            this.el.sysHwPass.readOnly = false;
+        }
+        const kv = {};
+        for (const [secName, items] of Object.entries(ini)) {
+            for (const [k, v] of Object.entries(items || {})) kv[`${secName}.${k}`] = v;
+        }
+        const serverSec = ini['server'] ? 'server' : 'system';
+        this.sysServerState = {
+            raw: kv,
+            proxy: window.DeviceSetupWizard ? window.DeviceSetupWizard.serverEntry(kv, `${serverSec}.proxy_url`, `${serverSec}.proxy_url_password`) : {},
+            conv: window.DeviceSetupWizard ? window.DeviceSetupWizard.serverEntry(kv, `${serverSec}.converter_url`, `${serverSec}.converter_url_password`) : {},
+        };
+        if (this.el.sysProxyUrl && this.sysServerState.proxy.url) this.el.sysProxyUrl.value = this.sysServerState.proxy.url;
+        if (this.el.sysConvUrl && this.sysServerState.conv.url) this.el.sysConvUrl.value = this.sysServerState.conv.url;
+        if (this.el.sysProxyPw) this.el.sysProxyPw.value = '';
+        if (this.el.sysConvPw) this.el.sysConvPw.value = '';
+        if (!this._sysPwListeners) {
+            this._sysPwListeners = true;
+            for (const el of [this.el.sysProxyUrl, this.el.sysConvUrl]) {
+                if (el) el.addEventListener('input', () => this._applySysPwLock());
             }
         }
+        this._applySysPwLock(isWasm);
 
         // 5. Display & General
         const disp = ini['display'] || {};
@@ -803,6 +818,31 @@ class AppWebPanel {
         if (this.el.sysSaveStatus) this.el.sysSaveStatus.textContent = '';
     }
 
+    /* A bound password (registered there, the address unchanged) is read-only */
+    _applySysPwLock(isWasmArg) {
+        const isWasm = isWasmArg !== undefined ? isWasmArg : (!this.target || this.target.kind === 'wasm');
+        const st = this.sysServerState || {};
+        const W = window.DeviceSetupWizard;
+        if (!W) return;
+        const same = (a, b) => !!a && W.urlOrigin(a) === W.urlOrigin(b);
+        const proxyUrl = (this.el.sysProxyUrl ? this.el.sysProxyUrl.value : '').trim();
+        const convUrl = (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim();
+        const shared = !convUrl || same(convUrl, proxyUrl);
+        for (const [input, entry, url] of [[this.el.sysProxyPw, st.proxy, proxyUrl], [this.el.sysConvPw, st.conv, convUrl]]) {
+            if (!input) continue;
+            const bound = !!(entry && entry.key && same(entry.url, url));
+            if (bound) input.value = entry.password;
+            else if (input.readOnly) input.value = '';
+            if (!bound && !input.value && !isWasm) input.value = W.randomPassword();
+            input.readOnly = bound;
+            input.style.opacity = bound ? '0.85' : '1';
+            input.title = bound ? '已在这台服务器注册：密码与服务器绑定，改了服务器地址才能修改' : '';
+        }
+        if (this.el.sysProxyPwRow) this.el.sysProxyPwRow.style.display = isWasm ? 'none' : '';
+        if (this.el.sysConvPwRow) this.el.sysConvPwRow.style.display = isWasm || shared ? 'none' : '';
+        if (this.el.sysPwNote) this.el.sysPwNote.style.display = isWasm ? 'none' : '';
+    }
+
     saveSystemConfig() {
         const isWasm = !this.target || this.target.kind === 'wasm';
         const proxyUrl = (this.el.sysProxyUrl ? this.el.sysProxyUrl.value : '').trim();
@@ -811,8 +851,8 @@ class AppWebPanel {
             return;
         }
 
-        let hwPassToSave = this.lockedHwPassword;
-        if (!hwPassToSave) {
+        let hwPassToSave = '';
+        {
             const rawHwPass = (this.el.sysHwPass ? this.el.sysHwPass.value : '').trim();
             if (!rawHwPass) {
                 const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
@@ -823,7 +863,7 @@ class AppWebPanel {
                 if (this.el.sysHwPass) this.el.sysHwPass.focus();
                 return;
             }
-            const chk = this._validatePasswordSecurity(rawHwPass);
+            const chk = rawHwPass === (this.savedHwPassword || '') ? { valid: true } : this._validatePasswordSecurity(rawHwPass);
             if (!chk.valid) {
                 if (this.el.sysSaveStatus) {
                     this.el.sysSaveStatus.textContent = `❌ ${chk.message}`;
@@ -864,14 +904,25 @@ class AppWebPanel {
             const parsed = this._parseIni(rawText);
             const serverSec = parsed['server'] ? 'server' : 'system';
             const convUrl = (this.el.sysConvUrl ? this.el.sysConvUrl.value : '').trim() || proxyUrl;
+            // an address naming the same server keeps the device's key for it
+            const W = window.DeviceSetupWizard;
+            const flat = {};
+            for (const [secName, items] of Object.entries(parsed)) {
+                for (const [k, v] of Object.entries(items || {})) flat[`${secName}.${k}`] = v;
+            }
+            const keepKey = (sk, url) => {
+                if (!W) return url;
+                const old = W.splitKeyedUrl(flat[sk]);
+                return old.key && url && W.urlOrigin(old.url) === W.urlOrigin(url) ? `${old.key}@${url}` : url;
+            };
             const updates = {
-                [`${serverSec}.proxy_url`]: proxyUrl,
-                [`${serverSec}.converter_url`]: convUrl,
+                [`${serverSec}.proxy_url`]: keepKey(`${serverSec}.proxy_url`, proxyUrl),
+                [`${serverSec}.converter_url`]: keepKey(`${serverSec}.converter_url`, convUrl),
                 [`${serverSec}.hardware_password`]: hwPassToSave,
                 // the firmware guards its web page and API with [http] http_password
                 'http.http_password': hwPassToSave,
-                'app.proxy': proxyUrl,
-                'app.https_proxy': convUrl,
+                'app.proxy': keepKey('app.proxy', proxyUrl),
+                'app.https_proxy': keepKey('app.https_proxy', convUrl),
                 'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
                 'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
                 'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
@@ -882,6 +933,16 @@ class AppWebPanel {
                 'display.backlight_min': String(blMin),
                 'display.backlight_max': String(blMax)
             };
+
+            if (!isWasm) {
+                const proxyPw = (this.el.sysProxyPw ? this.el.sysProxyPw.value : '').trim();
+                const shared = !W || W.urlOrigin(convUrl) === W.urlOrigin(proxyUrl);
+                const convPw = shared ? proxyPw : (this.el.sysConvPw ? this.el.sysConvPw.value : '').trim();
+                updates[`${serverSec}.proxy_url_password`] = proxyPw;
+                updates[`${serverSec}.converter_url_password`] = convPw;
+                updates['app.proxy_password'] = proxyPw;
+                updates['app.https_proxy_password'] = convPw;
+            }
 
             if (!parsed['app'] || !('carousel' in parsed['app'])) {
                 updates['app.carousel'] = '1';
@@ -908,7 +969,7 @@ class AppWebPanel {
         const finishSave = async (ok) => {
             if (ok && !isWasm && hwPassToSave) {
                 const link = (this.target && this.target.link) || window.activeLink;
-                const newPassword = !this.lockedHwPassword;
+                const newPassword = hwPassToSave !== (this.savedHwPassword || '');
                 try { localStorage.setItem('minischeme_http_password', hwPassToSave); } catch (_) {}
                 if (link) link.password = hwPassToSave;
                 if (newPassword && link && link.kind === 'http' && typeof link._json === 'function') {
@@ -925,7 +986,7 @@ class AppWebPanel {
                 }
             }
             if (ok) {
-                this.lockedHwPassword = hwPassToSave;
+                this.savedHwPassword = hwPassToSave;
                 if (this.el.sysSaveStatus) {
                     this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';
                     this.el.sysSaveStatus.style.color = '#72d696';
