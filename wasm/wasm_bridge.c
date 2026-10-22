@@ -1355,12 +1355,80 @@ static void sched_restart(void) {
     }
 }
 
+/* schedule.ini persist = 1: the launch also kept in a file until its
+ * (app-return), as the firmware (a reload of the page is the power cut) */
+#define SCHED_FILE  "/spiffs/.sched_launch"
+#define SCHED_TRIES 3
+static int g_sched_ticks = 0;          /* ticks of this launch: a minute makes it healthy */
+
+static bool sched_persists(const char *app_path) {
+    char dir[72], ini[96], v[8] = "";
+    snprintf(dir, sizeof(dir), "%s", app_path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) return false;
+    *slash = '\0';
+    snprintf(ini, sizeof(ini), "%s/schedule.ini", dir);
+    return mock_ini_value(ini, "persist", v, sizeof(v)) && v[0] == '1';
+}
+
+static void sched_save(const SchedList *st, int tries) {
+    if (st->n == 0 || !sched_persists(st->path[0])) {
+        if (mock_fs_find(SCHED_FILE) >= 0) mock_fs_remove(SCHED_FILE);
+        return;
+    }
+    char text[512];
+    int n = snprintf(text, sizeof(text), "tries %d\n", tries);
+    for (int i = 0; i < st->n && n < (int)sizeof(text); i++) {
+        n += snprintf(text + n, sizeof(text) - (size_t)n, "%.5s %.63s\n", st->at[i], st->path[i]);
+    }
+    if (n >= (int)sizeof(text)) n = (int)sizeof(text) - 1;
+    mock_fs_put(SCHED_FILE, (const uint8_t *)text, (size_t)n);
+}
+
+static bool sched_load(SchedList *st, int *tries) {
+    int slot = mock_fs_find(SCHED_FILE);
+    if (slot < 0) return false;
+    memset(st, 0, sizeof(*st));
+    *tries = 0;
+    const char *p = (const char *)g_mock_fs[slot].data;
+    while (*p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len > 6 && strncmp(p, "tries ", 6) == 0) {
+            *tries = (int)strtoll(p + 6, NULL, 10);
+        } else if (len > 6 && p[5] == ' ' && st->n < SCHED_MAX) {
+            memcpy(st->at[st->n], p, 5);
+            st->at[st->n][5] = '\0';
+            snprintf(st->path[st->n], 64, "%.*s", (int)(len - 6 < 63 ? len - 6 : 63), p + 6);
+            st->n++;
+        }
+        p += len + (e ? 1 : 0);
+    }
+    return st->n > 0;
+}
+
+static void sched_save_current(void) {
+    if (!g_sched_boot) return;
+    SchedList st;
+    memset(&st, 0, sizeof(st));
+    snprintf(st.path[0], 64, "%s", g_sched_path);
+    snprintf(st.at[0], 6, "%s", g_sched_at);
+    st.n = 1;
+    for (int i = 0; i < g_sched_queue.n && st.n < SCHED_MAX; i++, st.n++) {
+        memcpy(st.path[st.n], g_sched_queue.path[i], 64);
+        memcpy(st.at[st.n], g_sched_queue.at[i], 6);
+    }
+    sched_save(&st, g_sched_ticks >= 60 ? 0 : 1);
+}
+
 /* (app-return): the next launch due, else the boot app; #f when nothing to return to */
 static bool sched_return(void) {
     if (g_sched_queue.n > 0) {
         g_sched_next = g_sched_queue;
+        sched_save(&g_sched_next, 0);
     } else if (g_sched_boot) {
         g_sched_next.n = 0;
+        if (mock_fs_find(SCHED_FILE) >= 0) mock_fs_remove(SCHED_FILE);
     } else {
         g_sched_at[0] = '\0';
         return false;
@@ -1860,13 +1928,30 @@ const char *wasm_reboot(void) {
     g_sched_boot = false;
     g_sched_at[0] = '\0';
     g_sched_return_at = 0;
+    g_sched_ticks = 0;
     memset(&g_sched_queue, 0, sizeof(g_sched_queue));
+    if (!g_settings_mode) {
+        SchedList kept;
+        int tries = 0;
+        if (g_sched_next.n > 0) {
+            sched_save(&g_sched_next, 1);
+        } else if (sched_load(&kept, &tries)) {
+            if (tries >= SCHED_TRIES) {
+                mock_fs_remove(SCHED_FILE);
+            } else {
+                g_sched_next = kept;
+                sched_save(&g_sched_next, tries + 1);
+            }
+        }
+    }
     if (!g_settings_mode && g_sched_next.n > 0) {
         int slot = mock_fs_find(g_sched_next.path[0]);
         if (mock_has_magic(slot, "MSBC") || mock_has_magic(slot, "MFAS")) {
             g_sched_boot = true;
             snprintf(g_sched_path, sizeof(g_sched_path), "%s", g_sched_next.path[0]);
             snprintf(g_sched_at, sizeof(g_sched_at), "%s", g_sched_next.at[0]);
+        } else if (mock_fs_find(SCHED_FILE) >= 0) {
+            mock_fs_remove(SCHED_FILE);   /* the app is gone */
         }
         for (int i = 1; i < g_sched_next.n; i++) {
             memcpy(g_sched_queue.path[g_sched_queue.n], g_sched_next.path[i], 64);
@@ -2238,9 +2323,11 @@ static void sched_fire(int t) {
             memcpy(g_sched_queue.at[g_sched_queue.n], due.at[i], 6);
             g_sched_queue.n++;
         }
+        sched_save_current();
         return;
     }
     g_sched_next = due;
+    sched_save(&due, 0);
     sched_restart();
 }
 
@@ -2255,6 +2342,7 @@ static int32_t days_from_civil(int y, int m, int d) {
 
 /* Each wall minute once (a reboot in between: two minutes back at most) */
 static void sched_scan(const MiniWallTime *t) {
+    if (g_sched_boot && g_sched_ticks < 60 && ++g_sched_ticks == 60) sched_save_current();
     if (g_sched_return_at > 0 && js_now_ms() >= g_sched_return_at) {
         g_sched_return_at = 0;
         sched_return();

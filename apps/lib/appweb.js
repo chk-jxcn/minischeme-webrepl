@@ -4,9 +4,16 @@
  * the board runs the app's (app-web name body) and answers its string. JSON
  * answers are parsed; {"success":false,"error":..} and HTTP errors throw. The
  * WebREPL's app page panel (app_web.js) answers the same calls. */
+/* The board serves this page as /app?t=<token>: a sandboxed page sends no
+ * Referer, so its calls carry the token back to show they come from it */
+const APP_PAGE_TOKEN = new URLSearchParams(location.search).get('t') || '';
+function appUrl(url) {
+  return APP_PAGE_TOKEN ? url + '&t=' + encodeURIComponent(APP_PAGE_TOKEN) : url;
+}
+
 async function appCall(name, fields) {
   const body = new URLSearchParams(fields || {}).toString();
-  const r = await fetch('/api/app/call?fn=' + encodeURIComponent(name), {
+  const r = await fetch(appUrl('/api/app/call?fn=' + encodeURIComponent(name)), {
     method: 'POST', body, headers: {'Content-Type': 'application/x-www-form-urlencoded'}});
   const text = await r.text();
   let v = text;
@@ -22,7 +29,7 @@ async function appCall(name, fields) {
  * appFileDelete(name). A body goes as an ArrayBuffer (no Content-Type: the
  * request stays CORS-simple from the page's sandbox). */
 async function appFileRequest(query, opts) {
-  const r = await fetch('/api/app/file?' + query, opts);
+  const r = await fetch(appUrl('/api/app/file?' + query), opts);
   if (r.ok && (!opts || !opts.method)) return r;
   const text = await r.text();
   let v = {};

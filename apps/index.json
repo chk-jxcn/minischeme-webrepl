@@ -3,7 +3,7 @@
   "id": "album",
   "name": "电子相册",
   "description": "全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理",
-  "version": "1",
+  "version": "3",
   "api": "1.5",
   "extensions": "",
   "kind": "app",
@@ -13,9 +13,9 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 58260,
+  "size": 58817,
   "scm": "album.allinone.scm",
-  "hash": "b7292c53"
+  "hash": "d269f906"
  },
  {
   "id": "calendar",
@@ -96,8 +96,8 @@
  {
   "id": "medicine",
   "name": "吃药提醒",
-  "description": "按设定的时间点自动弹出吃药提醒：显示药品照片、名称和数量，逐个按键确认后回到原来的应用；支持每天几次、隔日服药。在设备网页的应用选项卡设置时间和药品；不需要代理",
-  "version": "1",
+  "description": "按服药时间点自动弹出吃药提醒（从任何应用切换过来，断电重启后继续），大号粗体显示药名和服用量，逐个按键确认后回到原来的应用。药品可设长期、服用天数或按数量扣减；每个时间点选药、填服用量、可隔日；服药记录自动保存；在设备网页的应用选项卡设置；不需要代理",
+  "version": "3",
   "api": "1.7",
   "extensions": "",
   "kind": "app",
@@ -107,15 +107,15 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 66372,
+  "size": 82679,
   "scm": "medicine.allinone.scm",
-  "hash": "ef523ded"
+  "hash": "83cf6904"
  },
  {
   "id": "memo",
   "name": "备忘录",
   "description": "待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理",
-  "version": "1",
+  "version": "3",
   "api": "1.1",
   "extensions": "",
   "kind": "app",
@@ -126,9 +126,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 52983,
+  "size": 53543,
   "scm": "memo.allinone.scm",
-  "hash": "aa27a617"
+  "hash": "70dc79eb"
  },
  {
   "id": "news",
@@ -155,7 +155,7 @@
   "id": "notifier",
   "name": "消息提示",
   "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
-  "version": "3",
+  "version": "5",
   "api": "1.1",
   "extensions": "",
   "kind": "app",
@@ -166,9 +166,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 55112,
+  "size": 55680,
   "scm": "notifier.allinone.scm",
-  "hash": "db170eb6"
+  "hash": "9cfde2be"
  },
  {
   "id": "pcmonitor",
@@ -290,7 +290,7 @@
   "id": "wxpusher",
   "name": "WxPusher",
   "description": "WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）",
-  "version": "6",
+  "version": "8",
   "api": "1.4",
   "extensions": "",
   "kind": "app",
@@ -300,8 +300,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 59018,
+  "size": 59587,
   "scm": "wxpusher.allinone.scm",
-  "hash": "1583466a"
+  "hash": "75f0f7de"
  }
 ]

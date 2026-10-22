@@ -6,199 +6,274 @@
 <title>吃药提醒</title>
 <!-- appweb -->
 <style>
-.times{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
-.times .t{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:4px 6px}
-.times .t input{width:auto}
-.meds{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px}
-.med{border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px}
-.med .box{height:110px;display:flex;align-items:center;justify-content:center;background:#000;border-radius:4px;overflow:hidden;color:var(--muted)}
-.med img{max-width:100%;max-height:110px}
-.med .name{font-weight:bold;margin-top:4px}
-.med .sub{color:var(--muted)}
-.slots{display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 16px}
-#preview{max-width:150px;max-height:140px;display:none;margin-top:6px;border-radius:4px}
+.pane{display:none}.pane.on{display:block}
+.med{display:flex;gap:12px;align-items:flex-start;border-top:1px solid var(--line);padding:12px 0}
+.med:first-child{border-top:0;padding-top:4px}
+.thumb{flex:none;width:84px;height:84px;border-radius:8px;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--muted);font-size:12px}
+.thumb img{max-width:100%;max-height:100%}
+.med .grow{flex:1;min-width:0}
+.med .name{font-weight:600;font-size:16px}
+.med .actions{margin-top:6px}
+.slot{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0}
+.slot .head{display:flex;gap:8px;align-items:center}
+.slot .head input{flex:0 0 140px}
+.slot .head .grow{flex:1}
+.pick{display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px dashed #1f2c3b;flex-wrap:wrap}
+.pick:first-of-type{border-top:0}
+.pick .nm{flex:1 1 140px;min-width:0}
+.pick select{flex:0 0 150px;width:150px}
+.pick .amt{display:flex;align-items:center;gap:6px;flex:0 0 120px}
+.pick .amt input{width:72px;flex:none}
+.pick .amt span{color:var(--muted);font-size:13px;white-space:nowrap}
+@media (max-width:520px){.pick .nm{flex-basis:100%}.pick .amt{flex:0 0 auto}.pick select{flex:1 1 auto;width:auto}}
+.today{border-top:1px solid var(--line);padding:8px 0}
+.today:first-child{border-top:0}
+.today .t{font-weight:600;font-size:17px;margin-right:8px}
+.line{display:flex;justify-content:space-between;gap:8px;padding:3px 0 3px 12px}
+#preview{max-width:120px;max-height:110px;display:none;margin-top:8px;border-radius:6px}
+.plan{display:none}.plan.on{display:block}
+.banner{border-color:var(--warn)}
 </style>
 </head>
 <body>
 <main>
-<section>
-<h2>提醒时间</h2>
-<div id="times" class="times"></div>
-<button class="plain small" onclick="addTime()">添加时间点</button>
-<button onclick="saveTimes()">保存时间</button>
-<div class="desc">到了这些时间，设备会自动打开吃药提醒（正在运行其他应用也会切换过来），把这个时间点的药逐个确认后回到原来的应用。最多 6 个时间点；药品按“时间点几”记录，删除中间的时间点后请检查药品的选择。</div>
+<div class="tabs" id="tabs">
+<button data-p="today" class="on">今日</button><button data-p="meds">药品</button><button data-p="slots">服药时间</button><button data-p="log">记录</button><button data-p="set">设置</button>
+</div>
+
+<section id="banner" class="banner" style="display:none">
+<h2>正在提醒 <span id="bannerAt" class="tag warn"></span></h2>
+<div class="desc">设备上正在显示吃药提醒：按设备按键逐个确认。也可以在这里结束本次提醒（未确认的药记为“未服”）。</div>
+<div class="actions"><button class="plain" onclick="stopRemind()">结束本次提醒</button></div>
 </section>
 
+<!-- today -->
+<div class="pane on" id="p-today">
 <section>
-<h2>药品 <span id="count" class="tag"></span>
-<button class="plain small" onclick="load()">刷新</button></h2>
-<div id="list" class="desc">读取中...</div>
+<h2>今天的服药安排 <span id="todayDate" class="tag"></span></h2>
+<div id="todayList" class="desc">读取中...</div>
 </section>
+</div>
 
+<!-- medicines -->
+<div class="pane" id="p-meds">
 <section>
+<h2>药品 <span id="medCount" class="tag"></span><button class="small" onclick="editMed(0)">添加药品</button></h2>
+<div id="medList" class="desc">读取中...</div>
+</section>
+<section id="medForm" style="display:none">
 <h2 id="formTitle">添加药品</h2>
 <div class="row">
-<div><label for="name">名称</label><input id="name" maxlength="20" placeholder="如 阿莫西林"></div>
-<div><label for="qty">每次数量</label><input id="qty" maxlength="10" placeholder="如 2 片"></div>
+<div><label for="f_name">名称</label><input id="f_name" maxlength="20" placeholder="如 阿莫西林胶囊"></div>
+<div><label for="f_unit">单位</label><input id="f_unit" maxlength="6" list="units" placeholder="粒">
+<datalist id="units"><option value="粒"><option value="片"><option value="袋"><option value="包"><option value="支"><option value="毫升"><option value="滴"><option value="喷"></datalist></div>
 </div>
-<label for="photo">照片（拍药盒或药片）</label>
-<input type="file" id="photo" accept="image/*" onchange="previewPhoto()">
-<img id="preview" alt="">
-<div class="desc" id="photoNote"></div>
-<label>服药时间点</label>
-<div id="slots" class="slots"></div>
+<label for="f_photo">照片（拍药盒或药片，可不选）</label>
+<input type="file" id="f_photo" accept="image/*" onchange="previewPhoto()">
+<img id="preview" alt=""><div class="desc" id="photoNote"></div>
+<label>服用方式</label>
+<div>
+<label class="check"><input type="radio" name="plan" value="long" onchange="planShow()" checked> 长期服用</label>
+<label class="check"><input type="radio" name="plan" value="days" onchange="planShow()"> 服用天数</label>
+<label class="check"><input type="radio" name="plan" value="count" onchange="planShow()"> 按数量</label>
+</div>
+<div class="plan" id="plan-days">
 <div class="row">
-<label><input type="checkbox" id="alt" onchange="altChanged()"> 隔日服药</label>
-<div id="startBox" style="display:none"><label for="start">从哪天开始</label>
-<select id="start"><option value="0">今天服</option><option value="1">今天不服，明天服</option><option value="keep">保持原来的安排</option></select></div>
+<div><label for="f_days">服用天数</label><input id="f_days" type="number" min="1" max="3650" value="7"></div>
+<div><label for="f_start">从哪天开始</label><input id="f_start" type="date"></div>
 </div>
+</div>
+<div class="plan" id="plan-count">
+<div class="row">
+<div><label for="f_total">总数量</label><input id="f_total" type="number" min="0.5" max="100000" step="0.5" value="30"></div>
+<div id="leftBox"><label for="f_left">剩余数量</label><input id="f_left" type="number" min="0" max="100000" step="0.5"></div>
+</div>
+<div class="desc">每确认一次服药，就从剩余数量里扣掉那个时间点的服用量；用完后这个药不再提醒。</div>
+</div>
+<div class="actions">
 <button onclick="saveMed()">保存药品</button>
-<button class="plain" id="cancelBtn" style="display:none" onclick="resetForm()">取消编辑</button>
-</section>
-
-<section>
-<h2>文字大小</h2>
-<div class="row">
-<div><label for="s_name_scale">提醒时药名</label>
-<select id="s_name_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option><option value="4">4 倍</option></select></div>
-<div><label for="s_qty_scale">提醒时数量</label>
-<select id="s_qty_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
-<div><label for="s_list_scale">平时药名</label>
-<select id="s_list_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
+<button class="plain" onclick="closeForm()">取消</button>
 </div>
-<button onclick="saveSizes()">保存文字大小</button>
-<div class="desc">用系统字体按整数倍放大；药名太长放不下时自动缩小。照片区域随文字变大而变小。</div>
 </section>
+</div>
 
+<!-- time points -->
+<div class="pane" id="p-slots">
+<section>
+<h2>服药时间点 <button class="small" onclick="addSlot()">添加时间点</button></h2>
+<div class="desc">到了这些时间，设备会从任何应用切换到吃药提醒，按键逐个确认后回到原来的应用；断电重启后继续提醒，直到全部确认。每个时间点勾选要服的药并填服用量（可以是 0.5），也可以设成隔日服用。最多 6 个时间点。</div>
+<div id="slotList"></div>
+<div class="actions"><button onclick="saveSlots()">保存服药时间</button><button class="plain" onclick="load()">放弃修改</button></div>
+</section>
+</div>
+
+<!-- log -->
+<div class="pane" id="p-log">
+<section>
+<h2>服药记录 <button class="small plain" onclick="loadLog()">刷新</button></h2>
+<div id="logList" class="desc">读取中...</div>
+</section>
+</div>
+
+<!-- settings -->
+<div class="pane" id="p-set">
+<section>
+<h2>提醒</h2>
+<div class="row">
+<div><label for="s_max_minutes">提醒最多持续</label>
+<select id="s_max_minutes"><option value="0">永久（直到全部确认，断电重启也继续）</option><option value="15">15 分钟</option><option value="30">30 分钟</option><option value="60">1 小时</option><option value="120">2 小时</option><option value="240">4 小时</option></select></div>
+</div>
+<div class="desc">超过设定时间还没确认，就回到原来的应用，并把剩下的药记为已服用。</div>
+<h3>文字大小</h3>
+<div class="row">
+<div><label for="s_name_size">提醒时药名</label>
+<select id="s_name_size"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option><option value="4">4 倍</option></select></div>
+<div><label for="s_amount_size">提醒时服用量</label>
+<select id="s_amount_size"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option><option value="4">4 倍</option></select></div>
+<div><label for="s_list_size">平时药名和服用量</label>
+<select id="s_list_size"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
+</div>
+<div class="desc">药名和服用量用粗体按整数倍放大；太长放不下时自动缩小，照片区域随文字变大而变小。</div>
+<div class="actions"><button onclick="saveSettings()">保存设置</button></div>
+</section>
 <section>
 <h2>测试</h2>
-<select id="testSlot" style="width:auto"></select>
-<button class="plain" onclick="testRemind()">在设备上显示这个时间点的提醒</button>
-<button class="plain" onclick="stopRemind()">结束提醒</button>
-<div class="desc">提醒画面上每按一次按键确认一个药；全部确认后回到原来的应用（测试时停在本应用）。</div>
+<div class="row">
+<div><label for="testSlot">时间点</label><select id="testSlot"></select></div>
+<button class="plain" onclick="testRemind()">在设备上显示提醒</button>
+</div>
+<div class="desc">立即显示这个时间点今天还没服的药；在设备上按键确认会写进服药记录。</div>
 </section>
+</div>
 </main>
 <script>
-const PHOTO_W = 300, PHOTO_H = 280, MAX_TIMES = 6, SCALE_KEYS = ['name_scale', 'qty_scale', 'list_scale'];
-let times = [], meds = [], editing = 0, thumbs = {}, photoBlob = null, maxMeds = 20;
+const PHOTO_W = 300, PHOTO_H = 280, SCALE_KEYS = ['max_minutes', 'name_size', 'amount_size', 'list_size'];
+let S = {meds: [], slots: [], today: 0, settings: {}}, slotsDraft = [], editing = 0, photoBlob = null, thumbs = {};
+let slotsDirty = false;   /* unsaved time point edits: the periodic refresh keeps them */
 
-function take(r) {
-  times = r.times || [];
-  meds = r.meds || [];
-  maxMeds = r.max || 20;
-  const s = r.settings || {};
-  for (const k of SCALE_KEYS) if (s[k]) $('s_' + k).value = String(s[k]);
-  renderTimes();
+/* days since 1970-01-01 <-> YYYY-MM-DD */
+const dayDate = (d) => new Date(d * 864e5).toISOString().slice(0, 10);
+const dateDay = (s) => { const [y, m, d] = s.split('-').map(Number); return Math.round(Date.UTC(y, m - 1, d) / 864e5); };
+const medById = (id) => S.meds.find((m) => m.id === id);
+const amt = (t) => String(Math.round(t) / 10);                 /* tenths -> "0.5" */
+const tenths = (v) => Math.round(parseFloat(v) * 10);
+const STATUS = {active: ['服用中', 'ok'], done: ['已结束', ''], later: ['未开始', 'warn']};
+
+/* ---- tabs ---- */
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const p = e.target.dataset && e.target.dataset.p;
+  if (!p) return;
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.p === p));
+  document.querySelectorAll('.pane').forEach((x) => x.classList.toggle('on', x.id === 'p-' + p));
+  if (p === 'log') loadLog();
+});
+
+function take(r, keepDraft) {
+  S = r;
+  if (keepDraft && slotsDirty) { renderToday(); renderMeds(); return; }
+  slotsDirty = false;
+  slotsDraft = r.slots.map((s) => ({time: s.time, entries: s.entries.map((e) => ({med: e.med, alt: e.alt, ref: e.ref, amount: e.amount}))}));
+  $('banner').style.display = r.reminding ? '' : 'none';
+  $('bannerAt').textContent = r.at || '';
+  $('todayDate').textContent = r.today ? dayDate(r.today) : '设备时钟未同步';
+  for (const k of SCALE_KEYS) if (r.settings[k] !== undefined) $('s_' + k).value = String(r.settings[k]);
+  $('testSlot').innerHTML = r.slots.map((s) => `<option value="${esc(s.time)}">${esc(s.time)}</option>`).join('') ||
+    '<option value="">（先添加服药时间）</option>';
+  renderToday();
   renderMeds();
-  renderSlots(editing ? (meds.find((m) => m.id === editing) || {}).slots : null);
+  renderSlots();
 }
 
-/* ---- times ---- */
-function renderTimes(list) {
-  const ts = list || times;
-  $('times').innerHTML = ts.map((t, i) => `<span class="t">${i + 1}.
-    <input type="time" value="${esc(t)}" data-i="${i}">
-    <button class="plain small" onclick="removeTime(${i})">删除</button></span>`).join('') ||
-    '<span class="desc">还没有时间点</span>';
-  $('testSlot').innerHTML = times.map((t, i) => `<option value="${i + 1}">时间点 ${i + 1}（${esc(t)}）</option>`).join('');
-}
-function shownTimes() { return [...document.querySelectorAll('#times input')].map((x) => x.value).filter((v) => v); }
-function addTime() {
-  const ts = shownTimes();
-  if (ts.length >= MAX_TIMES) return say('最多 6 个时间点', 'warn');
-  ts.push(['08:00', '12:00', '18:00', '21:00', '07:00', '22:00'].find((t) => !ts.includes(t)) || '09:00');
-  renderTimes(ts);
-}
-function removeTime(i) { const ts = shownTimes(); ts.splice(i, 1); renderTimes(ts); }
-async function saveTimes() {
-  const ts = shownTimes();
-  if (new Set(ts).size !== ts.length) return say('时间点重复', 'warn');
-  await attempt(async () => { take(await appCall('times', {times: ts.join(',')})); say('提醒时间已保存', 'ok'); });
+/* ---- today ---- */
+function renderToday() {
+  if (!S.slots.length) {
+    $('todayList').innerHTML = '还没有服药时间点：在“药品”里添加药品，再到“服药时间”里安排。';
+    return;
+  }
+  const now = S.time || '';
+  $('todayList').className = '';
+  $('todayList').innerHTML = S.slots.map((s) => {
+    const past = now && now !== '--:--' && s.time <= now;
+    const lines = s.entries.map((e) => {
+      const m = medById(e.med);
+      if (!m) return '';
+      let st;
+      if (e.done) st = '<span class="ok">✓ 已服</span>';
+      else if (m.status !== 'active') st = `<span class="desc">${esc(STATUS[m.status][0])}</span>`;
+      else if (!e.today) st = '<span class="desc">今天不服（隔日）</span>';
+      else st = past ? '<span class="warn">未确认</span>' : '<span class="desc">待服</span>';
+      return `<div class="line"><span><b>${esc(m.name)}</b> ${esc(amt(e.amount))} ${esc(m.unit)}</span>${st}</div>`;
+    }).join('') || '<div class="line desc">这个时间点还没有选药</div>';
+    return `<div class="today"><span class="t">${esc(s.time)}</span>${lines}</div>`;
+  }).join('');
 }
 
 /* ---- medicines ---- */
-function slotText(m) {
-  const ts = (m.slots || []).filter((k) => k <= times.length).map((k) => times[k - 1]);
-  return (ts.length ? ts.join('、') : '未选时间') + (m.alt ? ' · 隔日' + (m.today ? '（今天服）' : '（今天不服）') : '');
+function timesOf(id) {
+  const m = medById(id);
+  return S.slots.filter((s) => s.entries.some((e) => e.med === id))
+    .map((s) => { const e = s.entries.find((x) => x.med === id); return `${s.time} ${amt(e.amount)} ${m.unit}${e.alt ? ' 隔日' : ''}`; })
+    .join('、') || '未安排服药时间';
 }
+
 function renderMeds() {
-  $('count').textContent = meds.length ? `${meds.length} 个` : '';
-  $('list').className = meds.length ? '' : 'desc';
-  $('list').innerHTML = meds.length ? '<div class="meds">' + meds.map((m) => `
+  $('medCount').textContent = S.meds.length ? `${S.meds.length} 个` : '';
+  $('medList').className = S.meds.length ? '' : 'desc';
+  $('medList').innerHTML = S.meds.length ? S.meds.map((m) => `
     <div class="med">
-      <div class="box">${m.photo ? (thumbs[m.id] ? `<img src="${thumbs[m.id]}" alt="">` : '…') : '没有照片'}</div>
-      <div class="name">${esc(m.name)}</div>
-      <div>${esc(m.qty)}</div>
-      <div class="sub">${esc(slotText(m))}</div>
-      <button class="small" onclick="edit(${m.id})">编辑</button>
-      <button class="small plain" onclick="del(${m.id})">删除</button>
-    </div>`).join('') + '</div>' : '还没有药品，在下面添加';
+      <div class="thumb">${m.photo ? (thumbs[m.id] ? `<img src="${thumbs[m.id]}" alt="">` : '…') : '没有照片'}</div>
+      <div class="grow">
+        <div class="name">${esc(m.name)} <span class="tag ${STATUS[m.status][1]}">${STATUS[m.status][0]}</span></div>
+        <div>${esc(m.text)}${m.next ? ' · ' + esc(m.next) : ''}</div>
+        <div class="desc">${esc(timesOf(m.id))}</div>
+        <div class="actions"><button class="small plain" onclick="editMed(${m.id})">编辑</button><button class="small danger" onclick="delMed(${m.id})">删除</button></div>
+      </div>
+    </div>`).join('') : '还没有药品：点“添加药品”。';
   loadThumbs();
 }
+
 async function loadThumbs() {
-  for (const m of meds) {
+  for (const m of S.meds) {
     if (!m.photo || thumbs[m.id] !== undefined) continue;
-    try {
-      thumbs[m.id] = URL.createObjectURL(await appFile(`photos/m${m.id}.jpg`));
-    } catch (e) { thumbs[m.id] = ''; }
+    try { thumbs[m.id] = URL.createObjectURL(await appFile(`photos/m${m.id}.jpg`)); } catch (e) { thumbs[m.id] = ''; }
     renderMeds();
-    return;   /* renderMeds() goes on with the next one */
+    return;
   }
 }
-function forgetThumb(id) {
-  if (thumbs[id]) URL.revokeObjectURL(thumbs[id]);
-  delete thumbs[id];
+
+function planShow() {
+  const p = document.querySelector('input[name=plan]:checked').value;
+  $('plan-days').classList.toggle('on', p === 'days');
+  $('plan-count').classList.toggle('on', p === 'count');
 }
 
-function renderSlots(checked) {
-  const on = new Set(checked || []);
-  $('slots').innerHTML = times.length ? times.map((t, i) =>
-    `<label><input type="checkbox" value="${i + 1}"${on.has(i + 1) ? ' checked' : ''}> 时间点 ${i + 1}（${esc(t)}）</label>`).join('')
-    : '<span class="desc">先在上面添加并保存提醒时间</span>';
-}
-
-function altChanged() {
-  $('startBox').style.display = $('alt').checked ? '' : 'none';
-  if ($('alt').checked && !editing && $('start').value === 'keep') $('start').value = '0';
-}
-
-function resetForm() {
-  editing = 0;
-  $('formTitle').textContent = '添加药品';
-  $('name').value = '';
-  $('qty').value = '';
-  $('alt').checked = false;
-  $('start').value = '0';
-  $('photo').value = '';
-  $('preview').style.display = 'none';
-  $('photoNote').textContent = '';
-  $('cancelBtn').style.display = 'none';
-  photoBlob = null;
-  altChanged();
-  renderSlots(null);
-}
-
-function edit(id) {
-  const m = meds.find((x) => x.id === id);
-  if (!m) return;
-  resetForm();
+function editMed(id) {
+  const m = medById(id) || {name: '', unit: '粒', plan: 'long', n: 7, start: S.today, left: ''};
   editing = id;
-  $('formTitle').textContent = '编辑：' + m.name;
-  $('name').value = m.name;
-  $('qty').value = m.qty;
-  $('alt').checked = !!m.alt;
-  $('start').value = 'keep';
+  photoBlob = null;
+  $('formTitle').textContent = id ? '编辑：' + m.name : '添加药品';
+  $('f_name').value = m.name;
+  $('f_unit').value = m.unit;
+  document.querySelector(`input[name=plan][value=${m.plan}]`).checked = true;
+  $('f_days').value = m.plan === 'days' ? m.n : 7;
+  $('f_start').value = dayDate(m.start || S.today || 0);
+  $('f_total').value = m.plan === 'count' ? amt(m.n) : 30;
+  $('f_left').value = m.plan === 'count' ? amt(m.left) : '';
+  $('leftBox').style.display = id && m.plan === 'count' ? '' : 'none';
+  $('f_photo').value = '';
+  $('preview').style.display = 'none';
   $('photoNote').textContent = m.photo ? '不选新照片则保留原来的照片' : '';
-  $('cancelBtn').style.display = '';
-  altChanged();
-  renderSlots(m.slots);
-  $('name').scrollIntoView({behavior: 'smooth', block: 'center'});
+  planShow();
+  $('medForm').style.display = '';
+  $('f_name').focus();
+  $('medForm').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
+
+function closeForm() { $('medForm').style.display = 'none'; editing = 0; }
 
 /* The photo as a JPEG of at most 300 x 280, made in the browser */
 async function previewPhoto() {
-  const file = $('photo').files[0];
+  const file = $('f_photo').files[0];
   photoBlob = null;
   if (!file) { $('preview').style.display = 'none'; return; }
   await attempt(async () => {
@@ -219,58 +294,152 @@ async function previewPhoto() {
 }
 
 async function saveMed() {
-  const name = $('name').value.trim();
+  const name = $('f_name').value.trim();
   if (!name) return say('请填写药品名称', 'warn');
-  if (!editing && meds.length >= maxMeds) return say(`最多 ${maxMeds} 个药品`, 'warn');
-  const slots = [...document.querySelectorAll('#slots input:checked')].map((x) => x.value);
-  const fields = {id: String(editing || 0), name, qty: $('qty').value.trim(), slots: slots.join(','),
-                  alt: $('alt').checked ? '1' : '0'};
-  if ($('alt').checked && $('start').value !== 'keep') fields.start = $('start').value;
+  const plan = document.querySelector('input[name=plan]:checked').value;
+  const f = {id: String(editing || 0), name, unit: $('f_unit').value.trim() || '粒', plan};
+  if (plan === 'days') {
+    f.n = $('f_days').value;
+    if (!$('f_start').value) return say('请选择开始日期', 'warn');
+    f.start = String(dateDay($('f_start').value));
+  } else {
+    f.start = String(S.today);
+  }
+  if (plan === 'count') {
+    if (!(parseFloat($('f_total').value) > 0)) return say('请填写总数量', 'warn');
+    f.n = String(tenths($('f_total').value));
+    if (editing && $('f_left').value !== '') f.left = String(tenths($('f_left').value));
+  }
   await attempt(async () => {
-    const r = await appCall('save', fields);
+    const r = await appCall('save', f);
     if (photoBlob) {
       await appFileWrite(`photos/m${r.id}.jpg`, photoBlob);
-      forgetThumb(r.id);
+      delete thumbs[r.id];
     }
-    say(editing ? '已保存' : '已添加', 'ok');
-    resetForm();
+    closeForm();
     take(await appCall('list'));
+    say('药品已保存', 'ok');
   });
 }
 
-async function del(id) {
-  const m = meds.find((x) => x.id === id);
-  if (!m || !confirm(`删除“${m.name}”？`)) return;
+async function delMed(id) {
+  const m = medById(id);
+  if (!m || !confirm(`删除“${m.name}”？它也会从各个服药时间点里去掉。`)) return;
   await attempt(async () => {
     const r = await appCall('delete', {id: String(id)});
-    if (m.photo) {
-      try { await appFileDelete(`photos/m${id}.jpg`); } catch (e) { /* already gone */ }
-    }
-    forgetThumb(id);
-    if (editing === id) resetForm();
+    if (m.photo) { try { await appFileDelete(`photos/m${id}.jpg`); } catch (e) { /* gone */ } }
+    delete thumbs[id];
     take(r);
     say('已删除', 'ok');
   });
 }
 
-async function testRemind() {
-  const slot = $('testSlot').value;
-  if (!slot) return say('先添加并保存提醒时间', 'warn');
-  await attempt(async () => { take(await appCall('remind', {slot})); say('设备上正在显示提醒', 'ok'); });
+/* ---- time points (edited as a draft, saved at once) ---- */
+function altValue(e) {
+  if (!e.alt) return 'daily';
+  return ((S.today - e.ref) % 2 + 2) % 2 === 0 ? 'alt0' : 'alt1';
 }
 
-async function saveSizes() {
-  const fields = {};
-  for (const k of SCALE_KEYS) fields[k] = $('s_' + k).value;
-  await attempt(async () => { take(await appCall('settings', fields)); say('文字大小已保存，设备已更新', 'ok'); });
+function renderSlots() {
+  $('slotList').innerHTML = slotsDraft.map((s, i) => `
+    <div class="slot">
+      <div class="head"><input type="time" value="${esc(s.time)}" onchange="slotsDraft[${i}].time=this.value">
+        <span class="grow"></span><button class="small danger" onclick="delSlot(${i})">删除时间点</button></div>
+      ${S.meds.length ? S.meds.map((m) => {
+        const e = s.entries.find((x) => x.med === m.id);
+        if (!e && m.status === 'done') return '';
+        return `<div class="pick">
+          <label class="check nm"><input type="checkbox" ${e ? 'checked' : ''} onchange="pickMed(${i}, ${m.id}, this.checked)">
+            ${esc(m.name)}${m.status === 'done' ? ' <span class="desc">· 已结束</span>' : ''}</label>
+          <span class="amt"><input type="number" min="0.5" max="1000" step="0.5" value="${e ? amt(e.amount) : 1}" ${e ? '' : 'disabled'}
+            onchange="amtMed(${i}, ${m.id}, this.value)"><span>${esc(m.unit)}</span></span>
+          <select ${e ? '' : 'disabled'} onchange="altMed(${i}, ${m.id}, this.value)">
+            <option value="daily"${e && altValue(e) === 'daily' ? ' selected' : ''}>每天</option>
+            <option value="alt0"${e && altValue(e) === 'alt0' ? ' selected' : ''}>隔日（今天服）</option>
+            <option value="alt1"${e && altValue(e) === 'alt1' ? ' selected' : ''}>隔日（明天服）</option>
+          </select></div>`;
+      }).join('') : '<div class="desc">先在“药品”里添加药品</div>'}
+    </div>`).join('') || '<div class="desc" style="margin-top:8px">还没有时间点：点“添加时间点”。</div>';
+}
+
+function addSlot() {
+  slotsDirty = true;
+  if (slotsDraft.length >= (S.maxslots || 6)) return say('最多 6 个时间点', 'warn');
+  const used = slotsDraft.map((s) => s.time);
+  slotsDraft.push({time: ['08:00', '12:00', '18:00', '21:00', '07:00', '22:00'].find((t) => !used.includes(t)) || '09:00', entries: []});
+  renderSlots();
+}
+
+function delSlot(i) { slotsDirty = true; slotsDraft.splice(i, 1); renderSlots(); }
+
+function pickMed(i, id, on) {
+  const s = slotsDraft[i];
+  s.entries = s.entries.filter((e) => e.med !== id);
+  if (on) s.entries.push({med: id, alt: false, ref: S.today, amount: 10});
+  renderSlots();
+}
+
+function amtMed(i, id, v) {
+  const e = slotsDraft[i].entries.find((x) => x.med === id);
+  if (e && parseFloat(v) > 0) e.amount = Math.max(1, tenths(v));
+}
+
+function altMed(i, id, v) {
+  const e = slotsDraft[i].entries.find((x) => x.med === id);
+  if (!e) return;
+  e.alt = v !== 'daily';
+  e.ref = v === 'alt1' ? S.today + 1 : S.today;
+}
+
+async function saveSlots() {
+  const times = slotsDraft.map((s) => s.time);
+  if (times.some((t) => !/^\d\d:\d\d$/.test(t))) return say('请填写每个时间点', 'warn');
+  if (new Set(times).size !== times.length) return say('时间点重复', 'warn');
+  const text = slotsDraft.slice().sort((a, b) => a.time.localeCompare(b.time))
+    .map((s) => s.time + '=' + s.entries.map((e) => `${e.med}.${e.alt ? 1 : 0}.${e.ref}.${e.amount}`).join(',')).join('|');
+  await attempt(async () => { take(await appCall('slots', {slots: text})); say('服药时间已保存', 'ok'); });
+}
+
+/* ---- log ---- */
+const HOW = {ok: ['已服', 'ok'], auto: ['超时，记为已服', 'warn'], skip: ['未服', 'bad']};
+async function loadLog() {
+  await attempt(async () => {
+    const r = await appCall('log');
+    $('logList').className = r.log.length ? '' : 'desc';
+    $('logList').innerHTML = r.log.length ? '<table><tr><th>日期</th><th>时间点</th><th>药品</th><th>用量</th><th>结果</th><th class="num">确认时间</th></tr>' +
+      r.log.map((x) => `<tr><td>${dayDate(x.day).slice(5)}</td><td>${esc(x.time)}</td><td>${esc(x.name)}</td><td>${esc(x.amount)}</td>
+        <td class="${(HOW[x.how] || ['', ''])[1]}">${esc((HOW[x.how] || [x.how])[0])}</td><td class="num">${esc(x.at)}</td></tr>`).join('') +
+      '</table>' : '还没有服药记录';
+  });
+}
+
+/* ---- settings and test ---- */
+async function saveSettings() {
+  const f = {};
+  for (const k of SCALE_KEYS) f[k] = $('s_' + k).value;
+  await attempt(async () => { take(await appCall('settings', f)); say('设置已保存，设备已更新', 'ok'); });
+}
+
+async function testRemind() {
+  const time = $('testSlot').value;
+  if (!time) return say('先添加服药时间', 'warn');
+  await attempt(async () => {
+    take(await appCall('remind', {time}));
+    say(S.reminding ? '设备上正在显示提醒' : '这个时间点今天没有要服的药', S.reminding ? 'ok' : 'warn');
+  });
 }
 
 async function stopRemind() { await attempt(async () => take(await appCall('stop'))); }
 
 async function load() { await attempt(async () => take(await appCall('list'))); }
 
-resetForm();
 load();
+/* today's state (a reminder confirmed on the board) every 30 s, keeping edits in progress */
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || $('medForm').style.display === '') return;
+  appCall('list').then((r) => take(r, true)).catch(() => {});
+}, 30000);
+document.getElementById('slotList').addEventListener('change', () => { slotsDirty = true; });
 </script>
 </body>
 </html>

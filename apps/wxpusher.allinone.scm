@@ -8,7 +8,7 @@
 ;;; id = wxpusher
 ;;; name = WxPusher
 ;;; description = WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）
-;;; version = 6
+;;; version = 8
 ;;; api = 1.4 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 4 (gui-bitmap for the QR code)
 ;;; 
 ;;; [fields]

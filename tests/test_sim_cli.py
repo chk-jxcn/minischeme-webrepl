@@ -62,7 +62,7 @@ class TestSimCli(unittest.TestCase):
                             "--js", install, "--config", "system.boot_app=apps/calendar/app.msbc",
                             "--js", 'bootWasmDevice("test")', "--wait", "2", "--eval", state,
                             "--js", "wasmInstance.exports.wasm_schedule_fire(8, 0)", "--wait", "3",
-                            "--eval", state, "--eval", "(list med-due-total (map med-name med-due))",
+                            "--eval", state, "--eval", "(list med-due-total (map (lambda (x) (med-name (car x))) med-due))",
                             "--press", "short", "--wait", "1", "--press", "short", "--wait", "6",
                             "--eval", state],
                            capture_output=True, encoding="utf-8", errors="replace", timeout=240)
