@@ -1509,7 +1509,8 @@
 (define (med-start m) (vector-ref m 5))         ; first day
 (define (med-units m) (vector-ref m 6))         ; tenths left (count plan)
 (define (med-shape m) (vector-ref m 7))         ; auto, capsule, tablet, ball, oval, sachet, none
-(define (med-color m) (vector-ref m 8))         ; white, yellow, orange, red, pink, blue, green, brown
+(define (med-color m) (vector-ref m 8))         ; "#RRGGBB" (or a name of MED-COLORS)
+(define (med-color2 m) (vector-ref m 9))        ; a capsule's other half
 (define (med-photo-path m) (string-append "photos/m" (number->string (med-id m)) ".jpg"))
 
 ;; meds.txt: 7 fields; the 8 of version 3 (id|name|dose|per|plan|n|start|left,
@@ -1518,13 +1519,14 @@
 
 (define (med-parse line)
   (let ((f (str-split line #\|)))
-    (cond ((or (= (length f) 7) (= (length f) 9))
+    (cond ((or (= (length f) 7) (= (length f) 9) (= (length f) 10))
            (let ((id (med-int (car f) #f)) (plan (list-ref f 3)))
              (and id (member plan '("long" "days" "count"))
                   (vector id (cadr f) (caddr f) plan (max 0 (med-int (list-ref f 4) 0)) (med-int (list-ref f 5) 0)
                           (max 0 (med-int (list-ref f 6) 0))
                           (if (and (= (length f) 9) (member (list-ref f 7) MED-SHAPES)) (list-ref f 7) "auto")
-                          (if (and (= (length f) 9) (assoc (list-ref f 8) MED-COLORS)) (list-ref f 8) "white")))))
+                          (if (and (>= (length f) 9) (med-color-ok? (list-ref f 8))) (list-ref f 8) "white")
+                          (if (and (= (length f) 10) (med-color-ok? (list-ref f 9))) (list-ref f 9) MED-CAPSULE-2)))))
           ((= (length f) 8)
            (let ((id (med-int (car f) #f)) (plan (list-ref f 4)) (d (dose-split (caddr f))))
              (and id (member plan '("long" "days" "count"))
@@ -1532,13 +1534,13 @@
                     (set! med-v3-amounts (cons (cons id (car d)) med-v3-amounts))
                     (vector id (cadr f) (cdr d) plan
                             (* (if (string=? plan "count") 10 1) (max 0 (med-int (list-ref f 5) 0)))
-                            (med-int (list-ref f 6) 0) (* 10 (max 0 (med-int (list-ref f 7) 0))) "auto" "white")))))
+                            (med-int (list-ref f 6) 0) (* 10 (max 0 (med-int (list-ref f 7) 0))) "auto" "white" MED-CAPSULE-2)))))
           (else #f))))
 
 (define (med-line m)
   (web-join (list (number->string (med-id m)) (med-name m) (med-unit m) (med-plan m)
                   (number->string (med-n m)) (number->string (med-start m)) (number->string (med-units m))
-                  (med-shape m) (med-color m))
+                  (med-shape m) (med-color m) (med-color2 m))
             "|"))
 
 (define (med-find id)
@@ -1646,7 +1648,7 @@
                (tline (let loop ((l ini)) (cond ((null? l) #f) ((str-starts? (med-trim (car l)) "times") (car l)) (else (loop (cdr l))))))
                (tval (and tline (let ((kv (str-split tline #\=))) (and (pair? (cdr kv)) (car (str-split (cadr kv) #\;))))))
                (times (if tval (filter (lambda (t) t) (map med-hm (str-split tval #\,))) '())))
-          (set! med-list (map (lambda (f) (vector (med-int (car f) 0) (cadr f) (cdr (dose-split (caddr f))) "long" 0 0 0 "auto" "white")) old))
+          (set! med-list (map (lambda (f) (vector (med-int (car f) 0) (cadr f) (cdr (dose-split (caddr f))) "long" 0 0 0 "auto" "white" MED-CAPSULE-2)) old))
           (set! slot-list
                 (let loop ((ts times) (k 1) (acc '()))
                   (if (null? ts)
@@ -1854,8 +1856,22 @@
 (define MED-COLORS '(("white" 235 235 228) ("yellow" 240 200 60) ("orange" 240 140 50) ("red" 215 60 60)
                      ("pink" 240 150 180) ("blue" 80 140 230) ("green" 90 190 110) ("brown" 165 110 70)))
 
+(define MED-CAPSULE-2 "#EBEBE4")         ; a capsule's other half by default: off-white
+
+;; "#RRGGBB": its 0..255 parts, else #f
+(define (med-hex-rgb c)
+  (and (string? c) (= (string-length c) 7) (char=? (string-ref c 0) #\#)
+       (let ((part (lambda (i) (string->number (substring c i (+ i 2)) 16))))
+         (let ((r (part 1)) (g (part 3)) (b (part 5)))
+           (and (integer? r) (integer? g) (integer? b) (list r g b))))))
+
+(define (med-color-ok? c) (or (assoc c MED-COLORS) (med-hex-rgb c)))
+
 (define (med-rgb name)
-  (let ((c (assoc name MED-COLORS))) (if c (gui-rgb (cadr c) (caddr c) (cadddr c)) (gui-rgb 235 235 228))))
+  (let ((c (assoc name MED-COLORS)) (h (med-hex-rgb name)))
+    (cond (c (gui-rgb (cadr c) (caddr c) (cadddr c)))
+          (h (gui-rgb (car h) (cadr h) (caddr h)))
+          (else (gui-rgb 235 235 228)))))
 
 ;; The shape drawn: the medicine's, or one from its unit ("auto")
 (define (med-shape-of m)
@@ -1917,7 +1933,7 @@
     (gui-circle x1 y1 r color #t)))
 
 ;; One dose shape in the box x y (s x s)
-(define (med-pill shape x y s color half)
+(define (med-pill shape x y s color color2 half)
   (let* ((cx (+ x (quotient s 2))) (cy (+ y (quotient s 2)))
          (light (gui-rgb 235 235 228)) (shade (gui-rgb 120 120 120)))
     (cond
@@ -1925,7 +1941,7 @@
        (let* ((r (max 2 (quotient s 6)))
               (e (quotient (* (- s (* 2 r)) 4) 10))
               (steps (max 2 e))
-              (other (if (= color light) (gui-rgb 190 190 185) light)))
+              (other color2))
          (if half
              (med-half-capsule (- cx e) (+ cy e) e r color)
              (let loop ((i 0))
@@ -1976,7 +1992,8 @@
     (if pills
         (let loop ((i 0) (x (+ x0 tw 12)))
           (if (< i n)
-              (begin (med-pill shape x (+ y (quotient (- (* 16 k) s) 2)) s (med-rgb (med-color m)) (and half (= i (- n 1))))
+              (begin (med-pill shape x (+ y (quotient (- (* 16 k) s) 2)) s (med-rgb (med-color m)) (med-rgb (med-color2 m))
+                               (and half (= i (- n 1))))
                      (loop (+ i 1) (+ x step))))))))
 
 ;; Bold text centered at y, k times the font's size: drawn twice, 1 px apart
@@ -2192,7 +2209,7 @@
           (cons 'plan (med-plan m)) (cons 'n (med-n m)) (cons 'start (med-start m)) (cons 'left (med-units m))
           (cons 'status (symbol->string (med-status m d))) (cons 'text (med-plan-text m d))
           (cons 'next (if nd (string-append (next-text nd) " · " (amt-text (caddr nd)) " " (med-unit m)) ""))
-          (cons 'shape (med-shape m)) (cons 'drawn (med-shape-of m)) (cons 'color (med-color m))
+          (cons 'shape (med-shape m)) (cons 'drawn (med-shape-of m)) (cons 'color (med-color m)) (cons 'color2 (med-color2 m))
           (cons 'photo (if (med-photo-info m) #t #f)))))
 
 (define (slot->alist s d)
@@ -2230,10 +2247,11 @@
          (start (med-int (web-field body "start") (or (med-today) 0)))
          (left (web-field body "left"))
          (shape (or (web-field body "shape") (if old (med-shape old) "auto")))
-         (color (or (web-field body "color") (if old (med-color old) "white"))))
+         (color (or (web-field body "color") (if old (med-color old) "white")))
+         (color2 (or (web-field body "color2") (if old (med-color2 old) MED-CAPSULE-2))))
     (cond ((str-empty? name) "药品名称不能为空")
           ((not (member shape MED-SHAPES)) "shape: auto, capsule, tablet, ball, oval, sachet or none")
-          ((not (assoc color MED-COLORS)) "color: white, yellow, orange, red, pink, blue, green or brown")
+          ((not (and (med-color-ok? color) (med-color-ok? color2))) "颜色应为 #RRGGBB")
           ((not (member plan '("long" "days" "count"))) "plan: long, days or count")
           ((and (string=? plan "days") (or (< n 1) (> n 3650))) "服用天数应为 1..3650")
           ((and (string=? plan "count") (or (< n 1) (> n 1000000))) "总数量应为 0.1..100000")
@@ -2244,7 +2262,7 @@
            (let* ((units (cond ((and (string? left) (string=? plan "count")) (clamp (med-int left n) 0 1000000))
                                ((and old (string=? (med-plan old) plan) (= (med-n old) n)) (med-units old))
                                (else n)))
-                  (m (vector (if old id (med-next-id)) name (if (str-empty? unit) "粒" unit) plan n start units shape color)))
+                  (m (vector (if old id (med-next-id)) name (if (str-empty? unit) "粒" unit) plan n start units shape color color2)))
              (set! med-list (if old (map (lambda (x) (if (eq? x old) m x)) med-list) (append med-list (list m))))
              (med-save!)
              (med-id m))))))

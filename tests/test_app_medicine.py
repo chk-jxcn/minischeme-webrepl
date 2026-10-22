@@ -94,6 +94,10 @@ CHECKS = [
      '(begin (app-web "delete" "id=1") (null? (slot-entries (car slot-list))))'),
     ("a shape and a color are kept", '(begin (app-web "save" "name=S&unit=片&plan=long&shape=oval&color=yellow") '
                                      '(let ((m (med-find (- (med-next-id) 1)))) (and (string=? (med-shape m) "oval") (string=? (med-color m) "yellow"))))'),
+    ("hex colors, two for a capsule", '(begin (app-web "save" "name=H&unit=粒&shape=capsule&color=%23E84A4A&color2=%233A7BD5") '
+                                      '(let ((m (med-find (- (med-next-id) 1)))) (and (string=? (med-color m) "#E84A4A") '
+                                      '(string=? (med-color2 m) "#3A7BD5") (equal? (med-hex-rgb "#E84A4A") (list 232 74 74)))))'),
+    ("a malformed color is refused", '(str-contains? (app-web "save" "name=Q&color=%23GG0000") "#RRGGBB")'),
     ("an unknown shape is refused", '(str-contains? (app-web "save" "name=T&shape=star") "\\"success\\":false")'),
     ("auto shapes follow the unit", '(equal? (map (lambda (u) (med-shape-of (vector 0 "x" u "long" 0 0 0 "auto" "white"))) '
                                     '(list "粒" "片" "颗" "袋" "毫升")) (list "capsule" "tablet" "ball" "sachet" "none"))'),
