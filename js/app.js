@@ -704,7 +704,7 @@ function adoptDeviceDisplay(st) {
 
 function renderVfbToCanvas(forceFull = false) {
     if (!wasmInstance || !wasmMemory || !canvas) return;
-    if (hwMirror.active || serialStill) return; // the board's screen is shown (HTTP mirror, serial screenshot)
+    if (hwMirror.active || serialStill || serialLinked()) return; // the board's screen is shown (HTTP mirror, serial)
     const ctx = canvas.getContext('2d');
     const width = wasmInstance.exports.wasm_get_vfb_width ? wasmInstance.exports.wasm_get_vfb_width() : currentLcdWidth;
     const height = wasmInstance.exports.wasm_get_vfb_height ? wasmInstance.exports.wasm_get_vfb_height() : currentLcdHeight;
@@ -1029,7 +1029,7 @@ function getCanvasCoords(e) {
 }
 
 function handleTouchDown(e) {
-    if (!wasmInstance || hwMirror.active) return; // the board has no touch panel
+    if (!wasmInstance || hwMirror.active || serialLinked()) return; // the board has no touch panel
     isTouchDown = true;
     const coords = getCanvasCoords(e);
 
@@ -1046,7 +1046,7 @@ function handleTouchDown(e) {
 }
 
 function handleTouchMove(e) {
-    if (!wasmInstance || !isTouchDown || hwMirror.active) return;
+    if (!wasmInstance || !isTouchDown || hwMirror.active || serialLinked()) return;
     const coords = getCanvasCoords(e);
     if (wasmInstance.exports.wasm_inject_touch) {
         wasmInstance.exports.wasm_inject_touch(1, coords.x, coords.y);
@@ -1054,7 +1054,7 @@ function handleTouchMove(e) {
 }
 
 function handleTouchUp(e) {
-    if (!wasmInstance || hwMirror.active) return;
+    if (!wasmInstance || hwMirror.active || serialLinked()) return;
     isTouchDown = false;
     const coords = getCanvasCoords(e);
     if (wasmInstance.exports.wasm_inject_touch) {
@@ -1204,10 +1204,33 @@ async function takeSerialScreenshot() {
 
 if (btnHwShot) btnHwShot.addEventListener('click', takeSerialScreenshot);
 
-/* Back to the simulator's picture after a serial screenshot */
+/* Linked over the serial port: the canvas is the board's (its screenshots),
+ * never the WASM device's picture */
+function serialLinked() {
+    return !!(activeLink && activeLink.kind === 'serial');
+}
+
+/* Until the first screenshot: what the canvas is for now */
+function showSerialPlaceholder() {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0b1118';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.font = '16px sans-serif';
+    const lines = ['已通过串口连接设备', '模拟器画面已隐藏', '点击“📷 截图”查看设备画面'];
+    lines.forEach((t, i) => ctx.fillText(t, canvas.width / 2, canvas.height / 2 - 24 + i * 28));
+    if (lcdModeTagEl) {
+        lcdModeTagEl.textContent = '🔌 串口连接';
+        lcdModeTagEl.title = '串口连接时页面不能同步设备画面：点“📷 截图”取一次';
+    }
+}
+
+/* Back to the simulator's picture (a serial link closed) */
 function clearSerialStill() {
-    if (!serialStill) return;
     serialStill = false;
+    if (serialLinked()) return;
     vfbImageData = null;
     showWasmModeTag();
     renderVfbToCanvas(true);
@@ -1949,7 +1972,7 @@ let wasmFrames = 0;
 let wasmFps = 0;
 
 function showWasmModeTag() {
-    if (!lcdModeTagEl || hwMirror.active || serialStill) return;
+    if (!lcdModeTagEl || hwMirror.active || serialStill || serialLinked()) return;
     lcdModeTagEl.textContent = `${DISPLAY_MODE_NAMES[WASM_MODE_KEYS[wasmDisplayMode]]} · ${wasmFps} 帧/s`;
     lcdModeTagEl.title = '模拟器的显示模式与每秒画出的帧数';
 }
@@ -2223,6 +2246,7 @@ async function connectDeviceOnce() {
             appendTerminalLine('info', '📡 页面显示硬件实际画面；点击“🔄 刷新”可获取最新负荷数据 (断开或切回 WASM 仿真即恢复)');
             if (simLightRemote && simLightRemote.checked) sendLightToDevice(lightSliderValue());
         } else if (link.kind === 'serial') {
+            showSerialPlaceholder();
             appendTerminalLine('info', '🔘 KEY 18 的按下和松开经串口发送到设备；点击“📷 截图”从串口取一次设备画面');
             // Auto-trigger initial setup wizard ONLY on serial connection if unconfigured (no WiFi SSID yet)
             await deviceSetupWizard.checkSerialAndOpenIfUnconfigured(link);
