@@ -94,6 +94,24 @@
   "hash": "543fea7a"
  },
  {
+  "id": "medicine",
+  "name": "吃药提醒",
+  "description": "按设定的时间点自动弹出吃药提醒：显示药品照片、名称和数量，逐个按键确认后回到原来的应用；支持每天几次、隔日服药。在设备网页的应用选项卡设置时间和药品；不需要代理",
+  "version": "1",
+  "api": "1.7",
+  "extensions": "",
+  "kind": "app",
+  "pages": 1,
+  "page_ids": [
+   "meds"
+  ],
+  "web": true,
+  "file": "medicine.msbc",
+  "size": 66372,
+  "scm": "medicine.allinone.scm",
+  "hash": "ef523ded"
+ },
+ {
   "id": "memo",
   "name": "备忘录",
   "description": "待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理",
@@ -204,6 +222,26 @@
   "size": 45567,
   "scm": "stocks.allinone.scm",
   "hash": "0fb5a1c3"
+ },
+ {
+  "id": "tide",
+  "name": "潮汐",
+  "description": "今天潮位曲线、当前潮高与涨落、高低潮时刻；应用代理按设备位置取全球潮汐模型，没有数据时用海口（秀英）官方月报表",
+  "version": "3",
+  "api": "1.0",
+  "extensions": "",
+  "kind": "app",
+  "pages": 3,
+  "page_ids": [
+   "now",
+   "table",
+   "about"
+  ],
+  "web": false,
+  "file": "tide.msbc",
+  "size": 56345,
+  "scm": "tide.allinone.scm",
+  "hash": "00cfac55"
  },
  {
   "id": "usage",

@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>吃药提醒</title>
+<!-- appweb -->
+<style>
+.times{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.times .t{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:4px 6px}
+.times .t input{width:auto}
+.meds{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px}
+.med{border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px}
+.med .box{height:110px;display:flex;align-items:center;justify-content:center;background:#000;border-radius:4px;overflow:hidden;color:var(--muted)}
+.med img{max-width:100%;max-height:110px}
+.med .name{font-weight:bold;margin-top:4px}
+.med .sub{color:var(--muted)}
+.slots{display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 16px}
+#preview{max-width:150px;max-height:140px;display:none;margin-top:6px;border-radius:4px}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2>提醒时间</h2>
+<div id="times" class="times"></div>
+<button class="plain small" onclick="addTime()">添加时间点</button>
+<button onclick="saveTimes()">保存时间</button>
+<div class="desc">到了这些时间，设备会自动打开吃药提醒（正在运行其他应用也会切换过来），把这个时间点的药逐个确认后回到原来的应用。最多 6 个时间点；药品按“时间点几”记录，删除中间的时间点后请检查药品的选择。</div>
+</section>
+
+<section>
+<h2>药品 <span id="count" class="tag"></span>
+<button class="plain small" onclick="load()">刷新</button></h2>
+<div id="list" class="desc">读取中...</div>
+</section>
+
+<section>
+<h2 id="formTitle">添加药品</h2>
+<div class="row">
+<div><label for="name">名称</label><input id="name" maxlength="20" placeholder="如 阿莫西林"></div>
+<div><label for="qty">每次数量</label><input id="qty" maxlength="10" placeholder="如 2 片"></div>
+</div>
+<label for="photo">照片（拍药盒或药片）</label>
+<input type="file" id="photo" accept="image/*" onchange="previewPhoto()">
+<img id="preview" alt="">
+<div class="desc" id="photoNote"></div>
+<label>服药时间点</label>
+<div id="slots" class="slots"></div>
+<div class="row">
+<label><input type="checkbox" id="alt" onchange="altChanged()"> 隔日服药</label>
+<div id="startBox" style="display:none"><label for="start">从哪天开始</label>
+<select id="start"><option value="0">今天服</option><option value="1">今天不服，明天服</option><option value="keep">保持原来的安排</option></select></div>
+</div>
+<button onclick="saveMed()">保存药品</button>
+<button class="plain" id="cancelBtn" style="display:none" onclick="resetForm()">取消编辑</button>
+</section>
+
+<section>
+<h2>文字大小</h2>
+<div class="row">
+<div><label for="s_name_scale">提醒时药名</label>
+<select id="s_name_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option><option value="4">4 倍</option></select></div>
+<div><label for="s_qty_scale">提醒时数量</label>
+<select id="s_qty_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
+<div><label for="s_list_scale">平时药名</label>
+<select id="s_list_scale"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
+</div>
+<button onclick="saveSizes()">保存文字大小</button>
+<div class="desc">用系统字体按整数倍放大；药名太长放不下时自动缩小。照片区域随文字变大而变小。</div>
+</section>
+
+<section>
+<h2>测试</h2>
+<select id="testSlot" style="width:auto"></select>
+<button class="plain" onclick="testRemind()">在设备上显示这个时间点的提醒</button>
+<button class="plain" onclick="stopRemind()">结束提醒</button>
+<div class="desc">提醒画面上每按一次按键确认一个药；全部确认后回到原来的应用（测试时停在本应用）。</div>
+</section>
+</main>
+<script>
+const PHOTO_W = 300, PHOTO_H = 280, MAX_TIMES = 6, SCALE_KEYS = ['name_scale', 'qty_scale', 'list_scale'];
+let times = [], meds = [], editing = 0, thumbs = {}, photoBlob = null, maxMeds = 20;
+
+function take(r) {
+  times = r.times || [];
+  meds = r.meds || [];
+  maxMeds = r.max || 20;
+  const s = r.settings || {};
+  for (const k of SCALE_KEYS) if (s[k]) $('s_' + k).value = String(s[k]);
+  renderTimes();
+  renderMeds();
+  renderSlots(editing ? (meds.find((m) => m.id === editing) || {}).slots : null);
+}
+
+/* ---- times ---- */
+function renderTimes(list) {
+  const ts = list || times;
+  $('times').innerHTML = ts.map((t, i) => `<span class="t">${i + 1}.
+    <input type="time" value="${esc(t)}" data-i="${i}">
+    <button class="plain small" onclick="removeTime(${i})">删除</button></span>`).join('') ||
+    '<span class="desc">还没有时间点</span>';
+  $('testSlot').innerHTML = times.map((t, i) => `<option value="${i + 1}">时间点 ${i + 1}（${esc(t)}）</option>`).join('');
+}
+function shownTimes() { return [...document.querySelectorAll('#times input')].map((x) => x.value).filter((v) => v); }
+function addTime() {
+  const ts = shownTimes();
+  if (ts.length >= MAX_TIMES) return say('最多 6 个时间点', 'warn');
+  ts.push(['08:00', '12:00', '18:00', '21:00', '07:00', '22:00'].find((t) => !ts.includes(t)) || '09:00');
+  renderTimes(ts);
+}
+function removeTime(i) { const ts = shownTimes(); ts.splice(i, 1); renderTimes(ts); }
+async function saveTimes() {
+  const ts = shownTimes();
+  if (new Set(ts).size !== ts.length) return say('时间点重复', 'warn');
+  await attempt(async () => { take(await appCall('times', {times: ts.join(',')})); say('提醒时间已保存', 'ok'); });
+}
+
+/* ---- medicines ---- */
+function slotText(m) {
+  const ts = (m.slots || []).filter((k) => k <= times.length).map((k) => times[k - 1]);
+  return (ts.length ? ts.join('、') : '未选时间') + (m.alt ? ' · 隔日' + (m.today ? '（今天服）' : '（今天不服）') : '');
+}
+function renderMeds() {
+  $('count').textContent = meds.length ? `${meds.length} 个` : '';
+  $('list').className = meds.length ? '' : 'desc';
+  $('list').innerHTML = meds.length ? '<div class="meds">' + meds.map((m) => `
+    <div class="med">
+      <div class="box">${m.photo ? (thumbs[m.id] ? `<img src="${thumbs[m.id]}" alt="">` : '…') : '没有照片'}</div>
+      <div class="name">${esc(m.name)}</div>
+      <div>${esc(m.qty)}</div>
+      <div class="sub">${esc(slotText(m))}</div>
+      <button class="small" onclick="edit(${m.id})">编辑</button>
+      <button class="small plain" onclick="del(${m.id})">删除</button>
+    </div>`).join('') + '</div>' : '还没有药品，在下面添加';
+  loadThumbs();
+}
+async function loadThumbs() {
+  for (const m of meds) {
+    if (!m.photo || thumbs[m.id] !== undefined) continue;
+    try {
+      thumbs[m.id] = URL.createObjectURL(await appFile(`photos/m${m.id}.jpg`));
+    } catch (e) { thumbs[m.id] = ''; }
+    renderMeds();
+    return;   /* renderMeds() goes on with the next one */
+  }
+}
+function forgetThumb(id) {
+  if (thumbs[id]) URL.revokeObjectURL(thumbs[id]);
+  delete thumbs[id];
+}
+
+function renderSlots(checked) {
+  const on = new Set(checked || []);
+  $('slots').innerHTML = times.length ? times.map((t, i) =>
+    `<label><input type="checkbox" value="${i + 1}"${on.has(i + 1) ? ' checked' : ''}> 时间点 ${i + 1}（${esc(t)}）</label>`).join('')
+    : '<span class="desc">先在上面添加并保存提醒时间</span>';
+}
+
+function altChanged() {
+  $('startBox').style.display = $('alt').checked ? '' : 'none';
+  if ($('alt').checked && !editing && $('start').value === 'keep') $('start').value = '0';
+}
+
+function resetForm() {
+  editing = 0;
+  $('formTitle').textContent = '添加药品';
+  $('name').value = '';
+  $('qty').value = '';
+  $('alt').checked = false;
+  $('start').value = '0';
+  $('photo').value = '';
+  $('preview').style.display = 'none';
+  $('photoNote').textContent = '';
+  $('cancelBtn').style.display = 'none';
+  photoBlob = null;
+  altChanged();
+  renderSlots(null);
+}
+
+function edit(id) {
+  const m = meds.find((x) => x.id === id);
+  if (!m) return;
+  resetForm();
+  editing = id;
+  $('formTitle').textContent = '编辑：' + m.name;
+  $('name').value = m.name;
+  $('qty').value = m.qty;
+  $('alt').checked = !!m.alt;
+  $('start').value = 'keep';
+  $('photoNote').textContent = m.photo ? '不选新照片则保留原来的照片' : '';
+  $('cancelBtn').style.display = '';
+  altChanged();
+  renderSlots(m.slots);
+  $('name').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/* The photo as a JPEG of at most 300 x 280, made in the browser */
+async function previewPhoto() {
+  const file = $('photo').files[0];
+  photoBlob = null;
+  if (!file) { $('preview').style.display = 'none'; return; }
+  await attempt(async () => {
+    const bmp = await createImageBitmap(file, {imageOrientation: 'from-image'});
+    const k = Math.min(PHOTO_W / bmp.width, PHOTO_H / bmp.height, 1);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close();
+    photoBlob = await new Promise((ok, fail) => c.toBlob((b) => b ? ok(b) : fail(new Error('JPEG 编码失败')), 'image/jpeg', 0.85));
+    $('preview').src = URL.createObjectURL(photoBlob);
+    $('preview').style.display = 'block';
+    $('photoNote').textContent = `${c.width}×${c.height}，${(photoBlob.size / 1024).toFixed(0)} KB`;
+  });
+}
+
+async function saveMed() {
+  const name = $('name').value.trim();
+  if (!name) return say('请填写药品名称', 'warn');
+  if (!editing && meds.length >= maxMeds) return say(`最多 ${maxMeds} 个药品`, 'warn');
+  const slots = [...document.querySelectorAll('#slots input:checked')].map((x) => x.value);
+  const fields = {id: String(editing || 0), name, qty: $('qty').value.trim(), slots: slots.join(','),
+                  alt: $('alt').checked ? '1' : '0'};
+  if ($('alt').checked && $('start').value !== 'keep') fields.start = $('start').value;
+  await attempt(async () => {
+    const r = await appCall('save', fields);
+    if (photoBlob) {
+      await appFileWrite(`photos/m${r.id}.jpg`, photoBlob);
+      forgetThumb(r.id);
+    }
+    say(editing ? '已保存' : '已添加', 'ok');
+    resetForm();
+    take(await appCall('list'));
+  });
+}
+
+async function del(id) {
+  const m = meds.find((x) => x.id === id);
+  if (!m || !confirm(`删除“${m.name}”？`)) return;
+  await attempt(async () => {
+    const r = await appCall('delete', {id: String(id)});
+    if (m.photo) {
+      try { await appFileDelete(`photos/m${id}.jpg`); } catch (e) { /* already gone */ }
+    }
+    forgetThumb(id);
+    if (editing === id) resetForm();
+    take(r);
+    say('已删除', 'ok');
+  });
+}
+
+async function testRemind() {
+  const slot = $('testSlot').value;
+  if (!slot) return say('先添加并保存提醒时间', 'warn');
+  await attempt(async () => { take(await appCall('remind', {slot})); say('设备上正在显示提醒', 'ok'); });
+}
+
+async function saveSizes() {
+  const fields = {};
+  for (const k of SCALE_KEYS) fields[k] = $('s_' + k).value;
+  await attempt(async () => { take(await appCall('settings', fields)); say('文字大小已保存，设备已更新', 'ok'); });
+}
+
+async function stopRemind() { await attempt(async () => take(await appCall('stop'))); }
+
+async function load() { await attempt(async () => take(await appCall('list'))); }
+
+resetForm();
+load();
+</script>
+</body>
+</html>

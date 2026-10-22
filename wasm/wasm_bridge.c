@@ -794,13 +794,34 @@ static bool mock_has_magic(int slot, const char *magic) {
 }
 
 /* The boot app's file slot: [system] boot_app, else app.fasl / app.msbc */
+/* Scheduled launches, as the firmware: an app with schedule.ini in its
+ * folder ([schedule] times = 08:00, 12:30) starts at those times; the
+ * launch and the ones due after it survive the simulated restart here */
+#define SCHED_MAX 5
+typedef struct {
+    int n;
+    char at[SCHED_MAX][6];
+    char path[SCHED_MAX][64];
+} SchedList;
+static SchedList g_sched_next;        /* [0] starts on the next reboot */
+static SchedList g_sched_queue;       /* this boot: the launches still due after it */
+static bool g_sched_boot = false;
+static char g_sched_path[64] = "";
+static char g_sched_at[6] = "";
+static int32_t g_sched_fired = -1;     /* the last local minute scanned */
+static double g_sched_return_at = 0;   /* schedule.ini return_after */
+static bool mock_ini_value(const char *path, const char *key, char *val, size_t cap);
+
 static int mock_select_boot_app(void) {
     int slot = mock_fs_find("/spiffs/app.fasl");
     if (!mock_has_magic(slot, "MFAS")) slot = mock_fs_find("/spiffs/app.msbc");
     snprintf(g_app_path, sizeof(g_app_path), "%s", mock_has_magic(slot, "MFAS") ? "/spiffs/app.fasl" : "/spiffs/app.msbc");
     int cfg = mock_fs_find("/spiffs/config.ini");
     char boot[64], path[72];
-    if (cfg >= 0 && mini_device_config_value((const char *)g_mock_fs[cfg].data, "boot_app", boot, sizeof(boot)) && boot[0]) {
+    if (g_sched_boot) {
+        slot = mock_fs_find(g_sched_path);
+        snprintf(g_app_path, sizeof(g_app_path), "%s", g_sched_path);
+    } else if (cfg >= 0 && mini_device_config_value((const char *)g_mock_fs[cfg].data, "boot_app", boot, sizeof(boot)) && boot[0]) {
         const char *rel = strncmp(boot, "/spiffs/", 8) == 0 ? boot + 8 : (boot[0] == '/' ? boot + 1 : boot);
         snprintf(path, sizeof(path), "/spiffs/%s", rel);
         int s2 = strncmp(path, "/spiffs/apps/settings/", 22) == 0 ? -1 : mock_fs_find(path);   /* never the settings */
@@ -819,6 +840,12 @@ static int mock_select_boot_app(void) {
     mini_app_id(g_app_path, text, g_app_id, sizeof(g_app_id));
     mini_app_dir_of(g_app_path, g_app_id, g_app_dir, sizeof(g_app_dir));
     snprintf(g_app_ini, sizeof(g_app_ini), "%s/config.ini", g_app_dir);
+    if (g_sched_boot) {   /* schedule.ini return_after: the automatic return */
+        char ini[96], val[12] = "";
+        snprintf(ini, sizeof(ini), "%s/schedule.ini", g_app_dir);
+        int secs = mock_ini_value(ini, "return_after", val, sizeof(val)) ? (int)strtoll(val, NULL, 10) : 0;
+        if (secs > 0) g_sched_return_at = js_now_ms() + secs * 1000.0;
+    }
     if (!text || !mini_device_config_value(text, "name", g_app_name, sizeof(g_app_name))) g_app_name[0] = '\0';
     if (!text || !mini_device_config_value(text, "members", g_app_members, sizeof(g_app_members))) g_app_members[0] = '\0';
     const char *defaults = text ? mini_app_meta_config(text) : NULL;
@@ -1319,6 +1346,38 @@ static Value prim_mock_restart(MiniVM *vm, int argc, Value *argv) {
 /* A failed app: its error screen stays until g_restart_at, then the settings */
 static bool g_failed = false;
 static double g_restart_at = 0;
+
+
+static void sched_restart(void) {
+    if (!g_restart_pending) {
+        g_restart_pending = true;
+        g_restart_at = js_now_ms() + 300;
+    }
+}
+
+/* (app-return): the next launch due, else the boot app; #f when nothing to return to */
+static bool sched_return(void) {
+    if (g_sched_queue.n > 0) {
+        g_sched_next = g_sched_queue;
+    } else if (g_sched_boot) {
+        g_sched_next.n = 0;
+    } else {
+        g_sched_at[0] = '\0';
+        return false;
+    }
+    sched_restart();
+    return true;
+}
+
+static Value prim_mock_app_scheduled(MiniVM *vm, int argc, Value *argv) {
+    (void)argc; (void)argv;
+    return g_sched_at[0] ? mini_make_string(vm, g_sched_at) : mini_false();
+}
+
+static Value prim_mock_app_return(MiniVM *vm, int argc, Value *argv) {
+    (void)vm; (void)argc; (void)argv;
+    return sched_return() ? mini_true() : mini_false();
+}
 static char g_boot_phase[8] = "load";   /* what wasm_boot_app failed at: rom, load, api */
 static void wasm_app_failed(const char *phase, const char *reason);
 
@@ -1383,6 +1442,8 @@ static void register_device_prims(MiniVM *vm) {
         { "app-config-set!",    prim_mock_app_config_set },
         { "app-info",           prim_mock_app_info },
         { "app-list",           prim_mock_app_list },
+        { "app-scheduled",      prim_mock_app_scheduled },
+        { "app-return",         prim_mock_app_return },
         { "factory-reset",      prim_mock_factory_reset },
         { "config-set!",        prim_mock_config_set },
         { "display-bench",      prim_mock_display_bench },
@@ -1796,6 +1857,24 @@ const char *wasm_reboot(void) {
     g_settings_mode = g_settings_boot;
     g_settings_boot = false;
     mock_migrate_layout();
+    g_sched_boot = false;
+    g_sched_at[0] = '\0';
+    g_sched_return_at = 0;
+    memset(&g_sched_queue, 0, sizeof(g_sched_queue));
+    if (!g_settings_mode && g_sched_next.n > 0) {
+        int slot = mock_fs_find(g_sched_next.path[0]);
+        if (mock_has_magic(slot, "MSBC") || mock_has_magic(slot, "MFAS")) {
+            g_sched_boot = true;
+            snprintf(g_sched_path, sizeof(g_sched_path), "%s", g_sched_next.path[0]);
+            snprintf(g_sched_at, sizeof(g_sched_at), "%s", g_sched_next.at[0]);
+        }
+        for (int i = 1; i < g_sched_next.n; i++) {
+            memcpy(g_sched_queue.path[g_sched_queue.n], g_sched_next.path[i], 64);
+            memcpy(g_sched_queue.at[g_sched_queue.n], g_sched_next.at[i], 6);
+            g_sched_queue.n++;
+        }
+    }
+    g_sched_next.n = 0;
     mini_app_set_storage(256 * 1024, mock_dir_used);
     mini_app_sandbox_set("");                  /* set again once the app is known */
     mini_image_set_io(&g_mock_image_io);
@@ -2103,6 +2182,100 @@ const char *wasm_disasm(const char *scm_code) {
 /* Device Runtime Hooks (mirror the firmware main loop)                      */
 /* ========================================================================= */
 
+/* The launches due at minute-of-day t (hook_only: none queued or started,
+ * the running app's hook only when it lists t) */
+static void sched_fire(int t) {
+    int slots[16];
+    int n = mock_installed_apps(slots, 16);
+    SchedList due;
+    memset(&due, 0, sizeof(due));
+    char at[6];
+    snprintf(at, sizeof(at), "%02d:%02d", (t / 60) % 24, t % 60);
+    bool hook = false;
+    for (int i = 0; i < n; i++) {
+        const char *path = g_mock_fs[slots[i]].path;
+        char dir[72], ini[96], times[160] = "";
+        snprintf(dir, sizeof(dir), "%s", path);
+        char *slash = strrchr(dir, '/');
+        if (!slash) continue;
+        *slash = '\0';
+        if (strcmp(dir, "/spiffs") == 0) continue;
+        snprintf(ini, sizeof(ini), "%s/schedule.ini", dir);
+        if (!mock_ini_value(ini, "times", times, sizeof(times))) continue;
+        bool hit = false;
+        for (const char *p = times; *p && !hit;) {
+            while (*p && !isdigit((unsigned char)*p)) p++;
+            if (!*p) break;
+            int h = 0, m = -1;
+            while (isdigit((unsigned char)*p)) h = h < 100 ? h * 10 + (*p - '0') : h, p++;
+            if (*p == ':' && isdigit((unsigned char)p[1])) {
+                p++;
+                m = 0;
+                while (isdigit((unsigned char)*p)) m = m < 100 ? m * 10 + (*p - '0') : m, p++;
+            }
+            hit = h <= 23 && m >= 0 && m <= 59 && h * 60 + m == t;
+        }
+        if (!hit) continue;
+        if (strcmp(path, g_app_path) == 0) {
+            hook = true;
+        } else if (due.n < SCHED_MAX) {
+            snprintf(due.path[due.n], 64, "%s", path);
+            memcpy(due.at[due.n], at, 6);
+            due.n++;
+        }
+    }
+    if (hook && mini_device_has_hook(g_dev, "app-schedule")) {
+        snprintf(g_sched_at, sizeof(g_sched_at), "%s", at);
+        mini_clear_error(g_dev);
+        Value arg = mini_make_string(g_dev, at);
+        mini_device_call_hook(g_dev, "app-schedule", NULL, 1, &arg);
+        wasm_check_app_error("app-schedule");
+    }
+    if (due.n == 0) return;
+    if (g_sched_boot || g_sched_at[0]) {
+        for (int i = 0; i < due.n && g_sched_queue.n < SCHED_MAX; i++) {
+            memcpy(g_sched_queue.path[g_sched_queue.n], due.path[i], 64);
+            memcpy(g_sched_queue.at[g_sched_queue.n], due.at[i], 6);
+            g_sched_queue.n++;
+        }
+        return;
+    }
+    g_sched_next = due;
+    sched_restart();
+}
+
+static int32_t days_from_civil(int y, int m, int d) {
+    y -= m <= 2;
+    int era = (y >= 0 ? y : y - 399) / 400;
+    int yoe = y - era * 400;
+    int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+/* Each wall minute once (a reboot in between: two minutes back at most) */
+static void sched_scan(const MiniWallTime *t) {
+    if (g_sched_return_at > 0 && js_now_ms() >= g_sched_return_at) {
+        g_sched_return_at = 0;
+        sched_return();
+    }
+    if (!t->synced || g_settings_mode || g_restart_pending || !g_app_path[0]) return;
+    int32_t minute = days_from_civil(t->year, t->month, t->day) * 1440 + t->hour * 60 + t->minute;
+    if (minute == g_sched_fired) return;
+    int32_t from = g_sched_fired + 1;
+    if (g_sched_fired < 0 || from > minute || from < minute - 2) from = minute - 2;
+    g_sched_fired = minute;
+    for (int32_t k = from; k <= minute && !g_restart_pending; k++) sched_fire((int)(((k % 1440) + 1440) % 1440));
+}
+
+/* Fire the schedule of HH:MM now, whatever the clock (tests, the CLI simulator) */
+__attribute__((visibility("default")))
+void wasm_schedule_fire(int hour, int minute) {
+    if (!g_dev || g_failed || g_settings_mode) return;
+    use_device();
+    sched_fire(((hour % 24) * 60 + minute % 60 + 1440) % 1440);
+}
+
 /* 1 Hz tick with a host wall clock. tick_sec is the second of the UTC day,
  * as the firmware passes once synced (apps run world clocks from it);
  * lux/backlight are sampled every 3 s like the firmware. */
@@ -2127,6 +2300,7 @@ int wasm_tick_wall(int year, int month, int day, int hour, int minute, int secon
         wasm_check_app_error("app-tick");
         return -1;
     }
+    sched_scan(&t);
     return 1;
 }
 
