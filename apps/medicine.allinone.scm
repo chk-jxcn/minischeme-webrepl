@@ -1400,7 +1400,6 @@
 (define MED-NAME-MAX 60)                ; bytes
 (define MED-UNIT-MAX 12)
 (define MED-PHOTO-TOP 37)               ; 5 px under the title bar (HDR-H)
-(define MED-NOPHOTO-H 160)              ; the empty frame of a medicine without a photo
 (define MED-SHOW-SECONDS 8)             ; normal mode: seconds per medicine
 (define MED-DONE-SECONDS 3)
 (define MED-WAIT-SECONDS 20)            ; a scheduled start waits this long for the date
@@ -1813,22 +1812,19 @@
 
 ;; The photo under the title bar, centered across, cut at bottom
 (define (med-render-photo m bottom)
-  (let ((info (med-photo-info m)) (cx (quotient (scr-w) 2)) (h (- bottom MED-PHOTO-TOP)))
-    (if info
-        (gui-image (quotient (- (scr-w) (car info)) 2) MED-PHOTO-TOP (med-photo-path m))
-        (let ((bh (min MED-NOPHOTO-H h)))
-          (if (> bh 40)
-              (begin
-                (gui-round-rect 70 MED-PHOTO-TOP (- (scr-w) 140) bh 10 theme-card-border #f)
-                (txt-center cx (- (+ MED-PHOTO-TOP (quotient bh 2)) 8) "没有照片" theme-text-muted)))))
+  (let ((info (med-photo-info m)))
+    (if info (gui-image (quotient (- (scr-w) (car info)) 2) MED-PHOTO-TOP (med-photo-path m)))
     (gui-rect 0 bottom (scr-w) (- (gui-height) bottom) theme-bg #t)))
+
+;; Without a photo the name and the amount are one size larger
+(define (med-size m key) (+ (med-scale key) (if (med-photo-info m) 0 1)))
 
 ;; Where the text block (block px high) goes between the photo and bottom:
 ;; (cut . y), the photo cut at cut, the block at y, centered in the space
 ;; under the photo, or pushed up into the photo when the space is short
 (define (med-layout m block bottom)
   (let* ((info (med-photo-info m))
-         (photo-end (+ MED-PHOTO-TOP (if info (cadr info) MED-NOPHOTO-H)))
+         (photo-end (+ MED-PHOTO-TOP (if info (cadr info) 0)))
          (space (- bottom photo-end)))
     (if (>= space (+ block 16))
         (cons photo-end (+ photo-end (quotient (- space block) 2)))
@@ -1853,6 +1849,37 @@
   (gui-rect 0 0 (scr-w) HDR-H bg #t)
   (txt-fit 8 8 (- (scr-w) 24 (txt-w right)) title fg)
   (txt-right (- (scr-w) 8) 8 right fg))
+
+;; 1..99 in Chinese numerals: 一, 十二, 二十
+(define (cn-num n)
+  (let ((d (vector "零" "一" "二" "三" "四" "五" "六" "七" "八" "九")))
+    (cond ((< n 10) (vector-ref d n))
+          ((< n 20) (string-append "十" (if (= n 10) "" (vector-ref d (- n 10)))))
+          ((< n 100) (string-append (vector-ref d (quotient n 10)) "十"
+                                    (if (= (remainder n 10) 0) "" (vector-ref d (remainder n 10)))))
+          (else (number->string n)))))
+
+;; A count: 两 for 2 ("共两个药"), else as cn-num
+(define (cn-count n) (if (= n 2) "两" (cn-num n)))
+
+;; The next time point of all, "08:00" (the first one tomorrow after the last), #f
+(define (med-next-time)
+  (if (or (null? slot-list) (string=? app-time "--:--"))
+      #f
+      (let loop ((l (map slot-time slot-list)) (best #f) (first #f))
+        (if (null? l)
+            (or best first)
+            (let ((t (car l)))
+              (loop (cdr l)
+                    (if (and (string<? app-time t) (or (not best) (string<? t best))) t best)
+                    (if (or (not first) (string<? t first)) t first)))))))
+
+;; A medicine's next dose and what is left, in small text on the line ending at bottom
+(define MED-INFO-H 22)
+(define (med-info-line m bottom)
+  (let ((y (- bottom MED-INFO-H)) (right (med-plan-text m (med-today))))
+    (txt-right (- (scr-w) 10) (+ y 2) right theme-text-sub)
+    (txt-fit 10 (+ y 2) (- (scr-w) 30 (txt-w right)) (next-text (med-next-dose m)) theme-text-sub)))
 
 ;; The bottom bar: left and right texts
 (define (med-footer left right)
@@ -1879,47 +1906,50 @@
     (med-header (if (> n 1) (string-append "吃药提醒  " (number->string (+ med-index 1)) "/" (number->string n)) "吃药提醒")
                 app-time theme-card-hdr theme-text-main)
     (if (= n 0)
-        (begin (med-render-empty)
-               (med-footer (if (wifi-connected?) (string-append "网页 " (wifi-ip)) "") ""))
+        (med-render-empty)
         (let* ((m (list-ref shown med-index))
                (nd (med-next-dose m))
                (amount (if nd (string-append (amt-text (caddr nd)) " " (med-unit m)) ""))
-               (k (med-scale "list_size"))
+               (k (med-size m "list_size"))
                (kn (med-fit-scale k (med-name m)))
                (ka (med-fit-scale k amount))
                (block (+ (* 16 kn) (if nd (+ 8 (* 16 ka)) 0)))
-               (place (med-layout m block (- (gui-height) FTR-H)))
+               (place (med-layout m block (- (gui-height) FTR-H MED-INFO-H)))
                (name-y (cdr place))
                (amount-y (+ name-y (* 16 kn) 8)))
           (med-render-photo m (car place))
           (med-bold name-y (med-name m) theme-text-main kn)
           (if nd (med-bold amount-y amount theme-accent ka))
-          (med-footer (next-text nd) (med-plan-text m d))))))
+          (med-info-line m (- (gui-height) FTR-H))))
+    (let ((next (med-next-time)))
+      (med-footer (cond ((null? slot-list) "未设置服药时间") (next (string-append "下次提醒 " next)) (else ""))
+                  (if (wifi-connected?) (string-append "网页 " (wifi-ip)) "")))))
 
 (define (med-render-reminder)
   (let* ((cx (quotient (scr-w) 2))
          (x (car med-due))
          (m (car x))
          (amount (string-append (amt-text (cdr x)) " " (med-unit m)))
-         (kn (med-fit-scale (med-scale "name_size") (med-name m)))
-         (kq (med-fit-scale (med-scale "amount_size") amount))
+         (kn (med-fit-scale (med-size m "name_size") (med-name m)))
+         (kq (med-fit-scale (med-size m "amount_size") amount))
          (bar-y (- (gui-height) 44))
-         (place (med-layout m (+ (* 16 kn) 10 (* 16 kq)) bar-y))
+         (place (med-layout m (+ (* 16 kn) 10 (* 16 kq)) (- bar-y MED-INFO-H)))
          (name-y (cdr place))
          (amount-y (+ name-y (* 16 kn) 10)))
-    (med-header (string-append "共 " (number->string med-due-total) " 个药  第 " (number->string (+ med-due-done 1)) " 个")
+    (med-header (string-append "共" (cn-count med-due-total) "个药  第" (cn-num (+ med-due-done 1)) "个")
                 med-due-at
                 (if med-blink theme-warning theme-card-hdr)
                 (if med-blink theme-bg theme-warning))
     (med-render-photo m (car place))
     (med-bold name-y (med-name m) theme-text-main kn)
     (med-bold amount-y amount theme-accent kq)
+    (med-info-line m bar-y)
     (gui-rect 0 bar-y (scr-w) 44 theme-accent-dark #t)
     (txt-center cx (+ bar-y 14) "服药后按按钮确认" theme-text-main)))
 
 (define (med-render-done)
   (let ((cx (quotient (scr-w) 2)))
-    (med-header (string-append "共 " (number->string med-due-total) " 个药") med-due-at theme-card-hdr theme-text-main)
+    (med-header (string-append "共" (cn-count med-due-total) "个药") med-due-at theme-card-hdr theme-text-main)
     (med-bold 200 "已全部服用" theme-success 2)
     (txt-center cx 256 "即将回到原来的应用" theme-text-muted)))
 
@@ -1974,9 +2004,6 @@
                (set! med-pending-secs (+ med-pending-secs 1))
                (med-start! med-pending-at))
               ((pair? med-due)
-               (set! med-blink (not med-blink))
-               (med-led med-blink)
-               (gui-invalidate 0 0 (scr-w) HDR-H)
                (if (= (remainder tick 10) 0) (med-check-limit!)))
               ((med-reminding?)
                (set! med-done-left (- med-done-left 1))
@@ -1986,6 +2013,19 @@
                    (begin (set! med-left (- med-left 1))
                           (if (<= med-left 0) (med-next! 1))))
                (if (= (remainder tick 30) 0) (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H))))))
+
+;; The reminder's title bar blinks twice a second (the LED with it), from the app loop
+(define med-applib-step app-step)
+(define med-blink-at 0)
+(define (app-step)
+  (med-applib-step)
+  (if (pair? med-due)
+      (let ((now (time-ms)))
+        (if (>= (- now med-blink-at) 500)
+            (begin (set! med-blink-at now)
+                   (set! med-blink (not med-blink))
+                   (med-led med-blink)
+                   (gui-invalidate 0 0 (scr-w) HDR-H))))))
 
 ;; 9. The web page's calls (app-web name body) -------------------------------------------
 

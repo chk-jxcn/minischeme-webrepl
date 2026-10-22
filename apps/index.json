@@ -107,9 +107,9 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 82679,
+  "size": 84045,
   "scm": "medicine.allinone.scm",
-  "hash": "83cf6904"
+  "hash": "587d2825"
  },
  {
   "id": "memo",
