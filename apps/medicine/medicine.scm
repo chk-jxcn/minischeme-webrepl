@@ -536,6 +536,23 @@
                   (if (>= x1 x0) (gui-rect (+ cx x0) (+ cy dy) (+ 1 (- x1 x0)) 1 color #t))))
             (loop (+ dy 1)))))))
 
+;; Half a capsule: rounded at x1 y1, cut square (perpendicular to its axis)
+;; e px further along the rising diagonal; radius r. Rows: the body is the
+;; band |X + Y| <= r*sqrt(2) between the end and the cut, X - Y in [0, 2e]
+;; (X, Y relative to x1 y1), plus the round end's disk.
+(define (med-half-capsule x1 y1 e r color)
+  (let ((r2 (* (exact->inexact r) 1.41421356)))
+    (let loop ((dy (- (+ e r 1))))
+      (if (<= dy (+ r 1))
+          (let* ((y (exact->inexact dy))
+                 (lo (max (- (- y) r2) y))
+                 (hi (min (+ (- y) r2) (+ y (* 2.0 e)))))
+            (if (<= lo hi)
+                (let ((x0 (inexact->exact (round lo))) (x1r (inexact->exact (round hi))))
+                  (gui-rect (+ x1 x0) (+ y1 dy) (+ 1 (- x1r x0)) 1 color #t)))
+            (loop (+ dy 1)))))
+    (gui-circle x1 y1 r color #t)))
+
 ;; One dose shape in the box x y (s x s)
 (define (med-pill shape x y s color half)
   (let* ((cx (+ x (quotient s 2))) (cy (+ y (quotient s 2)))
@@ -546,12 +563,14 @@
               (e (quotient (* (- s (* 2 r)) 4) 10))
               (steps (max 2 e))
               (other (if (= color light) (gui-rgb 190 190 185) light)))
-         (let loop ((i 0))
-           (if (<= i (if half steps (* 2 steps)))
-               (let ((px (+ (- cx e) (quotient (* i e) steps)))
-                     (py (- (+ cy e) (quotient (* i e) steps))))
-                 (gui-circle px py r (if (<= i steps) color other) #t)
-                 (loop (+ i 2)))))))
+         (if half
+             (med-half-capsule (- cx e) (+ cy e) e r color)
+             (let loop ((i 0))
+               (if (<= i (* 2 steps))
+                   (let ((px (+ (- cx e) (quotient (* i e) steps)))
+                         (py (- (+ cy e) (quotient (* i e) steps))))
+                     (gui-circle px py r (if (<= i steps) color other) #t)
+                     (loop (+ i 2))))))))
       ((string=? shape "tablet")               ; a round tablet with its score line
        (let ((r (quotient (* s 3) 10)) (d (quotient (* s 2) 10)))
          (if half
