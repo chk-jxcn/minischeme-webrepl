@@ -324,9 +324,9 @@ class AppManager {
         return `<label class="am-label" for="${id}">${amEsc(key)} 的应用服务密码</label>
             <input type="text" id="${id}" value="${amEsc(password)}" autocomplete="off" spellcheck="false" maxlength="64"
                 placeholder="留空：系统配置里同一服务器的密码">
-            <div class="am-help">明文显示；设备用它在这台服务器注册加密通道，注册后与服务器绑定：改了服务器地址才能修改。留空：不加密，明文 HTTP，请求头带设备 ID</div>
+            <div class="am-help">明文显示；每次请求放在请求头里（base64）发给这台服务器，第一次请求时登记这台设备。留空：请求头只带设备 ID</div>
             <label class="am-check"><input type="checkbox" id="am-f${i}-${key}_relay"${relay ? ' checked' : ''}>
-                没有密码时经系统协议转换器转发（有密码时只用这台服务器自己的转换器）</label>`;
+                没有密码时经系统协议转换器转发（有密码时直接连这台服务器）</label>`;
     }
 
     /* bound (the device registered there) and the address unchanged: read-only */

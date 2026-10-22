@@ -186,7 +186,7 @@ class Page:
 class Simulator:
     def __init__(self, url=None, port=None, profile=None, fresh=False, browser=None, show=False):
         self.server = self.browser = None
-        self.tmp_profile = None
+        self.tmp_profile = self.tmp_data = None
         try:
             if url:
                 self.base = url.rstrip("/")
@@ -194,6 +194,9 @@ class Simulator:
                 port = port or free_port()
                 env = dict(os.environ)
                 env.setdefault("MINISCHEME_ADMIN_PASSWORD", "sim-local-admin")
+                if fresh:   # the server's database and config.ini too: nothing of this run is kept
+                    self.tmp_data = tempfile.mkdtemp(prefix="minischeme-sim-data-")
+                    env["MINISCHEME_DATA_DIR"] = self.tmp_data
                 self.server = subprocess.Popen([sys.executable, "server.py", "--no-tray", "--port", str(port)],
                                                cwd=ROOT, env=env, stdout=subprocess.DEVNULL,
                                                stderr=subprocess.DEVNULL)
@@ -326,8 +329,9 @@ class Simulator:
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        if self.tmp_profile:
-            shutil.rmtree(self.tmp_profile, ignore_errors=True)
+        for tmp in (self.tmp_profile, self.tmp_data):
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
 
 
 def parse_args(argv):

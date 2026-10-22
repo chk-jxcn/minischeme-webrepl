@@ -325,7 +325,7 @@ class DeviceSetupWizard {
                             <input type="text" id="ds-conv-pw" class="device-host-input" style="width: 100%;" autocomplete="off" spellcheck="false" maxlength="64">
                         </div>
                         <div id="ds-server-pw-hint" style="font-size: 11px; color: var(--text-secondary); margin-left: 130px; margin-bottom: 10px;">
-                            应用服务密码与服务器绑定：设备用它在该服务器注册加密通道（只发送它的 hash，不发送密码），也是该服务器用户门户的登录密码。设备已在该服务器注册后，不改服务器地址就不能改密码。明文显示；转换器与应用代理是同一台服务器时共用同一个密码。
+                            应用服务密码：设备每次请求都把它放在请求头里（base64 编码，不是加密）发给这台服务器，服务器第一次收到时用它登记设备，以后密码不对就拒绝；也是该服务器用户门户的登录密码。明文 HTTP 上网络中的人能看到它，请不要用在别处用过的密码。明文显示；转换器与应用代理是同一台服务器时共用同一个密码。
                         </div>
                         <div style="display: flex; gap: 8px; margin-left: 130px; margin-bottom: 10px; flex-wrap: wrap;">
                             <button type="button" class="pill-btn" id="ds-fill-public-proxy" style="font-size: 11.5px; padding: 3px 8px;">🌐 快捷填入公网服务器 (124.222.231.186:8087)</button>
@@ -539,14 +539,14 @@ class DeviceSetupWizard {
             this.el.fillLocalBtn.textContent = `🏠 快捷填入当前服务 IP (${defaultLocalProxy.replace(/^https?:\/\//i, '')})`;
         }
         if (isSim) {
-            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理，模拟设备不加密)`;
-            this.el.converterUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理，模拟设备不加密)`;
+            this.el.proxyUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理)`;
+            this.el.converterUrl.placeholder = `${defaultLocalProxy} (本地/局域网代理或公网代理)`;
             this._applyHwPasswordLockState('');
         } else {
             if (DeviceSetupWizard.isPublicWebRepl()) {
                 const pubProxy = DeviceSetupWizard.getPublicProxyServer();
-                this.el.proxyUrl.placeholder = `${pubProxy} (公网加密代理)`;
-                this.el.converterUrl.placeholder = `${pubProxy} (公网加密代理)`;
+                this.el.proxyUrl.placeholder = `${pubProxy} (公网代理)`;
+                this.el.converterUrl.placeholder = `${pubProxy} (公网代理)`;
             } else {
                 this.el.proxyUrl.placeholder = defaultLocalProxy;
                 this.el.converterUrl.placeholder = defaultLocalProxy;

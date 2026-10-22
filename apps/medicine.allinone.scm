@@ -7,24 +7,28 @@
 ;;; page_ids = meds ; English page names: <app>.<id> in a combined app (front: the first)
 ;;; id = medicine
 ;;; name = 吃药提醒
-;;; description = 按服药时间点自动弹出吃药提醒（从任何应用切换过来，断电重启后继续），大号粗体显示药名和服用量，逐个按键确认后回到原来的应用。药品可设长期、服用天数或按数量扣减；每个时间点选药、填服用量、可隔日；服药记录自动保存；在设备网页的应用选项卡设置；不需要代理
-;;; version = 5
-;;; storage_kb = 512 ; the medicines' photos in the app's folder (instead of app_storage_kb)
+;;; description = 按服药时间点自动弹出吃药提醒（从任何应用切换过来，断电重启后继续），大号粗体显示药名和服用量，逐个按键确认后回到原来的应用。药品可设长期、服用天数或按数量扣减；每个时间点选药、填服用量、可隔日；服药记录保存在设备上（默认 3 年），可在网页修改；可选同步到应用服务器长期保存（服务器连不上不影响使用）；网页可测试提醒；在设备网页的应用选项卡设置
+;;; version = 6
+;;; storage_kb = 768 ; the medicines' photos and records in the app's folder (instead of app_storage_kb)
 ;;; 
 ;;; [fields]
 ;;; ; how the settings page shows each [config] key: type | label | help
 ;;; ; types: text, number:min-max, bool, select:value=label,value=label
 ;;; ; (no ASCII ; or # in these lines: they start a comment)
-;;; max_minutes = select:0=永久（直到全部确认）,15=15 分钟,30=30 分钟,60=1 小时,120=2 小时,240=4 小时 | 提醒最多持续 | 超过后回到原来的应用，未确认的药记为已服用
+;;; max_minutes = select:0=永久（直到全部确认）,15=15 分钟,30=30 分钟,60=1 小时,120=2 小时,240=4 小时 | 提醒最多持续 | 超过后回到原来的应用，未确认的药记为未服用
 ;;; name_size = select:1=1 倍（16 像素）,2=2 倍,3=3 倍,4=4 倍 | 提醒时药名大小 | 粗体，太长时自动缩小到放得下
 ;;; amount_size = select:1=1 倍（16 像素）,2=2 倍,3=3 倍,4=4 倍 | 提醒时服用量大小 | 粗体
 ;;; list_size = select:1=1 倍（16 像素）,2=2 倍,3=3 倍 | 平时药名和服用量大小 | 轮流显示药品时，粗体
+;;; sync = bool | 同步到应用服务器 | 把服药记录上传到应用服务器长期保存；连不上服务器不影响使用，之后自动重试
+;;; keep_days = number:7-3650 | 本地保存记录天数 | 设备上最多保存多少天的服药记录（默认 1095 天，即 3 年）
 ;;; 
 ;;; [config]
 ;;; max_minutes = 0 ; minutes a reminder lasts at most, 0: until every medicine is confirmed (restarts too)
 ;;; name_size = 3 ; the reminder's medicine name: a multiple of the 16 px font (1..4)
 ;;; amount_size = 2 ; the reminder's amount (1..4)
 ;;; list_size = 2 ; the name and the next amount in normal mode (1..3)
+;;; sync = 0 ; 1: records are uploaded to the app server (proxy_url, else the system proxy)
+;;; keep_days = 1095 ; days of records kept on the board (7..3650)
 ;;; proxy_url = ; Application proxy service URL (empty: use system config.ini)
 ;;; converter_url = ; Protocol converter URL (empty: use system config.ini)
 
@@ -1370,7 +1374,8 @@
 ;;;   times      the time points; each lists its medicines with the amount
 ;;;              taken then, every day or every other day from a date
 ;;;   settings   how long a reminder may last (0: until every medicine is
-;;;              confirmed), the text sizes
+;;;              confirmed), the text sizes, sync with the app server, how
+;;;              many days of records the board keeps (3 years)
 ;;; The times go into schedule.ini (persist = 1): the system starts this app
 ;;; at each of them from any app and, until (app-return), again after a
 ;;; restart or a power cut (API 1.7, firmware 1.0.68+).
@@ -1380,12 +1385,23 @@
 ;;;   reminder: "共 N 个药 第 k 个" blinks in the title; a press confirms one;
 ;;;             after the last, back to the app that ran before. Past the
 ;;;             time limit, back too: the rest logged as missed (only a
-;;;             confirmed dose counts as taken).
+;;;             confirmed dose counts as taken). The page's test shows a
+;;;             time point's medicines the same way and logs nothing.
+;;; Records can be changed on the page (missed -> taken). With sync on they
+;;; go to the app server too (proxy/medicine.py: kept there, the board's
+;;; copy wins); a failed upload is tried again later, a server out of reach
+;;; changes nothing here. The board downloads them back only on a new
+;;; install (the last 30 days, once) or when the page asks (N days).
 ;;; Amounts and quantities are kept in tenths (0.5 粒 = 5).
 ;;; Files (the app's folder):
 ;;;   meds.txt     id|name|unit|plan|n|start|left    plan long, days (n days), count (n, left: tenths)
 ;;;   slots.txt    id|HH:MM|med.alt.ref.amount,...   alt 1: every other day from day ref
-;;;   log.txt      day|HH:MM|med|how|HH:MM|amount    how ok, miss (time limit), skip; auto (old: the time limit taken)
+;;;   log-<k>.txt  day|HH:MM|med|how|HH:MM|amount|s  days 16k..16k+15; how ok, miss (time limit),
+;;;                skip, auto (old: the time limit counted taken); s 1: on the app server
+;;;   names.txt    id|name|unit                      every medicine a record may name
+;;;   sync.txt     dirty|k,k  names|0/1  fresh|0/1   files with records to upload, names to
+;;;                upload, a new install that loads the server's records once
+;;;   (log.txt of version 5 and before is moved into the log files once)
 ;;;   pending.txt  day|HH:MM|start                   the reminder in progress (start: minutes)
 ;;; Days are counted from 1970-01-01 (time-local), minutes from that day too.
 ;;; =========================================================================
@@ -1397,7 +1413,6 @@
 (define MED-SCHEDULE "schedule.ini")
 (define MED-MAX 20)
 (define SLOT-MAX 6)
-(define LOG-KEEP 300)                   ; lines of log.txt kept
 (define MED-NAME-MAX 60)                ; bytes
 (define MED-UNIT-MAX 12)
 (define MED-PHOTO-TOP 37)               ; 5 px under the title bar (HDR-H)
@@ -1414,6 +1429,7 @@
 (define med-info-cache '())             ; (id . image-info)
 (define med-scales '())
 (define med-max-minutes 0)              ; 0: a reminder lasts until every medicine is confirmed
+(define med-test #f)                    ; the reminder shown is the page's test: nothing logged
 (define med-due '())                    ; reminder: ((med . amount) ...) still to take
 (define med-due-total 0)
 (define med-due-done 0)
@@ -1676,6 +1692,7 @@
 
 (define (med-save!)
   (med-write MED-PATH (map med-line med-list))
+  (names-sync!)
   (set! med-info-cache '())
   (app-invalidate-all))
 
@@ -1694,29 +1711,431 @@
         (map (lambda (k)
                (cons (car k) (clamp (med-int (app-config (car k) (cadr k)) (string->number (cadr k))) 1 (caddr k))))
              MED-SCALE-KEYS))
-  (set! med-max-minutes (clamp (med-int (app-config "max_minutes" "0") 0) 0 1440)))
+  (set! med-max-minutes (clamp (med-int (app-config "max_minutes" "0") 0) 0 1440))
+  (set! med-keep-days (clamp (med-int (app-config "keep_days" "1095") 1095) 7 3650)))
 
 (define (med-scale key) (let ((hit (assoc key med-scales))) (if hit (cdr hit) 1)))
 
 ;; 5. The log ----------------------------------------------------------------------------
+;; Records in 16-day files: one stays small to read and rewrite. Past
+;; keep_days a file goes; when the folder (storage_kb, the image and the
+;; photos included) runs short of room, the oldest go first.
 
-;; "day|HH:MM|med|how|HH:MM|amount" lines; the last LOG-KEEP kept
+(define LOG-DAYS 16)
+(define LOG-PREFIX "log-")
+(define NAMES-PATH "names.txt")
+(define MED-QUOTA-KB 768)               ; meta.ini storage_kb
+(define MED-ROOM-KB 64)                 ; kept free in the folder (photos)
+(define med-keep-days 1095)
+
+(define (rec-day r) (vector-ref r 0))
+(define (rec-time r) (vector-ref r 1))
+(define (rec-med r) (vector-ref r 2))
+(define (rec-how r) (vector-ref r 3))
+(define (rec-at r) (vector-ref r 4))            ; the confirm time, "" for none
+(define (rec-amount r) (vector-ref r 5))        ; tenths
+(define (rec-synced? r) (= (vector-ref r 6) 1))
+
+(define (rec-parse line)
+  (let ((f (str-split line #\|)))
+    (and (>= (length f) 4) (med-int (car f) #f) (med-int (caddr f) #f)
+         (vector (med-int (car f) 0) (cadr f) (med-int (caddr f) 0) (list-ref f 3)
+                 (if (>= (length f) 5) (list-ref f 4) "")
+                 (if (>= (length f) 6) (med-int (list-ref f 5) 0) 0)
+                 (if (and (>= (length f) 7) (string=? (list-ref f 6) "1")) 1 0)))))
+
+(define (rec-line r)
+  (web-join (list (number->string (rec-day r)) (rec-time r) (number->string (rec-med r)) (rec-how r)
+                  (rec-at r) (number->string (rec-amount r)) (if (rec-synced? r) "1" "0"))
+            "|"))
+
+(define (rec-same? r day time med) (and (= (rec-day r) day) (string=? (rec-time r) time) (= (rec-med r) med)))
+
+(define (rec-in? r recs)
+  (let loop ((l recs)) (and (pair? l) (or (rec-same? (car l) (rec-day r) (rec-time r) (rec-med r)) (loop (cdr l))))))
+
+(define (rec-taken? how) (or (string=? how "ok") (string=? how "auto")))
+
+(define (log-bucket day) (quotient day LOG-DAYS))
+(define (log-path b) (string-append LOG-PREFIX (number->string b) ".txt"))
+(define (log-read b) (filter (lambda (r) r) (map rec-parse (med-read (log-path b)))))
+(define (log-write! b recs)
+  (if (null? recs)
+      (if (fs-exists? (log-path b)) (fs-remove (log-path b)))
+      (med-write (log-path b) (map rec-line recs))))
+
+;; Sum and least of a list (apply takes few arguments on the board)
+(define (med-sum l) (let loop ((l l) (n 0)) (if (null? l) n (loop (cdr l) (+ n (car l))))))
+(define (med-least l) (let loop ((l (cdr l)) (m (car l))) (if (null? l) m (loop (cdr l) (min m (car l))))))
+
+;; The app's folder, #f where app-info does not tell it
+(define (med-dir)
+  (let ((me (app-info))) (and (pair? me) (= (length me) 4) (cadddr me))))
+
+(define (int-sort l)
+  (let ins-all ((l l) (acc '()))
+    (if (null? l)
+        acc
+        (ins-all (cdr l) (let ins ((x (car l)) (a acc))
+                           (cond ((null? a) (list x)) ((< x (car a)) (cons x a)) (else (cons (car a) (ins x (cdr a))))))))))
+
+;; The record files' numbers, oldest first
+(define (log-buckets)
+  (let ((dir (med-dir)) (p (string-length LOG-PREFIX)))
+    (int-sort
+     (if dir
+         (filter (lambda (b) b)
+                 (map (lambda (f)
+                        (let* ((name (car f)) (n (string-length name)))
+                          (and (> n (+ p 4)) (str-starts? name LOG-PREFIX)
+                               (string=? (substring name (- n 4) n) ".txt")
+                               (med-int (substring name p (- n 4)) #f))))
+                      (fs-list dir)))
+         (let ((d (med-today)))             ; no listing: the files of the days kept
+           (if d
+               (let loop ((b (log-bucket (max 0 (- d med-keep-days)))) (acc '()))
+                 (if (> b (log-bucket d)) acc (loop (+ b 1) (if (fs-exists? (log-path b)) (cons b acc) acc))))
+               '()))))))
+
+;; names.txt: (id name unit) of every medicine records may name
+(define (names-load)
+  (filter (lambda (x) x)
+          (map (lambda (l)
+                 (let ((f (str-split l #\|)))
+                   (and (= (length f) 3) (med-int (car f) #f) (list (med-int (car f) 0) (cadr f) (caddr f)))))
+               (med-read NAMES-PATH))))
+
+(define (names-save! names)
+  (med-write NAMES-PATH (map (lambda (x) (web-join (list (number->string (car x)) (cadr x) (caddr x)) "|")) names)))
+
+;; The medicines' names and units kept; a change is uploaded
+(define (names-sync!)
+  (let* ((names (names-load))
+         (changed (let loop ((l med-list))
+                    (and (pair? l)
+                         (let ((x (assv (med-id (car l)) names)))
+                           (or (not x) (not (string=? (cadr x) (med-name (car l))))
+                               (not (string=? (caddr x) (med-unit (car l)))) (loop (cdr l))))))))
+    (if changed
+        (begin (names-save! (append (map (lambda (m) (list (med-id m) (med-name m) (med-unit m))) med-list)
+                                    (filter (lambda (x) (not (med-find (car x)))) names)))
+               (sync-names-changed!)))))
+
+;; (name . unit) of medicine id in names (names-load)
+(define (name-of id names)
+  (let ((m (med-find id)))
+    (if m
+        (cons (med-name m) (med-unit m))
+        (let ((x (assv id names))) (if x (cons (cadr x) (caddr x)) (cons "（已删除）" ""))))))
+
+;; A record of day and time point (replacing one of the same medicine), not uploaded yet
 (define (log-add! day time med how amount)
-  (let* ((lines (med-read LOG-PATH))
-         (all (append lines (list (web-join (list (number->string day) time (number->string med) how
-                                                  (if (string=? app-time "--:--") "" app-time) (number->string amount))
-                                            "|"))))
-         (n (length all)))
-    (med-write LOG-PATH (if (> n LOG-KEEP) (list-tail all (- n LOG-KEEP)) all))))
+  (let* ((b (log-bucket day))
+         (r (vector day time med how (if (string=? app-time "--:--") "" app-time) amount 0)))
+    (log-write! b (append (filter (lambda (x) (not (rec-same? x day time med))) (log-read b)) (list r)))
+    (sync-dirty! b)
+    (med-prune-room!)))
 
 ;; ((med . how) ...) logged for day and time (taken, missed or skipped)
 (define (log-hows day time)
-  (let ((prefix (string-append (number->string day) "|" time "|")))
-    (map (lambda (l) (let ((f (str-split l #\|))) (cons (med-int (list-ref f 2) -1) (list-ref f 3))))
-         (filter (lambda (l) (str-starts? l prefix)) (med-read LOG-PATH)))))
+  (map (lambda (r) (cons (rec-med r) (rec-how r)))
+       (filter (lambda (r) (and (= (rec-day r) day) (string=? (rec-time r) time))) (log-read (log-bucket day)))))
 
 ;; The medicines logged for day and time
 (define (log-meds day time) (map car (log-hows day time)))
+
+;; A record changed on the page: taken (ok) or not (skip); a count plan's
+;; quantity follows. #t, or a message
+(define (log-edit! day time med how)
+  (let* ((b (log-bucket day)) (recs (log-read b))
+         (r (let loop ((l recs)) (cond ((null? l) #f) ((rec-same? (car l) day time med) (car l)) (else (loop (cdr l)))))))
+    (cond ((not r) "没有这条记录")
+          ((not (member how '("ok" "skip"))) "how: ok or skip")
+          ((string=? how (rec-how r)) #t)
+          (else
+           (let ((m (med-find med)) (was (rec-taken? (rec-how r))) (now (rec-taken? how)))
+             (if (and m (string=? (med-plan m) "count") (not (eq? was now)))
+                 (begin (vector-set! m 6 (clamp (+ (med-units m) (if now (- (rec-amount r)) (rec-amount r))) 0 (med-n m)))
+                        (med-save!)))
+             (vector-set! r 3 how)
+             (vector-set! r 6 0)
+             (log-write! b recs)
+             (sync-dirty! b)
+             #t)))))
+
+;; log.txt of version 5 and before: into the log files once (to upload)
+(define (log-migrate!)
+  (if (fs-exists? LOG-PATH)
+      (let ((recs (filter (lambda (r) r) (map rec-parse (med-read LOG-PATH)))))
+        (let loop ((l recs) (done '()))
+          (if (pair? l)
+              (let ((b (log-bucket (rec-day (car l)))))
+                (if (memv b done)
+                    (loop (cdr l) done)
+                    (let ((mine (filter (lambda (r) (= (log-bucket (rec-day r)) b)) recs)))
+                      (log-write! b (append (filter (lambda (o) (not (rec-in? o mine))) (log-read b)) mine))
+                      (sync-dirty! b)
+                      (loop (cdr l) (cons b done)))))))
+        (fs-remove LOG-PATH))))
+
+;; Files past keep_days go, then the oldest while the folder is short of room
+(define med-pruned-day #f)
+(define (med-prune!)
+  (let ((d (med-today)))
+    (if d
+        (begin (set! med-pruned-day d)
+               (for-each (lambda (b)
+                           (if (< (+ (* b LOG-DAYS) LOG-DAYS -1) (- d med-keep-days))
+                               (begin (fs-remove (log-path b)) (sync-undirty! b))))
+                         (log-buckets))))
+    (med-prune-room!)))
+
+(define (med-prune-room!)
+  (let ((dir (med-dir)))
+    (if dir
+        (let loop ()
+          (let ((used (med-sum (map cdr (append (fs-list dir) (fs-list (string-append dir "/photos"))))))
+                (bs (log-buckets)))
+            (if (and (> used (* 1024 (- MED-QUOTA-KB MED-ROOM-KB))) (> (length bs) 1))
+                (begin (fs-remove (log-path (car bs))) (sync-undirty! (car bs)) (loop))))))))
+
+;; 5b. Sync with the app server (proxy/medicine.py) ---------------------------------------
+;; One request at a time through the JSON feed (the app has no feed of its
+;; own); a request that gets no answer in 30 s fails, tried again 10 minutes
+;; later (or sooner, when a record changes). Names first, then the files
+;; with records not on the server, then a download asked for.
+
+(define SYNC-PATH "sync.txt")
+(define SYNC-RETRY 600)
+(define SYNC-TIMEOUT 30)
+(define SYNC-URL-MAX 230)               ; a plain request line: 256 bytes before firmware 1.0.69
+(define SYNC-KEYS '("t" "n" "e" "d" "h" "m" "w" "a" "nm" "u" "more"))
+(define SYNC-GET-LIM 20)
+(define sync-dirty '())                 ; log files with records to upload
+(define sync-names-dirty #f)
+(define sync-fresh #f)                  ; a new install: the server's last 30 days once
+(define sync-names-queue '())
+(define sync-job #f)                    ; #(kind seconds payload) of the request running
+(define sync-wait 10)                   ; seconds to the next step
+(define sync-msg "")
+(define sync-get #f)                    ; downloading: #(from-day offset stored auto?)
+
+(define (sync-on?) (string=? (app-config "sync" "0") "1"))
+
+(define (sync-save!)
+  (med-write SYNC-PATH (list (string-append "dirty|" (web-join (map number->string sync-dirty) ","))
+                             (string-append "names|" (if sync-names-dirty "1" "0"))
+                             (string-append "fresh|" (if sync-fresh "1" "0")))))
+
+;; sync.txt; without it (a new install, or version 5 and before) a board
+;; with no data at all is a new install
+(define (sync-load!)
+  (let ((lines (med-read SYNC-PATH)))
+    (if (null? lines)
+        (begin (set! sync-fresh (and (null? med-list) (null? slot-list) (null? (log-buckets)) (not (fs-exists? LOG-PATH))))
+               (set! sync-names-dirty (pair? med-list))
+               (sync-save!))
+        (for-each (lambda (l)
+                    (let ((f (str-split l #\|)))
+                      (if (= (length f) 2)
+                          (cond ((string=? (car f) "dirty")
+                                 (set! sync-dirty (filter (lambda (b) b) (map (lambda (x) (med-int x #f)) (str-split (cadr f) #\,)))))
+                                ((string=? (car f) "names") (set! sync-names-dirty (string=? (cadr f) "1")))
+                                ((string=? (car f) "fresh") (set! sync-fresh (string=? (cadr f) "1")))))))
+                  lines))))
+
+(define (sync-soon!) (if (and (not sync-job) (> sync-wait 3)) (set! sync-wait 3)))
+
+(define (sync-dirty! b)
+  (if (not (memv b sync-dirty)) (begin (set! sync-dirty (append sync-dirty (list b))) (sync-save!)))
+  (sync-soon!))
+
+(define (sync-undirty! b)
+  (if (memv b sync-dirty) (begin (set! sync-dirty (filter (lambda (x) (not (= x b))) sync-dirty)) (sync-save!))))
+
+(define (sync-names-changed!) (set! sync-names-dirty #t) (set! sync-names-queue '()) (sync-save!) (sync-soon!))
+
+;; "（08:05）", "" before the clock is set
+(define (sync-clock) (if (string=? app-time "--:--") "" (string-append "（" app-time "）")))
+
+(define (sync-failed! why)
+  (if sync-job (json-feed-stop))
+  (set! sync-job #f)
+  (set! sync-msg (string-append "失败" (sync-clock) "：" why "；10 分钟后自动重试"))
+  (set! sync-wait SYNC-RETRY))
+
+(define (sync-done! what) (set! sync-msg (string-append what (sync-clock))))
+
+(define (sync-start! kind query payload)
+  (set! sync-job (vector kind 0 payload))
+  (json-feed-start (string-append (app-proxy) "/app/medicine?" query) 3600000 SYNC-KEYS '((0 prefix "")) 4096 64 2))
+
+;; "08:05" -> "0805", "" -> "-"
+(define (hm-wire t) (if (= (string-length t) 5) (string-append (substring t 0 2) (substring t 3 5)) "-"))
+
+(define (rec-wire r)
+  (string-append (number->string (rec-day r)) "." (hm-wire (rec-time r)) "." (number->string (rec-med r)) "."
+                 (rec-how r) "." (hm-wire (rec-at r)) "." (number->string (rec-amount r))))
+
+;; As many names as one request takes (a long one shortened to fit)
+(define (sync-send-names!)
+  (if (null? sync-names-queue) (set! sync-names-queue (names-load)))
+  (if (null? sync-names-queue)
+      (begin (set! sync-names-dirty #f) (sync-save!) (set! sync-wait 0))
+      (let loop ((l sync-names-queue) (q "op=names") (n 0))
+        (let ((part (and (pair? l)
+                         (string-append "&m=" (number->string (car (car l))) "~" (url-encode (med-clean (cadr (car l)) 40))
+                                        "~" (url-encode (caddr (car l)))))))
+          (if (and part (or (= n 0) (<= (+ 14 (string-length q) (string-length part)) SYNC-URL-MAX)))
+              (loop (cdr l) (string-append q part) (+ n 1))
+              (sync-start! 'names q n))))))
+
+;; The first file's records not on the server, as many as one request takes
+(define (sync-send-records!)
+  (let* ((b (car sync-dirty)) (todo (filter (lambda (r) (not (rec-synced? r))) (log-read b))))
+    (if (null? todo)
+        (begin (sync-undirty! b) (set! sync-wait 0))
+        (let loop ((l todo) (q "op=put&r=") (sent '()))
+          (let ((part (and (pair? l) (rec-wire (car l)))))
+            (if (and part (or (null? sent) (<= (+ 15 (string-length q) (string-length part)) SYNC-URL-MAX)))
+                (loop (cdr l) (string-append q (if (null? sent) "" ",") part) (cons (car l) sent))
+                (sync-start! 'put q (cons b sent))))))))
+
+(define (sync-next!)
+  (let ((d (med-today)))
+    (if (and sync-fresh (not sync-get) d) (set! sync-get (vector (- d 29) 0 0 #t)))
+    (cond
+      ((not (or (sync-on?) sync-get)) #f)
+      ((string=? (app-proxy) "")
+       (set! sync-msg "没有设置应用服务器（设备设置里的应用代理，或本应用配置的 proxy_url）"))
+      ((and (sync-on?) sync-names-dirty) (sync-send-names!))
+      ((and (sync-on?) (pair? sync-dirty)) (sync-send-records!))
+      (sync-get
+       (sync-start! 'get (string-append "op=get&from=" (number->string (vector-ref sync-get 0)) "&off="
+                                        (number->string (vector-ref sync-get 1)) "&lim=" (number->string SYNC-GET-LIM))
+                    #f))
+      (else #f))))
+
+;; Once a second
+(define (sync-tick!)
+  (cond (sync-job
+         (vector-set! sync-job 1 (+ (vector-ref sync-job 1) 1))
+         (if (> (vector-ref sync-job 1) SYNC-TIMEOUT)
+             (let ((e (assq 'error (json-feed-status))))
+               (sync-failed! (if (and e (string? (cdr e)) (> (string-length (cdr e)) 0))
+                                 (string-append "连不上应用服务器：" (cdr e))
+                                 "连不上应用服务器")))))
+        ((> sync-wait 0) (set! sync-wait (- sync-wait 1)))
+        (else (set! sync-wait 5) (sync-next!))))
+
+;; The sent records still as they were: on the server now
+(define (sync-mark! b sent)
+  (let* ((wires (map rec-wire sent))
+         (recs (map (lambda (r)
+                      (if (member (rec-wire r) wires)
+                          (vector (rec-day r) (rec-time r) (rec-med r) (rec-how r) (rec-at r) (rec-amount r) 1)
+                          r))
+                    (log-read b))))
+    (log-write! b recs)
+    (if (not (let any ((l recs)) (and (pair? l) (or (not (rec-synced? (car l))) (any (cdr l))))))
+        (sync-undirty! b))))
+
+;; Item i of a download: (record . (id name unit)), #f when malformed
+(define (sync-item i)
+  (let* ((f (lambda (k) (or (json-feed-field i k) "")))
+         (day (med-int (f 3) #f)) (time (med-hm (f 4))) (med (med-int (f 5) #f)) (how (f 6)))
+    (and day time med (> med 0) (member how '("ok" "miss" "skip" "auto"))
+         (cons (vector day time med how (or (med-hm (f 7)) "") (max 0 (med-int (f 1) 0)) 1)
+               (list med (med-clean (f 8) MED-NAME-MAX) (med-clean (f 9) MED-UNIT-MAX))))))
+
+;; Downloaded records the board does not have (its own copy wins); how many
+(define (sync-store! items)
+  (let ((names (names-load)) (added 0))
+    (let loop ((l items) (done '()))
+      (if (pair? l)
+          (let ((b (log-bucket (rec-day (car (car l))))))
+            (if (memv b done)
+                (loop (cdr l) done)
+                (let* ((old (log-read b))
+                       (new (filter (lambda (x) (and (= (log-bucket (rec-day (car x))) b) (not (rec-in? (car x) old)))) items)))
+                  (if (pair? new) (log-write! b (append old (map car new))))
+                  (set! added (+ added (length new)))
+                  (loop (cdr l) (cons b done)))))))
+    (let ((more (filter (lambda (x) (and (not (assv (car x) names)) (> (string-length (cadr x)) 0)))
+                        (map cdr items))))
+      (if (pair? more)
+          (names-save! (append names (let uniq ((l more) (acc '()))
+                                       (cond ((null? l) (reverse acc))
+                                             ((assv (car (car l)) acc) (uniq (cdr l) acc))
+                                             (else (uniq (cdr l) (cons (car l) acc)))))))))
+    added))
+
+(define (sync-doc!)
+  (let* ((kind (vector-ref sync-job 0)) (payload (vector-ref sync-job 2)) (n (json-feed-count))
+         (t0 (and (> n 0) (json-feed-field 0 0))))
+    (json-feed-stop)
+    (set! sync-job #f)
+    (cond
+      ((not t0) (sync-failed! "应用服务器的回答不对（服务器版本太旧？）"))
+      ((string=? t0 "err") (sync-failed! (or (json-feed-field 0 2) "应用服务器拒绝了")))
+      ((eq? kind 'names)
+       (set! sync-names-queue (list-tail sync-names-queue (min payload (length sync-names-queue))))
+       (if (null? sync-names-queue) (begin (set! sync-names-dirty #f) (sync-save!)))
+       (set! sync-wait 0))
+      ((eq? kind 'put)
+       (sync-mark! (car payload) (cdr payload))
+       (sync-done! "已同步到应用服务器")
+       (set! sync-wait 0))
+      ((eq? kind 'get)
+       (let loop ((i 0) (items '()) (end #f))
+         (if (< i n)
+             (let ((t (json-feed-field i 0)))
+               (cond ((equal? t "r") (loop (+ i 1) (let ((x (sync-item i))) (if x (cons x items) items)) end))
+                     ((equal? t "end") (loop (+ i 1) items i))
+                     (else (loop (+ i 1) items end))))
+             (let* ((added (+ (vector-ref sync-get 2) (sync-store! (reverse items))))   ; the server's order
+                    (more (and end (equal? (json-feed-field end 10) "1") (> (- n 1) 0))))
+               (if more
+                   (begin (vector-set! sync-get 1 (+ (vector-ref sync-get 1) (- n 1)))
+                          (vector-set! sync-get 2 added)
+                          (set! sync-wait 0))
+                   (begin (if (and (vector-ref sync-get 3) (> added 0)) (app-config-set! "sync" "1"))
+                          (if sync-fresh (begin (set! sync-fresh #f) (sync-save!)))
+                          (set! sync-get #f)
+                          (sync-done! (string-append "从应用服务器下载了 " (number->string added) " 条记录"))
+                          (app-invalidate-all))))))))))
+
+;; The app loop: a request's answer
+(define (sync-step!)
+  (if (and sync-job (> (json-feed-seq) 0))
+      (begin (set! app-last-seq (json-feed-seq)) (sync-doc!))))
+
+;; Records not on the server yet
+(define (sync-pending)
+  (med-sum (map (lambda (b) (length (filter (lambda (r) (not (rec-synced? r))) (log-read b)))) sync-dirty)))
+
+;; Local data cleared: the records, or everything (medicines, times, photos)
+(define (med-clear! all)
+  (for-each (lambda (b) (fs-remove (log-path b))) (log-buckets))
+  (if sync-job (json-feed-stop))
+  (set! sync-job #f)
+  (set! sync-dirty '())
+  (set! sync-names-queue '())
+  (set! sync-get #f)
+  (set! sync-fresh #f)
+  (set! sync-msg "")
+  (if all
+      (begin (for-each (lambda (m) (if (fs-exists? (med-photo-path m)) (fs-remove (med-photo-path m)))) med-list)
+             (set! med-list '())
+             (set! slot-list '())
+             (set! med-info-cache '())
+             (if (fs-exists? NAMES-PATH) (fs-remove NAMES-PATH))
+             (med-write MED-PATH '())
+             (slots-save!))
+      (names-save! (map (lambda (m) (list (med-id m) (med-name m) (med-unit m))) med-list)))
+  (sync-save!)
+  (set! med-index 0)
+  (app-invalidate-all))
 
 ;; 6. The reminder -----------------------------------------------------------------------
 
@@ -1740,8 +2159,32 @@
 
 (define (pending-clear!) (if (fs-exists? PENDING-PATH) (fs-remove PENDING-PATH)))
 
+;; The page's test: every medicine of time point at, as a reminder that logs nothing.
+;; #t, or a message
+(define (med-test! at)
+  (let* ((s (slot-at at))
+         (due (if s
+                  (filter (lambda (x) x)
+                          (map (lambda (e) (let ((m (med-find (ent-med e)))) (and m (cons m (ent-amount e))))) (slot-entries s)))
+                  '())))
+    (if (null? due)
+        "这个时间点还没有选药"
+        (begin (set! med-test #t)
+               (set! med-due due)
+               (set! med-due-total (length due))
+               (set! med-due-done 0)
+               (set! med-due-at at)
+               (set! med-due-day (or (med-today) 0))
+               (set! med-due-start (or (med-now-minutes) 0))
+               (set! med-done-left 0)
+               (set! med-blink #t)
+               (med-led #t)
+               (app-invalidate-all)
+               #t))))
+
 ;; The reminder of time point at on day d (a new one, or one a restart cut short)
 (define (med-remind! at d start)
+  (if med-test (begin (set! med-test #f) (set! med-due '())))   ; a real one ends a test
   (let* ((day (or d 0))
          (ids (map (lambda (x) (med-id (car x))) med-due))
          (more (filter (lambda (x) (not (memv (med-id (car x)) ids))) (med-due-for at d))))
@@ -1763,16 +2206,20 @@
         (med-finish!)                                  ; nothing to take now
         (begin (pending-save!) (med-led #t) (app-invalidate-all)))))
 
-;; One dose (med . amount) logged as how; a confirmed one ("ok") off a count plan
+;; One dose (med . amount) logged as how; a confirmed one ("ok") off a count
+;; plan. The page's test logs nothing.
 (define (med-take! x how)
   (let ((m (med-find (med-id (car x)))))
-    (log-add! med-due-day med-due-at (med-id (car x)) how (cdr x))
-    (if (and m (string=? (med-plan m) "count") (string=? how "ok"))
-        (begin (vector-set! m 6 (max 0 (- (med-units m) (cdr x))))
-               (med-save!)))))
+    (if (not med-test)
+        (begin
+          (log-add! med-due-day med-due-at (med-id (car x)) how (cdr x))
+          (if (and m (string=? (med-plan m) "count") (string=? how "ok"))
+              (begin (vector-set! m 6 (max 0 (- (med-units m) (cdr x))))
+                     (med-save!)))))))
 
 ;; Back to the app that ran before; when this app is that one, its normal screen
 (define (med-finish!)
+  (set! med-test #f)
   (set! med-due '())
   (set! med-due-at "")
   (set! med-due-total 0)
@@ -1789,7 +2236,7 @@
         (med-take! (car med-due) "ok")
         (set! med-due (cdr med-due))
         (set! med-due-done (+ med-due-done 1))
-        (if (null? med-due) (begin (set! med-done-left MED-DONE-SECONDS) (med-led #f) (pending-clear!)))
+        (if (null? med-due) (begin (set! med-done-left MED-DONE-SECONDS) (med-led #f) (if (not med-test) (pending-clear!))))
         (app-invalidate-all))))
 
 ;; Every medicine left, logged as how ("miss": the time limit, "skip": ended on the web page)
@@ -2057,7 +2504,8 @@
 (define (med-info-line m bottom)
   (let ((y (- bottom MED-INFO-H)) (right (med-plan-text m (med-today))))
     (txt-right (- (scr-w) 10) (+ y 2) right theme-text-sub)
-    (txt-fit 10 (+ y 2) (- (scr-w) 30 (txt-w right)) (next-text (med-next-dose m)) theme-text-sub)))
+    (txt-fit 10 (+ y 2) (- (scr-w) 30 (txt-w right))
+             (if (and med-test (pair? med-due)) "测试，不记录" (next-text (med-next-dose m))) theme-text-sub)))
 
 ;; The bottom bar: left and right texts
 (define (med-footer left right)
@@ -2131,7 +2579,7 @@
 (define (med-render-done)
   (let ((cx (quotient (scr-w) 2)))
     (med-header (med-reminder-title) app-time theme-card-hdr theme-text-main)
-    (med-bold 200 "已全部服用" theme-success 2)
+    (med-bold 200 (if med-test "测试完成" "已全部服用") theme-success 2)
     (txt-center cx 256 "即将回到原来的应用" theme-text-muted)))
 
 (define (med-render-waiting)
@@ -2181,6 +2629,8 @@
 
 (set! app-tick-proc
       (lambda (tick)
+        (sync-tick!)
+        (if (and (= (remainder tick 60) 0) (not (eqv? (med-today) med-pruned-day))) (med-prune!))   ; a new day
         (cond (med-pending-at
                (set! med-pending-secs (+ med-pending-secs 1))
                (med-start! med-pending-at))
@@ -2199,7 +2649,7 @@
 (define med-applib-step app-step)
 (define med-blink-at 0)
 (define (app-step)
-  (med-applib-step)
+  (if sync-job (sync-step!) (med-applib-step))
   (if (pair? med-due)
       (let ((now (time-ms)))
         (if (>= (- now med-blink-at) 500)
@@ -2237,12 +2687,24 @@
                                 (cons 'slots (map (lambda (s) (slot->alist s d)) (slots-sorted)))
                                 (cons 'max MED-MAX) (cons 'maxslots SLOT-MAX)
                                 (cons 'reminding (med-reminding?)) (cons 'at med-due-at)
-                                (cons 'settings (cons (cons 'max_minutes med-max-minutes)
-                                                      (map (lambda (p) (cons (string->symbol (car p)) (cdr p))) med-scales))))
+                                (cons 'settings (append (list (cons 'max_minutes med-max-minutes) (cons 'keep_days med-keep-days)
+                                                              (cons 'sync (if (sync-on?) 1 0)))
+                                                        (map (lambda (p) (cons (string->symbol (car p)) (cdr p))) med-scales)))
+                                (cons 'sync (list (cons 'on (sync-on?)) (cons 'msg sync-msg) (cons 'busy (if sync-job #t #f))
+                                                  (cons 'pending (sync-pending)) (cons 'server (app-proxy))
+                                                  (cons 'downloading (if sync-get #t #f))
+                                                  (cons 'oldest (let ((bs (log-buckets)))
+                                                                  (if (pair? bs)
+                                                                      (let ((rs (log-read (car bs))))
+                                                                        (if (pair? rs) (med-least (map rec-day rs)) 0))
+                                                                      0))))))
                           extra))))
 
+;; Ids are never used again: records (here and on the server) name them
 (define (med-next-id)
-  (+ 1 (let loop ((l med-list) (hi 0)) (if (null? l) hi (loop (cdr l) (max hi (med-id (car l))))))))
+  (+ 1 (max (med-int (app-config "last_id" "0") 0)
+            (let loop ((l med-list) (hi 0)) (if (null? l) hi (loop (cdr l) (max hi (med-id (car l))))))
+            (let loop ((l (names-load)) (hi 0)) (if (null? l) hi (loop (cdr l) (max hi (car (car l)))))))))
 
 ;; The medicine of body (id 0: a new one); its id, or a message. n and left
 ;; of a count plan are tenths.
@@ -2272,6 +2734,7 @@
                                ((and old (string=? (med-plan old) plan) (= (med-n old) n)) (med-units old))
                                (else n)))
                   (m (vector (if old id (med-next-id)) name (if (str-empty? unit) "粒" unit) plan n start units shape color color2)))
+             (if (not old) (app-config-set! "last_id" (number->string (med-id m))))
              (set! med-list (if old (map (lambda (x) (if (eq? x old) m x)) med-list) (append med-list (list m))))
              (med-save!)
              (med-id m))))))
@@ -2304,33 +2767,44 @@
            #t))))
 
 ;; Saves the settings body has; #t, or the first key with a bad value
+(define MED-SETTING-MINS '(("max_minutes" . 0) ("sync" . 0) ("keep_days" . 7)))
 (define (med-save-settings! body)
-  (let loop ((ks (cons '("max_minutes" "0" 1440) MED-SCALE-KEYS)))
+  (let loop ((ks (append '(("max_minutes" "0" 1440) ("sync" "0" 1) ("keep_days" "1095" 3650)) MED-SCALE-KEYS)))
     (if (null? ks)
-        (begin (med-load-settings!) (app-invalidate-all) #t)
+        (begin (med-load-settings!) (med-prune!) (sync-soon!) (app-invalidate-all) #t)
         (let* ((k (car ks)) (v (web-field body (car k))) (n (and v (string->number v)))
-               (lo (if (string=? (car k) "max_minutes") 0 1)))
+               (lo (let ((m (assoc (car k) MED-SETTING-MINS))) (if m (cdr m) 1))))
           (cond ((not v) (loop (cdr ks)))
                 ((and (integer? n) (>= n lo) (<= n (caddr k))) (app-config-set! (car k) v) (loop (cdr ks)))
                 (else (car k)))))))
 
-;; The last 60 lines of the log, newest first
-(define (log-answer)
-  (let* ((lines (med-read LOG-PATH)) (n (length lines)) (last (if (> n 60) (list-tail lines (- n 60)) lines)))
-    (web-ok (cons 'log (reverse
-                        (filter (lambda (x) x)
-                                (map (lambda (l)
-                                       (let ((f (str-split l #\|)))
-                                         (and (>= (length f) 4)
-                                              (let ((m (med-find (med-int (list-ref f 2) -1)))
-                                                    (amt (if (>= (length f) 6) (med-int (list-ref f 5) 0) 0)))
-                                                (list (cons 'day (med-int (car f) 0)) (cons 'time (cadr f))
-                                                      (cons 'med (med-int (list-ref f 2) -1))
-                                                      (cons 'name (if m (med-name m) "（已删除）"))
-                                                      (cons 'amount (if (and m (> amt 0)) (string-append (amt-text amt) " " (med-unit m)) ""))
-                                                      (cons 'how (list-ref f 3))
-                                                      (cons 'at (if (>= (length f) 5) (list-ref f 4) "")))))))
-                                     last)))))))
+;; Records newest first, 60 or more (whole files); before: only files older
+;; than that one (the page's "更早"); more: the value for the next page
+(define (rec-key r) (+ (* (rec-day r) 10000) (med-int (hm-wire (rec-time r)) 0)))
+
+(define (rec-sort-new l)
+  (let ins-all ((l l) (acc '()))
+    (if (null? l)
+        acc
+        (ins-all (cdr l) (let ins ((x (car l)) (a acc))
+                           (cond ((null? a) (list x)) ((> (rec-key x) (rec-key (car a))) (cons x a))
+                                 (else (cons (car a) (ins x (cdr a))))))))))
+
+(define (log-answer body)
+  (let* ((before (web-field-int body "before" -1))
+         (bs (reverse (filter (lambda (b) (or (< before 0) (< b before))) (log-buckets))))
+         (names (names-load)))
+    (let loop ((l bs) (acc '()) (last #f))
+      (if (and (pair? l) (< (length acc) 60))
+          (loop (cdr l) (append acc (rec-sort-new (log-read (car l)))) (car l))
+          (web-ok (cons 'log (map (lambda (r)
+                                    (let ((nm (name-of (rec-med r) names)))
+                                      (list (cons 'day (rec-day r)) (cons 'time (rec-time r)) (cons 'med (rec-med r))
+                                            (cons 'name (car nm))
+                                            (cons 'amount (if (> (rec-amount r) 0) (string-append (amt-text (rec-amount r)) " " (cdr nm)) ""))
+                                            (cons 'how (rec-how r)) (cons 'at (rec-at r)) (cons 'synced (rec-synced? r)))))
+                                  acc))
+                  (cons 'more (if (pair? l) last #f)))))))
 
 (define (app-web name body)
   (cond
@@ -2352,12 +2826,31 @@
      (let ((r (slots-save-from! body))) (if (string? r) (web-error r) (med-answer))))
     ((string=? name "settings")
      (let ((r (med-save-settings! body))) (if (string? r) (web-error (string-append "bad value for " r)) (med-answer))))
-    ((string=? name "log") (log-answer))
-    ((string=? name "remind")                       ; the page's test: a time point's reminder now
+    ((string=? name "log") (log-answer body))
+    ((string=? name "edit")                         ; a record: taken (ok) or not (skip)
+     (let ((r (log-edit! (web-field-int body "day" -1) (or (med-hm (or (web-field body "time") "")) "")
+                         (web-field-int body "med" -1) (or (web-field body "how") ""))))
+       (if (string? r) (web-error r) (med-answer))))
+    ((string=? name "remind")                       ; the page's test: a time point's medicines now, nothing logged
      (let ((s (slot-at (or (med-hm (or (web-field body "time") "")) ""))))
-       (if (not s)
-           (web-error "没有这个时间点")
-           (begin (med-remind! (slot-time s) (med-today) #f) (med-answer)))))
+       (cond ((not s) (web-error "没有这个时间点"))
+             ((and (med-reminding?) (not med-test)) (web-error "设备正在提醒，全部确认后再测试"))
+             (else (let ((r (med-test! (slot-time s)))) (if (string? r) (web-error r) (med-answer)))))))
+    ((string=? name "sync")                         ; upload what is not on the server now
+     (if (not (sync-on?))
+         (web-error "请先勾选“同步到应用服务器”并保存设置")
+         (begin (set! sync-wait 0) (set! sync-msg "正在同步…") (med-answer))))
+    ((string=? name "download")                     ; the server's records of the last N days
+     (let ((n (web-field-int body "days" 30)) (d (med-today)))
+       (cond ((not d) (web-error "设备还没有对时，稍后再试"))
+             ((or (< n 1) (> n 3650)) (web-error "天数应为 1..3650"))
+             (sync-get (web-error "正在下载"))
+             (else (set! sync-get (vector (- d n -1) 0 0 #f)) (set! sync-wait 0) (set! sync-msg "正在从应用服务器下载…")
+                   (med-answer)))))
+    ((string=? name "clear")                        ; local data: what=log or all
+     (cond ((med-reminding?) (web-error "设备正在提醒，结束后再清空"))
+           ((not (member (web-field body "what") '("log" "all"))) (web-error "what: log or all"))
+           (else (med-clear! (string=? (web-field body "what") "all")) (med-answer))))
     ((string=? name "stop") (if (pair? med-due) (med-close-all! "skip") (if (med-reminding?) (med-finish!))) (med-answer))
     (else (web-error (string-append "unknown call: " name)))))
 
@@ -2366,6 +2859,10 @@
 (med-migrate!)
 (med-load!)
 (med-load-settings!)
+(sync-load!)
+(log-migrate!)
+(names-sync!)
+(med-prune!)
 (app-define! "吃药提醒" (list (app-local-page "药品" (lambda (items) #t))))
 (set! gui-render-proc med-render)
 (let ((at (app-scheduled))) (if at (med-start! at) (med-resume!)))

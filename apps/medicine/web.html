@@ -127,7 +127,9 @@
 <div class="pane" id="p-log">
 <section>
 <h2>服药记录 <button class="small plain" onclick="loadLog()">刷新</button></h2>
+<div class="desc">点“改为已服”或“改为未服”修改一条记录（按数量计的药会跟着加减数量）；同步打开时，改过的记录会重新上传。</div>
 <div id="logList" class="desc">读取中...</div>
+<div class="actions"><button id="logMore" class="plain" style="display:none" onclick="loadLog(true)">更早的记录</button></div>
 </section>
 </div>
 
@@ -150,7 +152,32 @@
 <select id="s_list_size"><option value="1">1 倍（16 像素）</option><option value="2">2 倍</option><option value="3">3 倍</option></select></div>
 </div>
 <div class="desc">药名和服用量用粗体按整数倍放大；太长放不下时自动缩小，照片区域随文字变大而变小。</div>
+<h3>记录与同步</h3>
+<label class="check"><input type="checkbox" id="s_sync"> 同步到应用服务器（长期保存服药记录；连不上服务器不影响使用，之后自动重试）</label>
+<div class="row">
+<div><label for="s_keep_days">设备上最多保存记录（天）</label><input id="s_keep_days" type="number" min="7" max="3650" step="1"></div>
+</div>
+<div class="desc">默认 1095 天（3 年）。应用目录的空间不够时，最早的记录会先删掉；打开同步后服务器上一直保留。</div>
 <div class="actions"><button onclick="saveSettings()">保存设置</button></div>
+</section>
+<section>
+<h2>同步</h2>
+<div id="syncState" class="desc"></div>
+<div class="actions"><button class="plain" onclick="syncNow()">立即同步</button></div>
+<div class="row">
+<div><label for="dlDays">从应用服务器下载最近几天的记录</label><input id="dlDays" type="number" min="1" max="3650" value="30"></div>
+<button class="plain" onclick="download()">下载</button>
+</div>
+<div class="desc">只在需要时下载（例如换了设备或清空过）；设备上已有的记录不会被覆盖。新安装、没有任何数据时会自动下载一次最近 30 天。</div>
+</section>
+<section>
+<h2>清空本地数据</h2>
+<div class="row">
+<div><label for="clearWhat">清空</label>
+<select id="clearWhat"><option value="log">设备上的服药记录</option><option value="all">全部（药品、服药时间、照片和记录）</option></select></div>
+<button class="danger" onclick="clearLocal()">清空</button>
+</div>
+<div class="desc">只删除设备上的数据，应用服务器上的记录不受影响。还没上传的记录会丢失。</div>
 </section>
 <section>
 <h2>测试</h2>
@@ -158,7 +185,7 @@
 <div><label for="testSlot">时间点</label><select id="testSlot"></select></div>
 <button class="plain" onclick="testRemind()">在设备上显示提醒</button>
 </div>
-<div class="desc">立即显示这个时间点今天还没服的药；在设备上按键确认会写进服药记录。</div>
+<div class="desc">立即在设备上显示这个时间点的全部药品（不管今天服过没有）；测试时按键确认不写服药记录，也不扣数量。</div>
 </section>
 </div>
 </main>
@@ -193,6 +220,9 @@ function take(r, keepDraft) {
   $('bannerAt').textContent = r.at || '';
   $('todayDate').textContent = r.today ? dayDate(r.today) : '设备时钟未同步';
   for (const k of SCALE_KEYS) if (r.settings[k] !== undefined) $('s_' + k).value = String(r.settings[k]);
+  if (!keepDraft || document.activeElement !== $('s_keep_days')) $('s_keep_days').value = String(r.settings.keep_days || 1095);
+  if (!keepDraft) $('s_sync').checked = !!r.settings.sync;
+  renderSync();
   $('testSlot').innerHTML = r.slots.map((s) => `<option value="${esc(s.time)}">${esc(s.time)}</option>`).join('') ||
     '<option value="">（先添加服药时间）</option>';
   renderToday();
@@ -444,16 +474,73 @@ async function saveSlots() {
   await attempt(async () => { take(await appCall('slots', {slots: text})); say('服药时间已保存', 'ok'); });
 }
 
-/* ---- log ---- */
+/* ---- log: newest first, 60 or more at a time ---- */
 const HOW = {ok: ['已服', 'ok'], miss: ['超时未确认，记为未服', 'bad'], skip: ['未服', 'bad'], auto: ['超时，记为已服', 'warn']};
-async function loadLog() {
+let logRows = [], logMore = null;
+async function loadLog(more) {
   await attempt(async () => {
-    const r = await appCall('log');
-    $('logList').className = r.log.length ? '' : 'desc';
-    $('logList').innerHTML = r.log.length ? '<table><tr><th>日期</th><th>时间点</th><th>药品</th><th>用量</th><th>结果</th><th class="num">确认时间</th></tr>' +
-      r.log.map((x) => `<tr><td>${dayDate(x.day).slice(5)}</td><td>${esc(x.time)}</td><td>${esc(x.name)}</td><td>${esc(x.amount)}</td>
-        <td class="${(HOW[x.how] || ['', ''])[1]}">${esc((HOW[x.how] || [x.how])[0])}</td><td class="num">${esc(x.at)}</td></tr>`).join('') +
-      '</table>' : '还没有服药记录';
+    const r = await appCall('log', more && logMore !== null ? {before: logMore} : {});
+    logRows = more ? logRows.concat(r.log) : r.log;
+    logMore = r.more === false || r.more === undefined ? null : r.more;
+    renderLog();
+  });
+}
+function renderLog() {
+  const taken = (h) => h === 'ok' || h === 'auto';
+  const syncing = !!(S.sync && S.sync.on);
+  $('logList').className = logRows.length ? '' : 'desc';
+  $('logList').innerHTML = logRows.length ? '<table><tr><th>日期</th><th>时间点</th><th>药品</th><th>用量</th><th>结果</th><th class="num">确认时间</th><th></th></tr>' +
+    logRows.map((x, i) => `<tr><td>${dayDate(x.day).slice(5)}</td><td>${esc(x.time)}</td><td>${esc(x.name)}</td><td>${esc(x.amount)}</td>
+      <td class="${(HOW[x.how] || ['', ''])[1]}">${esc((HOW[x.how] || [x.how])[0])}${syncing && !x.synced ? ' <span class="desc">· 未上传</span>' : ''}</td>
+      <td class="num">${esc(x.at)}</td>
+      <td><button class="small plain" onclick="editLog(${i})">${taken(x.how) ? '改为未服' : '改为已服'}</button></td></tr>`).join('') +
+    '</table>' : '还没有服药记录';
+  $('logMore').style.display = logMore !== null ? '' : 'none';
+}
+async function editLog(i) {
+  const x = logRows[i];
+  if (!x) return;
+  const how = (x.how === 'ok' || x.how === 'auto') ? 'skip' : 'ok';
+  await attempt(async () => {
+    take(await appCall('edit', {day: x.day, time: x.time, med: x.med, how}), true);
+    x.how = how;
+    x.synced = false;
+    renderLog();
+    say(how === 'ok' ? '已改为已服' : '已改为未服', 'ok');
+  });
+}
+
+/* ---- sync ---- */
+function renderSync() {
+  const y = S.sync || {};
+  const lines = [];
+  lines.push(y.on ? `同步已打开，应用服务器：${esc(y.server || '（未设置）')}` : '同步没有打开：记录只保存在设备上。');
+  if (y.pending) lines.push(`还有 ${y.pending} 条记录没有上传`);
+  else if (y.on) lines.push('记录都已上传');
+  if (y.busy) lines.push('正在和应用服务器通信…');
+  if (y.msg) lines.push('上次：' + esc(y.msg));
+  if (y.oldest) lines.push('设备上最早的记录：' + dayDate(y.oldest));
+  $('syncState').innerHTML = lines.join('<br>');
+}
+async function syncNow() {
+  await attempt(async () => { take(await appCall('sync'), true); say('开始同步，稍后刷新查看结果', 'ok'); });
+}
+async function download() {
+  const days = parseInt($('dlDays').value, 10);
+  if (!(days >= 1 && days <= 3650)) return say('天数应为 1..3650', 'warn');
+  await attempt(async () => { take(await appCall('download', {days}), true); say('开始下载，稍后刷新查看结果', 'ok'); });
+}
+async function clearLocal() {
+  const all = $('clearWhat').value === 'all';
+  const pending = (S.sync && S.sync.pending) || 0;
+  const what = all ? '设备上的全部药品、服药时间、照片和服药记录' : '设备上的全部服药记录';
+  if (!confirm(`确定清空${what}？${pending ? `还有 ${pending} 条记录没有上传，会丢失。` : ''}应用服务器上的记录不受影响。`)) return;
+  await attempt(async () => {
+    take(await appCall('clear', {what: all ? 'all' : 'log'}));
+    logRows = [];
+    logMore = null;
+    renderLog();
+    say('已清空', 'ok');
   });
 }
 
@@ -461,6 +548,10 @@ async function loadLog() {
 async function saveSettings() {
   const f = {};
   for (const k of SCALE_KEYS) f[k] = $('s_' + k).value;
+  const keep = parseInt($('s_keep_days').value, 10);
+  if (!(keep >= 7 && keep <= 3650)) return say('保存天数应为 7..3650', 'warn');
+  f.keep_days = String(keep);
+  f.sync = $('s_sync').checked ? '1' : '0';
   await attempt(async () => { take(await appCall('settings', f)); say('设置已保存，设备已更新', 'ok'); });
 }
 
@@ -469,7 +560,7 @@ async function testRemind() {
   if (!time) return say('先添加服药时间', 'warn');
   await attempt(async () => {
     take(await appCall('remind', {time}));
-    say(S.reminding ? '设备上正在显示提醒' : '这个时间点今天没有要服的药', S.reminding ? 'ok' : 'warn');
+    say('设备上正在显示测试提醒（按键确认不写记录）', 'ok');
   });
 }
 

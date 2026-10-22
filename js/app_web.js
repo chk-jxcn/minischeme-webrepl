@@ -137,7 +137,7 @@ class AppWebPanel {
                                 </label>
                             </div>
                             <div id="aw-sys-pw-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                应用服务密码与服务器绑定：设备用它在该服务器注册加密通道（不发送密码），也是该服务器用户门户的登录密码；已注册后不改服务器地址就不能改密码。明文显示。
+                                应用服务密码：设备每次请求都把它放在请求头里（base64 编码，不是加密）发给这台服务器，服务器第一次收到时用它登记设备，以后密码不对就拒绝；也是该服务器用户门户的登录密码。明文 HTTP 上网络中的人能看到它，请不要用在别处用过的密码。明文显示。
                             </div>
                             <div style="margin-top: 10px;">
                                 <label>硬件密码 (hardware_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>

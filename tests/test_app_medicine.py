@@ -1,6 +1,8 @@
 """The medicine app on the simulator (tools/sim.py; skipped without Edge / Chrome /
-Chromium): its web calls, the reminder, the time limit and a reminder that a
-power cut (a reload of the page) interrupts."""
+Chromium): its web calls, the reminder, the page's test, records, the time
+limit, sync with the app server and a reminder that a power cut (a reload of
+the page) interrupts."""
+import json
 import os
 import subprocess
 import sys
@@ -77,13 +79,38 @@ CHECKS = [
     ("not due on its off day", '(null? (med-due-for "19:00" (med-today)))'),
     ("due on its day", '(= (length (med-due-for "19:00" (+ (med-today) 1))) 1)'),
     ("the reminder takes the medicines due with their amounts",
-     '(begin (app-web "remind" "time=08:00") (and (= med-due-total 3) '
+     '(begin (med-remind! "08:00" (med-today) #f) (and (= med-due-total 3) (not med-test) '
      '(equal? (map (lambda (x) (cons (med-name (car x)) (cdr x))) med-due) (list (cons "A b" 10) (cons "B" 20) (cons "C" 5)))))'),
     ("a confirmed dose is logged and its amount taken off",
      '(begin (med-confirm!) (med-confirm!) (med-confirm!) '
-     '(and (= (length (med-read "log.txt")) 3) (string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0.5/10 片") '
+     '(and (= (length (log-read (log-bucket (med-today)))) 3) (string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0.5/10 片") '
      '(not (fs-exists? "pending.txt"))))'),
-    ("a confirmed time point is not reminded again", '(begin (med-finish!) (app-web "remind" "time=08:00") (not (med-reminding?)))'),
+    ("records: in the day's 16-day file, not uploaded yet",
+     '(let ((r (car (log-read (log-bucket (med-today)))))) (and (fs-exists? (string-append "log-" (number->string (quotient (med-today) 16)) ".txt")) '
+     '(not (rec-synced? r)) (string=? (rec-how r) "ok") (memv (log-bucket (med-today)) sync-dirty) #t))'),
+    ("a confirmed time point is not reminded again", '(begin (med-finish!) (med-remind! "08:00" (med-today) #f) (not (med-reminding?)))'),
+    ("the page's test shows every medicine, whether taken or not",
+     '(begin (app-web "remind" "time=08:00") (and med-test (= med-due-total 3) (med-reminding?)))'),
+    ("the test logs nothing and takes nothing off",
+     '(begin (med-confirm!) (med-confirm!) (med-confirm!) '
+     '(and (= (length (log-read (log-bucket (med-today)))) 3) (string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0.5/10 片")))'),
+    ("after the test: normal again", '(begin (med-finish!) (and (not med-test) (not (med-reminding?))))'),
+    ("a record changed to not taken: the amount comes back",
+     '(begin (app-web "edit" (string-append "day=" (number->string (med-today)) "&time=08:00&med=4&how=skip")) '
+     '(and (string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0/10 片") '
+     '(equal? (cdr (assv 4 (log-hows (med-today) "08:00"))) "skip")))'),
+    ("and back to taken", '(begin (app-web "edit" (string-append "day=" (number->string (med-today)) "&time=08:00&med=4&how=ok")) '
+     '(string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0.5/10 片"))'),
+    ("an unknown record is refused", '(str-contains? (app-web "edit" "day=1&time=08:00&med=4&how=ok") "没有这条记录")'),
+    ("the log answers newest first with more", '(let ((a (app-web "log" ""))) (and (str-contains? a "\\"synced\\":false") '
+     '(str-contains? a "\\"more\\":false")))'),
+    ("a version 5 log.txt moves into the log files",
+     '(begin (fs-write "log.txt" (string-append (number->string (- (med-today) 60)) "|08:00|1|ok|08:01|10")) (log-migrate!) '
+     '(and (not (fs-exists? "log.txt")) (= (length (log-read (log-bucket (- (med-today) 60)))) 1) '
+     '(memv (log-bucket (- (med-today) 60)) sync-dirty) #t))'),
+    ("records past keep_days go", '(begin (app-web "settings" "keep_days=30") '
+     '(and (= med-keep-days 30) (null? (log-read (log-bucket (- (med-today) 60)))) (pair? (log-read (log-bucket (med-today))))))'),
+    ("keep_days out of range is refused", '(str-contains? (app-web "settings" "keep_days=3") "\\"success\\":false")'),
     ("the next dose: a time point and its amount",
      '(and (member (cdr (med-next-dose (med-find 4))) (list (list "08:00" 5) (list "19:00" 10))) #t)'),
     ("version 3 files are converted (the dose's amount kept)",
@@ -105,6 +132,11 @@ CHECKS = [
     ("settings are saved", '(begin (app-web "settings" "max_minutes=30&name_size=4") '
                            '(and (= med-max-minutes 30) (= (med-scale "name_size") 4)))'),
     ("the log answers with amounts", '(str-contains? (app-web "log" "") "\\"how\\":\\"ok\\"")'),
+    ("ids are not used again", '(let ((n (med-next-id))) (app-web "delete" (string-append "id=" (number->string (- n 1)))) '
+     '(= (med-next-id) n))'),
+    ("sync needs the setting", '(str-contains? (app-web "sync" "") "\\"success\\":false")'),
+    ("the local records cleared", '(begin (app-web "clear" "what=log") (and (null? (log-buckets)) (null? sync-dirty) (pair? med-list)))'),
+    ("everything cleared", '(begin (app-web "clear" "what=all") (and (null? med-list) (null? slot-list) (not sync-fresh)))'),
 ]
 
 
@@ -128,14 +160,55 @@ class TestMedicineApp(unittest.TestCase):
                  "/spiffs/apps/medicine/config.ini": "[config]\nmax_minutes = 15\n"}
         r, lines = run_sim(["--wait", "1", "--js", install(files),
                             "--config", "system.boot_app=apps/medicine/app.msbc", "--js", 'bootWasmDevice("t")',
-                            "--wait", "2", "--eval", '(begin (app-web "remind" "time=08:00") med-due-total)',
+                            "--wait", "2", "--eval", '(begin (med-remind! "08:00" (med-today) #f) med-due-total)',
                             "--eval", "(begin (set! med-due-start (- (med-now-minutes) 20)) #t)", "--wait", "11",
                             "--eval", '(list (med-reminding?) (med-units (med-find 2)) '
-                                      '(map (lambda (l) (list-ref (str-split l #\\|) 3)) (med-read "log.txt")))'])
+                                      '(map rec-how (log-read (log-bucket (med-today)))))'])
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(lines[-3], "2")
         # back to the app before; nothing taken off the count plan, both logged as missed
         self.assertEqual(lines[-1], '(#f 50 ("miss" "miss"))')
+
+    def test_sync_with_the_app_server(self):
+        # A and B (a count plan) at 08:00, sync on; the simulator's server keeps
+        # the records (its database is temporary: sim.py --fresh)
+        files = {"/spiffs/apps/medicine/meds.txt": "1|A|片|long|0|0|0\n2|B|片|count|50|0|50",
+                 "/spiffs/apps/medicine/slots.txt": "1|08:00|1.0.0.10,2.0.0.10",
+                 "/spiffs/apps/medicine/config.ini": "[config]\nsync = 1\n"}
+        state = '(list (sync-pending) sync-dirty sync-names-dirty (if sync-job #t #f))'
+        server = ("fetch('/api/fetch?url=' + encodeURIComponent('http://proxy.local/app/medicine?op=get&from=0'), "
+                  "{headers: simDeviceHeaders()}).then(r => r.json()).then(d => d.items.map(i => i.t + ':' + (i.nm || i.n)))")
+        r, lines = run_sim(["--wait", "1", "--js", install(files), "--config", "app.proxy=http://proxy.local",
+                            "--config", "system.boot_app=apps/medicine/app.msbc", "--js", 'bootWasmDevice("t")',
+                            "--wait", "3",
+                            "--eval", '(begin (med-remind! "08:00" (med-today) #f) (med-confirm!) (med-confirm!) (med-finish!) '
+                                      '(set! sync-wait 0) (sync-pending))',
+                            "--wait", "12", "--eval", state, "--eval", "sync-msg", "--js", server,
+                            # the board's copy wins: an edit goes up again
+                            "--eval", '(begin (log-edit! (med-today) "08:00" 2 "skip") (set! sync-wait 0) (sync-pending))',
+                            "--wait", "8", "--eval", state, "--js", server,
+                            # cleared here, downloaded back (the server keeps them)
+                            "--eval", '(begin (med-clear! #f) (app-web "download" "days=3") (length (log-buckets)))',
+                            "--wait", "8",
+                            "--eval", '(map (lambda (r) (list (rec-med r) (rec-how r) (rec-synced? r))) (log-read (log-bucket (med-today))))',
+                            # a new install with sync off: the last 30 days come back once, sync turns on
+                            "--eval", '(begin (med-clear! #t) (app-config-set! "sync" "0") (fs-remove "sync.txt") (sync-load!) '
+                                      '(set! sync-wait 0) (list sync-fresh (sync-on?)))',
+                            "--wait", "8",
+                            "--eval", '(list (length (log-read (log-bucket (med-today)))) sync-fresh (sync-on?) (length (names-load)))'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = lines[-11:]
+        self.assertEqual(out[0], "2", "two records to upload")
+        self.assertEqual(out[1], "(0 () #f #f)", "uploaded: names, then the records")
+        self.assertIn("已同步到应用服务器", out[2])
+        self.assertEqual(json.loads(out[3]), ["r:A", "r:B", "end:2"])
+        self.assertEqual(out[4], "1")
+        self.assertEqual(out[5], "(0 () #f #f)")
+        self.assertEqual(json.loads(out[6]), ["r:A", "r:B", "end:2"])
+        self.assertEqual(out[7], "0")
+        self.assertEqual(out[8], '((1 "ok" #t) (2 "skip" #t))', "downloaded: as the board last had them, on the server")
+        self.assertEqual(out[9], "(#t #f)")
+        self.assertEqual(out[10], "(2 #f #t 2)", "restored on a new install, sync on, the names kept")
 
     def test_a_power_cut_does_not_end_the_reminder(self):
         # calendar is the boot app; medicine (persist = 1) starts at 08:00; after
