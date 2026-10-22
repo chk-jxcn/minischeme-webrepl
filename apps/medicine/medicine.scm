@@ -493,9 +493,9 @@
 
 (define MED-PINK (gui-rgb 244 160 160))  ; the confirm bar: light red
 
-;; "【已服1/共4种】 服药时间 08:00"
+;; "【已服1/共4种  服药时间08:00】"
 (define (med-reminder-title)
-  (string-append "【已服" (number->string med-due-done) "/共" (number->string med-due-total) "种】 服药时间 " med-due-at))
+  (string-append "【已服" (number->string med-due-done) "/共" (number->string med-due-total) "种  服药时间" med-due-at "】"))
 
 ;; 1..99 in Chinese numerals: 一, 十二, 二十
 (define (cn-num n)
