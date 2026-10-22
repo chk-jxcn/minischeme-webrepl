@@ -3,7 +3,7 @@
   "id": "album",
   "name": "电子相册",
   "description": "全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理",
-  "version": "3",
+  "version": "4",
   "api": "1.5",
   "extensions": "",
   "kind": "app",
@@ -13,9 +13,9 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 58817,
+  "size": 59076,
   "scm": "album.allinone.scm",
-  "hash": "d269f906"
+  "hash": "b438a0f3"
  },
  {
   "id": "calendar",
@@ -97,7 +97,7 @@
   "id": "medicine",
   "name": "吃药提醒",
   "description": "按服药时间点自动弹出吃药提醒（从任何应用切换过来，断电重启后继续），大号粗体显示药名和服用量，逐个按键确认后回到原来的应用。药品可设长期、服用天数或按数量扣减；每个时间点选药、填服用量、可隔日；服药记录自动保存；在设备网页的应用选项卡设置；不需要代理",
-  "version": "3",
+  "version": "5",
   "api": "1.7",
   "extensions": "",
   "kind": "app",
@@ -107,15 +107,15 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 91932,
+  "size": 92502,
   "scm": "medicine.allinone.scm",
-  "hash": "acad38fe"
+  "hash": "6f741c04"
  },
  {
   "id": "memo",
   "name": "备忘录",
   "description": "待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理",
-  "version": "3",
+  "version": "4",
   "api": "1.1",
   "extensions": "",
   "kind": "app",
@@ -126,9 +126,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 53543,
+  "size": 53822,
   "scm": "memo.allinone.scm",
-  "hash": "70dc79eb"
+  "hash": "36822dca"
  },
  {
   "id": "news",
@@ -155,7 +155,7 @@
   "id": "notifier",
   "name": "消息提示",
   "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
-  "version": "5",
+  "version": "6",
   "api": "1.1",
   "extensions": "",
   "kind": "app",
@@ -166,9 +166,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 55680,
+  "size": 55960,
   "scm": "notifier.allinone.scm",
-  "hash": "9cfde2be"
+  "hash": "bdf52097"
  },
  {
   "id": "pcmonitor",
@@ -290,7 +290,7 @@
   "id": "wxpusher",
   "name": "WxPusher",
   "description": "WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）",
-  "version": "8",
+  "version": "9",
   "api": "1.4",
   "extensions": "",
   "kind": "app",
@@ -300,8 +300,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 59587,
+  "size": 59852,
   "scm": "wxpusher.allinone.scm",
-  "hash": "75f0f7de"
+  "hash": "058f6ed3"
  }
 ]

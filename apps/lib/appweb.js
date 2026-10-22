@@ -76,10 +76,26 @@ async function attempt(fn) {
   try { return await fn(); } catch (e) { say(e.message, 'bad'); return undefined; }
 }
 
-/* The board's page shows this one in a frame: tell it the height */
+/* The board's page shows this one in a frame: tell it the height of the
+ * content (rounded up, with 2 px to spare: fractional line heights left the
+ * frame a pixel short and an empty scrollbar showed), and leave scrolling to
+ * the page around it. The body's height also shrinks with the content. */
 (function () {
   if (window.parent === window) return;
-  const post = () => window.parent.postMessage({appHeight: document.documentElement.scrollHeight}, '*');
+  document.documentElement.style.overflow = 'hidden';
+  let last = 0;
+  const post = () => {
+    const h = Math.ceil(document.body.getBoundingClientRect().height) + 2;
+    if (h !== last) {
+      last = h;
+      window.parent.postMessage({appHeight: h}, '*');
+    }
+  };
+  const start = () => {   /* this script runs in <head>: the body comes later */
+    post();
+    if (window.ResizeObserver) new ResizeObserver(post).observe(document.body);
+    else setInterval(post, 500);
+  };
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
   window.addEventListener('load', post);
-  if (window.ResizeObserver) new ResizeObserver(post).observe(document.documentElement);
 })();

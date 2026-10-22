@@ -122,7 +122,7 @@ class TestMedicineApp(unittest.TestCase):
             with self.subTest(check=name):
                 self.assertEqual(got, "#t")
 
-    def test_time_limit_counts_the_rest_as_taken(self):
+    def test_time_limit_counts_the_rest_as_missed(self):
         files = {"/spiffs/apps/medicine/meds.txt": "1|A|片|long|0|0|0\n2|B|片|count|50|0|50",
                  "/spiffs/apps/medicine/slots.txt": "1|08:00|1.0.0.10,2.0.0.10",
                  "/spiffs/apps/medicine/config.ini": "[config]\nmax_minutes = 15\n"}
@@ -134,7 +134,8 @@ class TestMedicineApp(unittest.TestCase):
                                       '(map (lambda (l) (list-ref (str-split l #\\|) 3)) (med-read "log.txt")))'])
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(lines[-3], "2")
-        self.assertEqual(lines[-1], '(#f 40 ("auto" "auto"))')
+        # back to the app before; nothing taken off the count plan, both logged as missed
+        self.assertEqual(lines[-1], '(#f 50 ("miss" "miss"))')
 
     def test_a_power_cut_does_not_end_the_reminder(self):
         # calendar is the boot app; medicine (persist = 1) starts at 08:00; after

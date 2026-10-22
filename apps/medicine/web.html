@@ -139,7 +139,7 @@
 <div><label for="s_max_minutes">提醒最多持续</label>
 <select id="s_max_minutes"><option value="0">永久（直到全部确认，断电重启也继续）</option><option value="15">15 分钟</option><option value="30">30 分钟</option><option value="60">1 小时</option><option value="120">2 小时</option><option value="240">4 小时</option></select></div>
 </div>
-<div class="desc">超过设定时间还没确认，就回到原来的应用，并把剩下的药记为已服用。</div>
+<div class="desc">超过设定时间还没确认，就回到原来的应用，并把剩下的药记为未服用；只有在设备上按按钮确认的才记为已服用。</div>
 <h3>文字大小</h3>
 <div class="row">
 <div><label for="s_name_size">提醒时药名</label>
@@ -214,7 +214,8 @@ function renderToday() {
       const m = medById(e.med);
       if (!m) return '';
       let st;
-      if (e.done) st = '<span class="ok">✓ 已服</span>';
+      if (e.done) st = (!e.how || e.how === 'ok' || e.how === 'auto') ? '<span class="ok">✓ 已服</span>'
+                       : `<span class="bad">✗ ${e.how === 'miss' ? '超时未服' : '未服'}</span>`;
       else if (m.status !== 'active') st = `<span class="desc">${esc(STATUS[m.status][0])}</span>`;
       else if (!e.today) st = '<span class="desc">今天不服（隔日）</span>';
       else st = past ? '<span class="warn">未确认</span>' : '<span class="desc">待服</span>';
@@ -444,7 +445,7 @@ async function saveSlots() {
 }
 
 /* ---- log ---- */
-const HOW = {ok: ['已服', 'ok'], auto: ['超时，记为已服', 'warn'], skip: ['未服', 'bad']};
+const HOW = {ok: ['已服', 'ok'], miss: ['超时未确认，记为未服', 'bad'], skip: ['未服', 'bad'], auto: ['超时，记为已服', 'warn']};
 async function loadLog() {
   await attempt(async () => {
     const r = await appCall('log');

@@ -16,12 +16,13 @@
 ;;;             the plan's progress bottom right; a press: the next one
 ;;;   reminder: "共 N 个药 第 k 个" blinks in the title; a press confirms one;
 ;;;             after the last, back to the app that ran before. Past the
-;;;             time limit the rest count as taken.
+;;;             time limit, back too: the rest logged as missed (only a
+;;;             confirmed dose counts as taken).
 ;;; Amounts and quantities are kept in tenths (0.5 粒 = 5).
 ;;; Files (the app's folder):
 ;;;   meds.txt     id|name|unit|plan|n|start|left    plan long, days (n days), count (n, left: tenths)
 ;;;   slots.txt    id|HH:MM|med.alt.ref.amount,...   alt 1: every other day from day ref
-;;;   log.txt      day|HH:MM|med|how|HH:MM|amount    how ok, auto (time limit), skip
+;;;   log.txt      day|HH:MM|med|how|HH:MM|amount    how ok, miss (time limit), skip; auto (old: the time limit taken)
 ;;;   pending.txt  day|HH:MM|start                   the reminder in progress (start: minutes)
 ;;; Days are counted from 1970-01-01 (time-local), minutes from that day too.
 ;;; =========================================================================
@@ -345,11 +346,14 @@
          (n (length all)))
     (med-write LOG-PATH (if (> n LOG-KEEP) (list-tail all (- n LOG-KEEP)) all))))
 
-;; The medicines logged for day and time (taken, timed out or skipped)
-(define (log-meds day time)
+;; ((med . how) ...) logged for day and time (taken, missed or skipped)
+(define (log-hows day time)
   (let ((prefix (string-append (number->string day) "|" time "|")))
-    (map (lambda (l) (med-int (list-ref (str-split l #\|) 2) -1))
+    (map (lambda (l) (let ((f (str-split l #\|))) (cons (med-int (list-ref f 2) -1) (list-ref f 3))))
          (filter (lambda (l) (str-starts? l prefix)) (med-read LOG-PATH)))))
+
+;; The medicines logged for day and time
+(define (log-meds day time) (map car (log-hows day time)))
 
 ;; 6. The reminder -----------------------------------------------------------------------
 
@@ -396,11 +400,11 @@
         (med-finish!)                                  ; nothing to take now
         (begin (pending-save!) (med-led #t) (app-invalidate-all)))))
 
-;; Takes one dose (med . amount): logged, the amount off a count plan
+;; One dose (med . amount) logged as how; a confirmed one ("ok") off a count plan
 (define (med-take! x how)
   (let ((m (med-find (med-id (car x)))))
     (log-add! med-due-day med-due-at (med-id (car x)) how (cdr x))
-    (if (and m (string=? (med-plan m) "count") (not (string=? how "skip")))
+    (if (and m (string=? (med-plan m) "count") (string=? how "ok"))
         (begin (vector-set! m 6 (max 0 (- (med-units m) (cdr x))))
                (med-save!)))))
 
@@ -425,16 +429,16 @@
         (if (null? med-due) (begin (set! med-done-left MED-DONE-SECONDS) (med-led #f) (pending-clear!)))
         (app-invalidate-all))))
 
-;; Every medicine left, logged as how ("auto": the time limit, "skip": ended on the web page)
+;; Every medicine left, logged as how ("miss": the time limit, "skip": ended on the web page)
 (define (med-close-all! how)
   (for-each (lambda (x) (med-take! x how)) med-due)
   (med-finish!))
 
-;; Past the time limit: the rest count as taken
+;; Past the time limit: back to the app before, the rest logged as missed (not taken)
 (define (med-check-limit!)
   (let ((now (med-now-minutes)))
     (if (and (> med-max-minutes 0) now (pair? med-due) (>= (- now med-due-start) med-max-minutes))
-        (med-close-all! "auto"))))
+        (med-close-all! "miss"))))
 
 (define (med-shown) (filter (lambda (m) (med-active? m (med-today))) med-list))
 
@@ -575,8 +579,8 @@
          (light (gui-rgb 235 235 228)) (shade (gui-rgb 120 120 120)))
     (cond
       ((string=? shape "capsule")              ; two halves along the rising diagonal
-       (let* ((r (max 2 (quotient s 6)))
-              (e (quotient (* (- s (* 2 r)) 4) 10))
+       (let* ((r (max 2 (quotient s 5)))
+              (e (quotient (- s (* 2 r)) 2))
               (steps (max 2 e))
               (other color2))
          (if half
@@ -588,20 +592,20 @@
                      (gui-circle px py r (if (<= i steps) color other) #t)
                      (loop (+ i 2))))))))
       ((string=? shape "tablet")               ; a round tablet with its score line
-       (let ((r (quotient (* s 3) 10)) (d (quotient (* s 2) 10)))
+       (let ((r (quotient (* s 45) 100)) (d (quotient (* s 3) 10)))
          (if half
              (med-half-disk cx cy r color)
              (begin (gui-circle cx cy r color #t)
                     (gui-line (- cx d) (+ cy d) (+ cx d) (- cy d) shade)))))
       ((string=? shape "ball")                 ; a ball with a highlight
-       (let ((r (quotient (* s 3) 10)))
+       (let ((r (quotient (* s 45) 100)))
          (if half (med-half-disk cx cy r color) (gui-circle cx cy r color #t))
          (gui-circle (- cx (quotient r 3)) (- cy (quotient r 3)) (max 1 (quotient r 4)) light #t)))
       ((string=? shape "oval")                 ; an oval tablet along the diagonal
-       (med-oval cx cy (quotient (* s 45) 100) (quotient (* s 2) 10) color half))
+       (med-oval cx cy (quotient (* s 6) 10) (quotient (* s 2) 10) color half))
       ((string=? shape "sachet")               ; a sachet, crimped at both ends
-       (let* ((w (quotient (* s 55) 100)) (h (quotient (* s 8) 10)) (h (if half (quotient h 2) h))
-              (x0 (- cx (quotient w 2))) (y0 (- (+ cy (quotient (* s 4) 10)) h)) (c (max 2 (quotient h 8))))
+       (let* ((w (quotient (* s 6) 10)) (h (quotient (* s 95) 100)) (h (if half (quotient h 2) h))
+              (x0 (- cx (quotient w 2))) (y0 (- (+ cy (quotient (* s 47) 100)) h)) (c (max 2 (quotient h 8))))
          (gui-rect x0 y0 w h color #t)
          (gui-rect x0 y0 w c shade #t)
          (gui-rect x0 (- (+ y0 h) c) w c shade #t)))
@@ -617,12 +621,15 @@
          (n (+ whole (if half 1 0)))
          (avail (- (scr-w) 16 tw 12))
          (want (* 16 k))                                   ; a box as tall as the text
-         (span (lambda (sz) (+ sz (quotient (* (- n 1) sz 62) 100))))
+         (pct (cond ((member shape '("tablet" "ball")) 100)   ; round: side by side
+                    ((string=? shape "sachet") 75)
+                    (else 62)))                             ; tilted: the boxes overlap
+         (span (lambda (sz) (+ sz (quotient (* (- n 1) sz pct) 100))))
          (s (if (and (not (string=? shape "none")) (> n 0) (<= a (* 10 MED-PILL-MAX)))
-                (if (<= (span want) avail) want (quotient (* avail 100) (+ 100 (* (- n 1) 62))))
+                (if (<= (span want) avail) want (quotient (* avail 100) (+ 100 (* (- n 1) pct))))
                 0))
          (pills (>= s 12))
-         (step (quotient (* s 62) 100))
+         (step (quotient (* s pct) 100))
          (total (if pills (+ tw 12 (span s)) tw))
          (x0 (quotient (- (scr-w) total) 2)))
     (med-bold-at x0 y text color k)
@@ -850,12 +857,14 @@
           (cons 'photo (if (med-photo-info m) #t #f)))))
 
 (define (slot->alist s d)
-  (let ((done (if d (log-meds d (slot-time s)) '())))
+  (let ((hows (if d (log-hows d (slot-time s)) '())))
     (list (cons 'id (slot-id s)) (cons 'time (slot-time s))
           (cons 'entries (map (lambda (e)
                                 (list (cons 'med (ent-med e)) (cons 'alt (ent-alt? e)) (cons 'ref (ent-ref e))
                                       (cons 'amount (ent-amount e))
-                                      (cons 'today (ent-day? e d)) (cons 'done (if (memv (ent-med e) done) #t #f))))
+                                      (cons 'today (ent-day? e d))
+                                      (cons 'done (if (assv (ent-med e) hows) #t #f))
+                                      (cons 'how (let ((h (assv (ent-med e) hows))) (if h (cdr h) "")))))
                               (slot-entries s))))))
 
 (define (med-answer . extra)
