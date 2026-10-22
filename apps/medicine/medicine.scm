@@ -471,6 +471,49 @@
 (define (med-fit-scale s text)
   (if (or (<= s 1) (<= (+ 1 (* s (txt-w text))) (- (scr-w) 16))) (max s 1) (med-fit-scale (- s 1) text)))
 
+;; Bold text at x, y, k times the font's size: drawn twice, 1 px apart
+(define (med-bold-at x y text color k)
+  (if (> k 1)
+      (begin (gui-text-scaled x y text color k F-TEXT)
+             (gui-text-scaled (+ x 1) y text color k F-TEXT))
+      (begin (txt x y text color) (txt (+ x 1) y text color))))
+
+;; The amount, then that many pills (a half one for .5) for pill-like units,
+;; at most 5; the line centered at y, k times the font's size
+(define MED-PILL-UNITS '("粒" "片" "颗" "丸"))
+(define MED-PILL-MAX 5)
+
+(define (med-pill x y w h half)
+  (let ((r (quotient h 2)) (mid (quotient w 2)))
+    (gui-round-rect x y w h r theme-accent #t)
+    (if half
+        (gui-rect (+ x mid) y (- w mid) h theme-bg #t)                 ; cut in the middle
+        (begin (gui-rect (+ x mid) y (- w mid r) h theme-text-main #t)  ; the other color's half
+               (gui-round-rect (+ x (- w (* 2 r))) y (* 2 r) h r theme-text-main #t)))))
+
+(define (med-amount-line y a unit color k)
+  (let* ((text (string-append (amt-text a) " " unit))
+         (k (med-fit-scale k text))
+         (tw (+ 1 (* k (txt-w text))))
+         (whole (quotient a 10))
+         (half (>= (remainder a 10) 5))
+         (n (+ whole (if half 1 0)))
+         (gap 6)
+         (avail (- (scr-w) 16 tw 12))
+         (pw (if (and (member unit MED-PILL-UNITS) (> n 0) (<= a (* 10 MED-PILL-MAX)))
+                 (min (* 18 k) (- (quotient avail n) gap))
+                 0))
+         (pills (>= pw 12))
+         (ph (quotient pw 2))
+         (total (if pills (+ tw 12 (* n (+ pw gap)) (- gap)) tw))
+         (x0 (quotient (- (scr-w) total) 2)))
+    (med-bold-at x0 y text color k)
+    (if pills
+        (let loop ((i 0) (x (+ x0 tw 12)))
+          (if (< i n)
+              (begin (med-pill x (+ y (quotient (- (* 16 k) ph) 2)) pw ph (and half (= i (- n 1))))
+                     (loop (+ i 1) (+ x pw gap))))))))
+
 ;; Bold text centered at y, k times the font's size: drawn twice, 1 px apart
 (define (med-bold y text color k)
   (let ((x (quotient (- (scr-w) (* k (txt-w text)) 1) 2)))
@@ -491,7 +534,6 @@
   (txt-fit 8 8 (- (scr-w) 24 (txt-w right)) title fg)
   (txt-right (- (scr-w) 8) 8 right right-fg))
 
-(define MED-PINK (gui-rgb 244 160 160))  ; the confirm bar: light red
 
 ;; "【已服1/共4种  服药时间08:00】"
 (define (med-reminder-title)
@@ -566,7 +608,7 @@
                (amount-y (+ name-y (* 16 kn) 8)))
           (med-render-photo m (car place))
           (med-bold name-y (med-name m) theme-text-main kn)
-          (if nd (med-bold amount-y amount theme-accent ka))
+          (if nd (med-amount-line amount-y (caddr nd) (med-unit m) theme-accent ka))
           (med-info-line m (- (gui-height) FTR-H))))
     (let ((next (med-next-time)))
       (med-footer (cond ((null? slot-list) "未设置服药时间") (next (string-append "下次提醒 " next)) (else ""))
@@ -579,7 +621,10 @@
          (amount (string-append (amt-text (cdr x)) " " (med-unit m)))
          (kn (med-fit-scale (med-size m "name_size") (med-name m)))
          (kq (med-fit-scale (med-size m "amount_size") amount))
-         (bar-y (- (gui-height) 44))
+         (confirm "服药后按背部按钮确认")
+         (kb (let fit ((k kq)) (if (or (<= k 1) (<= (* k (txt-w confirm)) (scr-w))) (max k 1) (fit (- k 1)))))   ; as the amount, the width at most
+         (bar-h (+ (* 16 kb) 12))
+         (bar-y (- (gui-height) bar-h))
          (place (med-layout m (+ (* 16 kn) 10 (* 16 kq)) (- bar-y MED-INFO-H)))
          (name-y (cdr place))
          (amount-y (+ name-y (* 16 kn) 10)))
@@ -589,10 +634,10 @@
                        (if med-blink theme-bg theme-text-main))   ; white, dark on the yellow (white would not show)
     (med-render-photo m (car place))
     (med-bold name-y (med-name m) theme-text-main kn)
-    (med-bold amount-y amount theme-accent kq)
+    (med-amount-line amount-y (cdr x) (med-unit m) theme-accent kq)
     (med-info-line m bar-y)
-    (gui-rect 0 bar-y (scr-w) 44 MED-PINK #t)
-    (txt-center cx (+ bar-y 14) "服药后按背部按钮确认" theme-bg)))
+    (gui-rect 0 bar-y (scr-w) bar-h theme-accent-dark #t)
+    (med-bold-at (max 0 (quotient (- (scr-w) (* kb (txt-w confirm))) 2)) (+ bar-y 6) confirm theme-text-main kb)))
 
 (define (med-render-done)
   (let ((cx (quotient (scr-w) 2)))
