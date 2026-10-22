@@ -1553,11 +1553,11 @@
   (let ((st (med-status m d)))
     (cond ((eq? st 'later) "尚未开始")
           ((eq? st 'done) (if (string=? (med-plan m) "count") "已用完" "疗程已结束"))
-          ((string=? (med-plan m) "days")
-           (string-append "剩余 " (number->string (- (+ (med-start m) (med-n m)) (or d (med-start m))))
-                          "/" (number->string (med-n m)) " 天"))
-          ((string=? (med-plan m) "count")
-           (string-append "剩余 " (amt-text (med-units m)) "/" (amt-text (med-n m)) " " (med-unit m)))
+          ((string=? (med-plan m) "days")              ; 疗程: day k of N
+           (string-append "疗程: " (number->string (clamp (+ 1 (- (or d (med-start m)) (med-start m))) 1 (med-n m)))
+                          "/" (number->string (med-n m)) "天"))
+          ((string=? (med-plan m) "count")             ; 疗程: taken / bought
+           (string-append "疗程: " (amt-text (- (med-n m) (med-units m))) "/" (amt-text (med-n m)) " " (med-unit m)))
           (else "长期"))))
 
 ;; 3. Time points ------------------------------------------------------------------------
@@ -1846,9 +1846,19 @@
           (else (txt-fit 8 y (- (scr-w) 16) text color)))))
 
 (define (med-header title right bg fg)
+  (med-header-colors title right bg fg fg))
+
+;; The title on the left, the clock right-aligned (as every app's header)
+(define (med-header-colors title right bg fg right-fg)
   (gui-rect 0 0 (scr-w) HDR-H bg #t)
   (txt-fit 8 8 (- (scr-w) 24 (txt-w right)) title fg)
-  (txt-right (- (scr-w) 8) 8 right fg))
+  (txt-right (- (scr-w) 8) 8 right right-fg))
+
+(define MED-PINK (gui-rgb 244 160 160))  ; the confirm bar: light red
+
+;; "【已服1/共4种】   服药时间 08:00"
+(define (med-reminder-title)
+  (string-append "【已服" (number->string med-due-done) "/共" (number->string med-due-total) "种】   服药时间 " med-due-at))
 
 ;; 1..99 in Chinese numerals: 一, 十二, 二十
 (define (cn-num n)
@@ -1890,8 +1900,8 @@
 
 (define (next-text nd)
   (if nd
-      (string-append (cond ((= (car nd) 1) "明天 ") ((= (car nd) 2) "后天 ") (else "下次 ")) (cadr nd))
-      "未安排服药时间"))
+      (string-append "下次: " (cond ((= (car nd) 1) "明天 ") ((= (car nd) 2) "后天 ") (else "")) (cadr nd))
+      "下次: 未安排"))
 
 (define (med-render-empty)
   (let ((cx (quotient (scr-w) 2)))
@@ -1936,20 +1946,20 @@
          (place (med-layout m (+ (* 16 kn) 10 (* 16 kq)) (- bar-y MED-INFO-H)))
          (name-y (cdr place))
          (amount-y (+ name-y (* 16 kn) 10)))
-    (med-header (string-append "共" (cn-count med-due-total) "个药  第" (cn-num (+ med-due-done 1)) "个")
-                med-due-at
-                (if med-blink theme-warning theme-card-hdr)
-                (if med-blink theme-bg theme-warning))
+    (med-header-colors (med-reminder-title) app-time
+                       (if med-blink theme-warning theme-card-hdr)
+                       (if med-blink theme-bg theme-warning)
+                       (if med-blink theme-bg theme-text-main))   ; white, dark on the yellow (white would not show)
     (med-render-photo m (car place))
     (med-bold name-y (med-name m) theme-text-main kn)
     (med-bold amount-y amount theme-accent kq)
     (med-info-line m bar-y)
-    (gui-rect 0 bar-y (scr-w) 44 theme-accent-dark #t)
-    (txt-center cx (+ bar-y 14) "服药后按按钮确认" theme-text-main)))
+    (gui-rect 0 bar-y (scr-w) 44 MED-PINK #t)
+    (txt-center cx (+ bar-y 14) "服药后按背部按钮确认" theme-bg)))
 
 (define (med-render-done)
   (let ((cx (quotient (scr-w) 2)))
-    (med-header (string-append "共" (cn-count med-due-total) "个药") med-due-at theme-card-hdr theme-text-main)
+    (med-header (med-reminder-title) app-time theme-card-hdr theme-text-main)
     (med-bold 200 "已全部服用" theme-success 2)
     (txt-center cx 256 "即将回到原来的应用" theme-text-muted)))
 

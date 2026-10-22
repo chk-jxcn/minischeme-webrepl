@@ -58,12 +58,12 @@ CHECKS = [
     ("a long-term medicine", '(begin (app-web "save" "name=A%7Cb&unit=片&plan=long") '
                              '(let ((m (med-find 1))) (and (string=? (med-name m) "A b") (string=? (med-plan-text m (med-today)) "长期"))))'),
     ("a 3-day course", '(begin (app-web "save" "name=B&unit=粒&plan=days&n=3") '
-                       '(string=? (med-plan-text (med-find 2) (med-today)) "剩余 3/3 天"))'),
+                       '(string=? (med-plan-text (med-find 2) (med-today)) "疗程: 1/3天"))'),
     ("a course that has not started", '(begin (app-web "save" (string-append "name=L&plan=days&n=3&start=" '
                                       '(number->string (+ (med-today) 5)))) (eq? (med-status (med-find 3) (med-today)) (quote later)))'),
     ("a course that is over", '(eq? (med-status (med-find 2) (+ (med-today) 3)) (quote done))'),
     ("a quantity in tenths", '(begin (app-web "save" "name=C&unit=片&plan=count&n=100") '
-                             '(string=? (med-plan-text (med-find 4) (med-today)) "剩余 10/10 片"))'),
+                             '(string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0/10 片"))'),
     ("time points: a malformed one is refused", '(str-contains? (app-web "slots" "slots=8:5=1.0.0.10") "\\"success\\":false")'),
     ("time points: a repeated one is refused",
      '(str-contains? (app-web "slots" "slots=08:00=1.0.0.10|8:00=2.0.0.10") "\\"success\\":false")'),
@@ -81,7 +81,7 @@ CHECKS = [
      '(equal? (map (lambda (x) (cons (med-name (car x)) (cdr x))) med-due) (list (cons "A b" 10) (cons "B" 20) (cons "C" 5)))))'),
     ("a confirmed dose is logged and its amount taken off",
      '(begin (med-confirm!) (med-confirm!) (med-confirm!) '
-     '(and (= (length (med-read "log.txt")) 3) (string=? (med-plan-text (med-find 4) (med-today)) "剩余 9.5/10 片") '
+     '(and (= (length (med-read "log.txt")) 3) (string=? (med-plan-text (med-find 4) (med-today)) "疗程: 0.5/10 片") '
      '(not (fs-exists? "pending.txt"))))'),
     ("a confirmed time point is not reminded again", '(begin (med-finish!) (app-web "remind" "time=08:00") (not (med-reminding?)))'),
     ("the next dose: a time point and its amount",

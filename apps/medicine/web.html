@@ -43,7 +43,7 @@
 
 <section id="banner" class="banner" style="display:none">
 <h2>正在提醒 <span id="bannerAt" class="tag warn"></span></h2>
-<div class="desc">设备上正在显示吃药提醒：按设备按键逐个确认。也可以在这里结束本次提醒（未确认的药记为“未服”）。</div>
+<div class="desc">设备上正在显示吃药提醒：按设备背部按钮逐个确认。也可以在这里结束本次提醒（未确认的药记为“未服”）。</div>
 <div class="actions"><button class="plain" onclick="stopRemind()">结束本次提醒</button></div>
 </section>
 
@@ -65,8 +65,8 @@
 <h2 id="formTitle">添加药品</h2>
 <div class="row">
 <div><label for="f_name">名称</label><input id="f_name" maxlength="20" placeholder="如 阿莫西林胶囊"></div>
-<div><label for="f_unit">单位</label><input id="f_unit" maxlength="6" list="units" placeholder="粒">
-<datalist id="units"><option value="粒"><option value="片"><option value="袋"><option value="包"><option value="支"><option value="毫升"><option value="滴"><option value="喷"></datalist></div>
+<div><label for="f_unit">单位（粒、片、颗、包…）</label><input id="f_unit" maxlength="6" list="units" placeholder="粒">
+<datalist id="units"><option value="粒"><option value="片"><option value="颗"><option value="袋"><option value="包"><option value="支"><option value="毫升"><option value="滴"><option value="喷"></datalist></div>
 </div>
 <label for="f_photo">照片（拍药盒或药片，可不选）</label>
 <input type="file" id="f_photo" accept="image/*" onchange="previewPhoto()">
@@ -101,7 +101,7 @@
 <div class="pane" id="p-slots">
 <section>
 <h2>服药时间点 <button class="small" onclick="addSlot()">添加时间点</button></h2>
-<div class="desc">到了这些时间，设备会从任何应用切换到吃药提醒，按键逐个确认后回到原来的应用；断电重启后继续提醒，直到全部确认。每个时间点勾选要服的药并填服用量（可以是 0.5），也可以设成隔日服用。最多 6 个时间点。</div>
+<div class="desc">到了这些时间，设备会从任何应用切换到吃药提醒，按设备背部按钮逐个确认后回到原来的应用；断电重启后继续提醒，直到全部确认。每个时间点勾选要服的药并填服用量（可以是 0.5），也可以设成隔日服用。最多 6 个时间点。</div>
 <div id="slotList"></div>
 <div class="actions"><button onclick="saveSlots()">保存服药时间</button><button class="plain" onclick="load()">放弃修改</button></div>
 </section>
