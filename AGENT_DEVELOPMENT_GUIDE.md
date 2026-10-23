@@ -25,6 +25,10 @@ Code that exists in more than one repository (update every copy and release each
 | Proxy | `minischeme-proxy/{server.py,proxy/}` and `minischeme-webrepl/{server.py,proxy/}` (identical files) |
 | App images | `minischeme-apps/dist`, `minischeme-esp32/main/app_*_msbc.h`, `minischeme-webrepl/apps` (`python tools/build_apps.py --sync`) |
 
+Writing or fixing an app: follow [APP_DEVELOPMENT_GUIDE.md](https://github.com/chk-jxcn/minischeme-apps/blob/main/docs/APP_DEVELOPMENT_GUIDE.md)
+in minischeme-apps (language subset, layout, servers, simulator and board testing, memory
+analysis, pull requests) and start from its template, `docs/app-template/hello`.
+
 ---
 
 ## 2. Core VM and memory
