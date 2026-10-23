@@ -1619,7 +1619,14 @@ class AppWebPanel {
         html += section('存储', [
             ['文件系统', `${kb(s.used)} / ${kb(s.total)}${pct(s.used, s.total)}`],
             ['文件', `${s.files} 个，其中应用目录 ${s.apps} 个`],
-            ['应用 ROM 分区', `${kb(r.partition)}，当前程序的代码镜像 ${r.image ? kb(r.image) : '未使用'}`],
+            ['应用 ROM 分区', `${kb(r.partition)}` + ((r.slots || []).length > 1 ? `，${r.slots.length} 个槽，每个 ${kb(r.slot_size)}` : '') +
+                `，当前程序的代码镜像 ${r.image ? kb(r.image) : '未使用'}`],
+            ...((r.slots || []).map((x) => {
+                let what = x.app ? `${esc(x.name || x.app)}，${kb(x.bytes)}` : '空';
+                if (x.app && x.checked && !x.valid) what += '（镜像已失效，下次运行时重新生成）';
+                if (x.running) what += '（当前运行）';
+                return [`程序 ROM 槽 ${x.slot}`, what];
+            })),
         ]);
         const fonts = (fr.fonts || []).map(x => `${esc(x.name)} (${kb(x.bytes)})`).join('，') || '无';
         const slots = (fr.slots || []).filter(x => x.source !== 'built-in' || x.slot < 2)
