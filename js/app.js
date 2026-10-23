@@ -1355,6 +1355,7 @@ const FEED_RETRY_MS = 5000; // as JF_RETRY_MS: a failed fetch is retried soon
 async function pcmonPump() {
     const ex = wasmInstance && wasmInstance.exports;
     if (!ex || !ex.wasm_feed_url || !ex.wasm_feed_data) return;
+    downloadPump(ex);   // an app's (fs-download url path), beside the feed
     const url = readStringFromWasm(ex.wasm_feed_url());
     const interval = ex.wasm_feed_interval ? ex.wasm_feed_interval() : 1000;
     // a new json-feed-start (page switch, refresh) fetches at once, as on the board
@@ -1453,6 +1454,57 @@ async function feedFetch(ex, url) {
         }
     }
     return !!bytes;
+}
+
+/* (fs-download url path) of the WASM device: the queued URL fetched like the
+ * feed (through server.py's /api/fetch, else directly) and the body handed
+ * back to the VM, which writes it into the app's folder */
+let downloadBusy = false;
+
+async function downloadPump(ex) {
+    if (downloadBusy || !ex.wasm_download_take || !ex.wasm_download_data) return;
+    const url = readStringFromWasm(ex.wasm_download_take());
+    if (!url) return;
+    downloadBusy = true;
+    let bytes = null, status = 0;
+    try {
+        if (!window.isSimWifiOnline || window.isSimWifiOnline()) {
+            const base = localServerBase();
+            let target = String(url).trim();
+            if (/^https?:\/\/(proxy|converter)\.local(:\d+)?\//i.test(target)) {
+                target = target.replace(/^https?:\/\/(proxy|converter)\.local(:\d+)?/i, base || 'http://127.0.0.1:8087');
+            }
+            let res = null;
+            if (base) {
+                try {
+                    res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(target),
+                                      { cache: 'no-store', headers: simDeviceHeaders() });
+                } catch (e) { /* tried directly below */ }
+            }
+            if (!res || !res.ok) {
+                try { res = await fetch(target, { cache: 'no-store' }); } catch (e) { /* unreachable */ }
+            }
+            if (res) {
+                status = res.status;
+                if (res.ok) bytes = new Uint8Array(await res.arrayBuffer());
+            }
+        }
+    } catch (e) {
+        status = 0;
+    } finally {
+        const ex2 = wasmInstance && wasmInstance.exports;
+        if (ex2 && ex2.wasm_download_data) {
+            if (bytes) {
+                const ptr = ex2.wasm_alloc_buffer(bytes.length || 1);
+                new Uint8Array(wasmMemory.buffer, ptr, bytes.length).set(bytes);
+                ex2.wasm_download_data(ptr, bytes.length, 200);
+                ex2.wasm_free_buffer(ptr);
+            } else {
+                ex2.wasm_download_data(0, 0, status && status !== 200 ? status : 0);
+            }
+        }
+        downloadBusy = false;
+    }
 }
 
 function stopPcMonitor() {

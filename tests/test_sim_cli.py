@@ -74,6 +74,27 @@ class TestSimCli(unittest.TestCase):
         self.assertIn('(2 ("A" "B"))', lines)
         self.assertEqual(lines[-1], '("calendar" #f)')
 
+    def test_fs_download(self):
+        # (fs-download url path): the page fetches through server.py and the
+        # VM writes the file; one at a time; a missing file is an error outcome
+        size = os.path.getsize(os.path.join(ROOT, "apps", "index.json"))
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh", "--wait", "3",
+                            "--eval", '(fs-download "http://proxy.local/apps/index.json" "/spiffs/dl.json")',
+                            "--eval", '(fs-download "http://proxy.local/apps/index.json" "/spiffs/dl2.json")',
+                            "--wait", "3",
+                            "--eval", "(let ((s (fs-download-status))) (list (cdr (assq 'state s)) (cdr (assq 'bytes s))))",
+                            "--eval", '(string-length (fs-read "/spiffs/dl.json"))',
+                            "--eval", '(fs-download "http://proxy.local/no/such/file" "/spiffs/x.bin")',
+                            "--wait", "3",
+                            "--eval", "(cdr (assq 'state (fs-download-status)))"],
+                           capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[:2], ["#t", "#f"])
+        self.assertEqual(lines[2], f"(done {size})")
+        self.assertEqual(lines[3], str(size))
+        self.assertEqual(lines[4:6], ["#t", "error"])
+
     def test_errors_fail(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh",
                             "--eval", "(car 1)"], capture_output=True, encoding="utf-8", errors="replace",

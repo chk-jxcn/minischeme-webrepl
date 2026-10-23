@@ -2835,6 +2835,33 @@ uint32_t wasm_feed_generation(void) {
     return mini_json_feed_generation();
 }
 
+/* (fs-download url path) for the WASM device: the page takes the queued URL
+ * ("" when none), fetches it through server.py as it does the feed, and hands
+ * the body back; status is the HTTP status, 0 when the URL is unreachable */
+__attribute__((visibility("default")))
+const char *wasm_download_take(void) {
+    const char *url = mini_download_take();
+    return url ? url : "";
+}
+
+__attribute__((visibility("default")))
+void wasm_download_data(const uint8_t *buf, uint32_t len, int status) {
+    char err[64];
+    if (status != 200) {
+        if (status > 0) snprintf(err, sizeof(err), "HTTP status %d", status);
+        else snprintf(err, sizeof(err), "cannot connect");
+        mini_download_done(false, 0, err);
+        return;
+    }
+    if (len > mini_download_max()) {
+        snprintf(err, sizeof(err), "larger than %u KB", (unsigned)(mini_download_max() / 1024));
+        mini_download_done(false, 0, err);
+        return;
+    }
+    const char *why = mock_fs_put(mini_download_path(), buf, len);
+    mini_download_done(why == NULL, why ? 0 : len, why);
+}
+
 /* ========================================================================= */
 /* Virtual LCD, Framebuffer & Telemetry Exports                              */
 /* ========================================================================= */
