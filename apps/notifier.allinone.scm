@@ -8,8 +8,8 @@
 ;;; id = notifier
 ;;; name = 消息提示
 ;;; description = 显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送
-;;; version = 7
-;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
+;;; version = 8
+;;; api = 1.9 ; the device API it needs: MSBC 2 images (a symbol table) since 1.9
 ;;; 
 ;;; [fields]
 ;;; ; how the settings page shows each [config] key: type | label | help

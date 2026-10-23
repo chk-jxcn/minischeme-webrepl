@@ -8,8 +8,8 @@
 ;;; id = memo
 ;;; name = 备忘录
 ;;; description = 待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理
-;;; version = 5
-;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
+;;; version = 6
+;;; api = 1.9 ; the device API it needs: MSBC 2 images (a symbol table) since 1.9
 ;;; 
 ;;; [fields]
 ;;; ; how the settings page shows each [config] key: type | label | help

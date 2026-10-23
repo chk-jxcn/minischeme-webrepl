@@ -8,8 +8,8 @@
 ;;; id = stocks
 ;;; name = 股票行情
 ;;; description = 大盘指数与分时走势、自选股报价、三大指数分时、自选股30日走势
-;;; version = 2
-;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
+;;; version = 3
+;;; api = 1.9 ; the device API it needs: MSBC 2 images (a symbol table) since 1.9
 ;;; 
 ;;; [fields]
 ;;; ; how the settings page shows each [config] key: type | label | help

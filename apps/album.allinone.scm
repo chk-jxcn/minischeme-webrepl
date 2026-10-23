@@ -8,8 +8,8 @@
 ;;; id = album
 ;;; name = 电子相册
 ;;; description = 全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理
-;;; version = 5
-;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
+;;; version = 6
+;;; api = 1.9 ; the device API it needs: MSBC 2 images (a symbol table) since 1.9
 ;;; storage_kb = 768 ; the photos' room in the app's folder (instead of app_storage_kb)
 ;;; 
 ;;; [fields]
