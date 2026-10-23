@@ -456,6 +456,7 @@
 ;; 1 Hz clock: header time, info pages, footer state (the firmware sets the
 ;; backlight from the light sensor: (backlight-auto))
 (define (app-tick hm sec week date lux bl . rest)
+  (if (theme-tick! (if (pair? rest) (car rest) 0)) (gui-invalidate 0 0 (scr-w) (gui-height)))   ; day / night
   (if (not (equal? hm pcmon-time))
       (begin
         (set! pcmon-time hm)

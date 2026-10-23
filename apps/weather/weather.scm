@@ -59,6 +59,10 @@
 (define (fr r k) (quotient (* r k) 10))  ; k tenths of r
 
 (define sun-rays '((10 0) (7 7) (0 10) (-7 7) (-10 0) (-7 -7) (0 -10) (7 -7)))
+;; The icons' own colors (a theme.css may set them): the day scheme's
+;; warning color is a dark amber for text, too dull for a sun
+(theme-defaults! "night" '(("sun_icon_fg" . "warning_fg") ("thunder_icon_fg" . "warning_fg") ("snow_icon_fg" . "#ffffff")))
+(theme-defaults! "day" '(("sun_icon_fg" . "#f29a12") ("thunder_icon_fg" . "#e08a00") ("snow_icon_fg" . "#6f9fc4")))
 
 ;; A sun with eight rays. Big: eight short lines (nine display-list
 ;; commands, the home page's one icon). Small (the 3-day and 7-day pages):
@@ -68,22 +72,22 @@
 (define (icon-sun cx cy r . rays?)
   (cond
     ((>= r 24)
-     (gui-circle cx cy (fr r 6) theme-warning #t)
+     (gui-circle cx cy (fr r 6) (theme-color "sun_icon_fg") #t)
      (for-each (lambda (d)
                  (gui-line (+ cx (fr (fr r 8) (car d))) (+ cy (fr (fr r 8) (cadr d)))
-                           (+ cx (fr (fr r 10) (car d))) (+ cy (fr (fr r 10) (cadr d))) theme-warning))
+                           (+ cx (fr (fr r 10) (car d))) (+ cy (fr (fr r 10) (cadr d))) (theme-color "sun_icon_fg")))
                sun-rays))
     ((and (pair? rays?) (not (car rays?)))
-     (gui-circle cx cy (fr r 6) theme-warning #t)
-     (gui-circle cx cy (fr r 9) theme-warning #f))
+     (gui-circle cx cy (fr r 6) (theme-color "sun_icon_fg") #t)
+     (gui-circle cx cy (fr r 9) (theme-color "sun_icon_fg") #f))
     (else
      (let ((o (fr r 10)) (d (fr r 7)))
-       (gui-line (- cx o) cy (+ cx o) cy theme-warning)
-       (gui-line cx (- cy o) cx (+ cy o) theme-warning)
-       (gui-line (- cx d) (- cy d) (+ cx d) (+ cy d) theme-warning)
-       (gui-line (- cx d) (+ cy d) (+ cx d) (- cy d) theme-warning)
+       (gui-line (- cx o) cy (+ cx o) cy (theme-color "sun_icon_fg"))
+       (gui-line cx (- cy o) cx (+ cy o) (theme-color "sun_icon_fg"))
+       (gui-line (- cx d) (- cy d) (+ cx d) (+ cy d) (theme-color "sun_icon_fg"))
+       (gui-line (- cx d) (+ cy d) (+ cx d) (- cy d) (theme-color "sun_icon_fg"))
        (gui-circle cx cy (fr r 8) theme-bg #t)
-       (gui-circle cx cy (fr r 6) theme-warning #t)))))
+       (gui-circle cx cy (fr r 6) (theme-color "sun_icon_fg") #t)))))
 
 (define (icon-cloud cx cy r color)
   (gui-circle (- cx (fr r 5)) (+ cy (fr r 1)) (fr r 5) color #t)
@@ -103,7 +107,7 @@
   (let loop ((i 0))
     (if (< i n)
         (begin
-          (gui-circle (+ (- cx (fr r 5)) (* i (fr r 5))) (+ cy (fr r 9)) (max 1 (fr r 1)) col-white #t)
+          (gui-circle (+ (- cx (fr r 5)) (* i (fr r 5))) (+ cy (fr r 9)) (max 1 (fr r 1)) (theme-color "snow_icon_fg") #t)
           (loop (+ i 1))))))
 
 (define (weather-icon kind cx cy r)
@@ -120,9 +124,9 @@
      (icon-drops cx (- cy (fr r 3)) r theme-accent 3))
     ((equal? kind "storm")
      (icon-cloud cx (- cy (fr r 3)) r theme-card-border)
-     (gui-line (+ cx (fr r 1)) (+ cy (fr r 3)) (- cx (fr r 2)) (+ cy (fr r 7)) theme-warning)
-     (gui-line (- cx (fr r 2)) (+ cy (fr r 7)) (+ cx (fr r 2)) (+ cy (fr r 7)) theme-warning)
-     (gui-line (+ cx (fr r 2)) (+ cy (fr r 7)) (- cx (fr r 1)) (+ cy (fr r 11)) theme-warning)
+     (gui-line (+ cx (fr r 1)) (+ cy (fr r 3)) (- cx (fr r 2)) (+ cy (fr r 7)) (theme-color "thunder_icon_fg"))
+     (gui-line (- cx (fr r 2)) (+ cy (fr r 7)) (+ cx (fr r 2)) (+ cy (fr r 7)) (theme-color "thunder_icon_fg"))
+     (gui-line (+ cx (fr r 2)) (+ cy (fr r 7)) (- cx (fr r 1)) (+ cy (fr r 11)) (theme-color "thunder_icon_fg"))
      (if (>= r 20) (icon-drops (+ cx (fr r 5)) (- cy (fr r 3)) (fr r 7) theme-accent 1)))
     ((equal? kind "snow")
      (icon-cloud cx (- cy (fr r 3)) r theme-text-sub)

@@ -9,7 +9,7 @@
 ;;; name = 热点新闻
 ;;; description = 百度热搜、民生、财经、体育榜单，以及知乎或今日头条热榜，每页10条
 ;;; version = 1
-;;; api = 1.0 ; the device API it needs (docs/api): runs on firmware API 1.x, x >= 0
+;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
 ;;; 
 ;;; [fields]
 ;;; ; how the settings page shows each [config] key: type | label | help
@@ -73,6 +73,335 @@
 (define theme-divider      27667 ) ; #x6C13: Divider lines (#688098): darker ones vanish on the panel
 (define theme-seg-on       28271 ) ; #x6E6F: Flat LCD segment green (#6fcf7f)
 (define theme-seg-off      4419  ) ; #x1143: Unlit segment ghost (#142a1c)
+
+;;; -------------------------------------------------------------------------
+;;; 1b. Color schemes: color aliases, a day and a night scheme
+;;; -------------------------------------------------------------------------
+;; Colors are named by alias: titlebar_bg, text_fg, card_border, bar_fg ...
+;; The value of an alias, the first found wins:
+;;   1. a color given to the call itself (a number, "#rrggbb", rgb(r, g, b))
+;;   2. the app's theme.css (in its folder), the block of the scheme in use
+;;   3. the system's /spiffs/theme.css (theme-css, API 1.8), the same block
+;;   4. the app's own defaults (theme-defaults!)
+;;   5. the built-in day or night scheme (THEME-DAY, THEME-NIGHT)
+;; When none of them names the alias, the same steps for its category, the
+;; part after the last "_" (titlebar_bg -> bg, text_sub_fg -> fg,
+;; card_border -> border). A value is #rgb, #rrggbb, rgb(r, g, b) or
+;; another alias, so names of your own work too:
+;;   day   { my_orange: #f08c32; warning_fg: my_orange; }
+;;   night { titlebar_bg: #152030; }
+;;   *     { seg_on_fg: #6fcf7f; }        (every scheme)
+;;   sakura { bg: #fff4f6; }              (a scheme of your own)
+;; The mode (config.ini [theme], an app's own config.ini may override):
+;;   theme        auto (default), day or night
+;;   theme_switch light (default: light-lux at or over theme_light_day is
+;;                day, at or under theme_light_night night), time
+;;                (theme_day_start .. theme_night_start) or sun (sunrise to
+;;                sunset at theme_lat / theme_lon; the time when unknown)
+;;   theme_day / theme_night  the scheme each mode uses: day / night, or a
+;;                block of theme.css of your own
+;; The theme-* colors above are set from the aliases at the start and again
+;; whenever the mode or a theme.css changes (theme-tick!, from the app loop).
+
+(define THEME-NIGHT
+  '(("bg" . "#0b1118") ("fg" . "#e6ecf3") ("border" . "#5b7090")
+    ("card_bg" . "bg") ("card_border" . "#5b7090") ("titlebar_bg" . "#152030")
+    ("text_fg" . "#e6ecf3") ("text_sub_fg" . "#bac7d6") ("text_muted_fg" . "#a2b2c6")
+    ("accent_fg" . "#62d0f0") ("accent_bg" . "#173f52")
+    ("success_fg" . "#72d696") ("warning_fg" . "#f0bc55") ("danger_fg" . "#ee7c7c") ("purple_fg" . "#c0a2f2")
+    ("inactive_fg" . "#34414f") ("divider_border" . "#688098")
+    ("seg_on_fg" . "#6fcf7f") ("seg_off_fg" . "#142a1c")
+    ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
+
+(define THEME-DAY
+  '(("bg" . "#f3f5f8") ("fg" . "#17202b") ("border" . "#8d9cae")
+    ("card_bg" . "bg") ("card_border" . "#8d9cae") ("titlebar_bg" . "#d7e1ec")
+    ("text_fg" . "#17202b") ("text_sub_fg" . "#33404f") ("text_muted_fg" . "#556377")
+    ("accent_fg" . "#0a6f9c") ("accent_bg" . "#c2e0ee")
+    ("success_fg" . "#1d7f45") ("warning_fg" . "#b8700a") ("danger_fg" . "#bf3434") ("purple_fg" . "#6c49b0")
+    ("inactive_fg" . "#c4cdd8") ("divider_border" . "#a3b0bf")
+    ("seg_on_fg" . "#1f7a35") ("seg_off_fg" . "#dae6dd")
+    ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
+
+(define theme-mode "night")        ; "day" or "night"
+(define theme-scheme "night")      ; the block of theme.css in use
+(define theme-sys-text #f)         ; the files as last read, to notice a change
+(define theme-app-text #f)
+(define theme-sys-css '())         ; parsed: ((block (alias . value) ...) ...)
+(define theme-app-css '())
+(define theme-app-defaults '())    ; ((block (alias . value) ...) ...), theme-defaults!
+(define theme-cache '())           ; (alias . rgb565) of the scheme in use
+(define theme-ticks 0)
+(define theme-utc-offset #f)       ; seconds east of UTC, learnt from the app loop
+
+;; -- small text helpers (gui.scm comes before applib.scm) --
+
+(define (theme-space? c) (let ((b (char->integer c))) (or (= b 32) (= b 9) (= b 10) (= b 13))))
+
+(define (theme-trim s)
+  (let* ((n (string-length s))
+         (a (let loop ((i 0)) (if (and (< i n) (theme-space? (string-ref s i))) (loop (+ i 1)) i)))
+         (b (let loop ((j n)) (if (and (> j a) (theme-space? (string-ref s (- j 1)))) (loop (- j 1)) j))))
+    (substring s a b)))
+
+(define (theme-split s ch)
+  (let ((n (string-length s)))
+    (let loop ((i 0) (start 0) (acc '()))
+      (cond ((= i n) (reverse (cons (substring s start n) acc)))
+            ((char=? (string-ref s i) ch) (loop (+ i 1) (+ i 1) (cons (substring s start i) acc)))
+            (else (loop (+ i 1) start acc))))))
+
+(define (theme-index s ch)
+  (let ((n (string-length s)))
+    (let loop ((i 0)) (cond ((= i n) #f) ((char=? (string-ref s i) ch) i) (else (loop (+ i 1)))))))
+
+(define (theme-last-index s ch)
+  (let loop ((i (- (string-length s) 1))) (cond ((< i 0) #f) ((char=? (string-ref s i) ch) i) (else (loop (- i 1))))))
+
+;; s without /* comments */
+(define (theme-uncomment s)
+  (let ((n (string-length s)))
+    (let loop ((i 0) (acc '()) (in #f))
+      (cond ((>= i n) (list->string (reverse acc)))
+            ((and (not in) (< (+ i 1) n) (char=? (string-ref s i) #\/) (char=? (string-ref s (+ i 1)) #\*))
+             (loop (+ i 2) acc #t))
+            ((and in (< (+ i 1) n) (char=? (string-ref s i) #\*) (char=? (string-ref s (+ i 1)) #\/))
+             (loop (+ i 2) acc #f))
+            (in (loop (+ i 1) acc #t))
+            (else (loop (+ i 1) (cons (string-ref s i) acc) #f))))))
+
+;; "name, name { alias: value; ... }" blocks -> ((name (alias . value) ...) ...)
+(define (theme-parse text)
+  (if (not (string? text))
+      '()
+      (let loop ((chunks (theme-split (theme-uncomment text) #\})) (acc '()))
+        (if (null? chunks)
+            (reverse acc)
+            (let* ((c (car chunks)) (open (theme-index c #\{)))
+              (loop (cdr chunks)
+                    (if (not open)
+                        acc
+                        (let ((pairs (theme-pairs (substring c (+ open 1) (string-length c)))))
+                          (let add ((names (theme-split (substring c 0 open) #\,)) (acc acc))
+                            (if (null? names)
+                                acc
+                                (let ((nm (theme-trim (car names))))
+                                  (add (cdr names) (if (> (string-length nm) 0) (cons (cons nm pairs) acc) acc)))))))))))))
+
+(define (theme-pairs body)
+  (let loop ((parts (theme-split body #\;)) (acc '()))
+    (if (null? parts)
+        (reverse acc)
+        (let ((colon (theme-index (car parts) #\:)))
+          (loop (cdr parts)
+                (if colon
+                    (let ((k (theme-trim (substring (car parts) 0 colon)))
+                          (v (theme-trim (substring (car parts) (+ colon 1) (string-length (car parts))))))
+                      (if (and (> (string-length k) 0) (> (string-length v) 0)) (cons (cons k v) acc) acc))
+                    acc))))))
+
+;; The value of alias in the blocks named scheme (else "*"), the last one wins
+(define (theme-block-get css scheme alias)
+  (let loop ((l css) (own #f) (any #f))
+    (if (null? l)
+        (or own any)
+        (let* ((b (car l)) (hit (and (or (string=? (car b) scheme) (string=? (car b) "*")) (assoc alias (cdr b)))))
+          (cond ((not hit) (loop (cdr l) own any))
+                ((string=? (car b) scheme) (loop (cdr l) (cdr hit) any))
+                (else (loop (cdr l) own (cdr hit))))))))
+
+;; -- values --
+
+(define (theme-hex s i n) (string->number (substring s i (+ i n)) 16))
+
+;; "#rgb", "#rrggbb", "rgb(r, g, b)" -> rgb565, else #f
+(define (theme-literal v)
+  (let ((n (string-length v)))
+    (cond ((and (= n 7) (char=? (string-ref v 0) #\#))
+           (let ((r (theme-hex v 1 2)) (g (theme-hex v 3 2)) (b (theme-hex v 5 2)))
+             (and r g b (gui-rgb r g b))))
+          ((and (= n 4) (char=? (string-ref v 0) #\#))
+           (let ((r (theme-hex v 1 1)) (g (theme-hex v 2 1)) (b (theme-hex v 3 1)))
+             (and r g b (gui-rgb (* r 17) (* g 17) (* b 17)))))
+          ((and (> n 5) (string=? (substring v 0 4) "rgb(") (char=? (string-ref v (- n 1)) #\)))
+           (let ((p (map (lambda (x) (string->number (theme-trim x))) (theme-split (substring v 4 (- n 1)) #\,))))
+             (and (= (length p) 3) (integer? (car p)) (integer? (cadr p)) (integer? (caddr p))
+                  (gui-rgb (max 0 (min 255 (car p))) (max 0 (min 255 (cadr p))) (max 0 (min 255 (caddr p)))))))
+          (else #f))))
+
+;; Steps 2-5 for exactly this alias: its value as written, or #f
+(define (theme-lookup alias)
+  (or (theme-block-get theme-app-css theme-scheme alias)
+      (theme-block-get theme-sys-css theme-scheme alias)
+      (theme-block-get theme-app-defaults theme-scheme alias)
+      (theme-block-get theme-app-defaults theme-mode alias)
+      (let ((d (assoc alias (if (string=? theme-mode "day") THEME-DAY THEME-NIGHT)))) (and d (cdr d)))))
+
+(define (theme-resolve name depth)
+  (or (theme-literal name)
+      (and (< depth 8)
+           (let ((v (theme-lookup name)))
+             (or (and v (theme-resolve v (+ depth 1)))
+                 (let ((u (theme-last-index name #\_)))   ; the category: titlebar_bg -> bg
+                   (and u (theme-resolve (substring name (+ u 1) (string-length name)) (+ depth 1)))))))))
+
+;; A color for drawing: a number as it is, else an alias or a literal resolved
+;; through the scheme in use (the foreground for a name nothing resolves)
+(define (theme-color c)
+  (cond ((number? c) c)
+        ((symbol? c) (theme-color (symbol->string c)))
+        ((not (string? c)) 0)
+        (else
+         (let ((hit (assoc c theme-cache)))
+           (if hit
+               (cdr hit)
+               (let ((v (or (theme-resolve c 0) (theme-resolve "fg" 0) 65535)))
+                 (set! theme-cache (cons (cons c v) theme-cache))
+                 v))))))
+
+;; The app's own defaults: (theme-defaults! "day" '(("titlebar_bg" . "#ffe9a8")))
+;; for the day scheme ("night", a scheme of theme.css or "*" for every one)
+(define (theme-defaults! scheme alist)
+  (set! theme-app-defaults (append theme-app-defaults (list (cons scheme alist))))
+  (theme-apply!))
+
+;; -- the mode --
+
+(define (theme-setting key default)
+  (let ((v (config-get key))) (if (and (string? v) (> (string-length (theme-trim v)) 0)) (theme-trim v) default)))
+
+(define (theme-number key default)
+  (let ((n (string->number (theme-setting key "")))) (if n n default)))
+
+;; "07:30" -> minutes, else default
+(define (theme-hm key default)
+  (let ((p (theme-split (theme-setting key "") #\:)))
+    (if (= (length p) 2)
+        (let ((h (string->number (car p))) (m (string->number (cadr p))))
+          (if (and (integer? h) (integer? m)) (+ (* h 60) m) default))
+        default)))
+
+(define (theme-now-minutes)
+  (let ((t (time-local))) (and t (+ (* 60 (list-ref t 3)) (list-ref t 4)))))
+
+(define (theme-in-day? now from to)
+  (if (<= from to) (and (>= now from) (< now to)) (or (>= now from) (< now to))))
+
+(define (theme-by-time)
+  (let ((now (theme-now-minutes)))
+    (if (not now)
+        theme-mode
+        (if (theme-in-day? now (theme-hm "theme_day_start" 420) (theme-hm "theme_night_start" 1140)) "day" "night"))))
+
+(define (theme-by-light)
+  (let ((lux (light-lux))
+        (on (theme-number "theme_light_day" 120))
+        (off (theme-number "theme_light_night" 50)))
+    (cond ((>= lux on) "day")
+          ((<= lux off) "night")
+          ((= theme-ticks 0) (if (>= lux (quotient (+ on off) 2)) "day" "night"))   ; at the start: the nearer
+          (else theme-mode))))                                                  ; between: as it was
+
+;; Sunrise and sunset (minutes of the local day) at lat / lon, #f without
+;; the place or the local time's offset (NOAA's approximation, about a minute)
+(define (theme-sun-times)
+  (let ((lat (theme-number "theme_lat" #f)) (lon (theme-number "theme_lon" #f)) (t (time-local)))
+    (and lat lon t theme-utc-offset
+         (let* ((pi 3.141592653589793) (rad (/ pi 180.0))
+                (doy (theme-day-of-year (car t) (cadr t) (caddr t)))
+                (g (* (/ (* 2.0 pi) 365.0) (- doy 1)))
+                (eq (* 229.18 (+ 0.000075 (* 0.001868 (cos g)) (* -0.032077 (sin g))
+                                 (* -0.014615 (cos (* 2 g))) (* -0.040849 (sin (* 2 g))))))
+                (decl (+ 0.006918 (* -0.399912 (cos g)) (* 0.070257 (sin g)) (* -0.006758 (cos (* 2 g)))
+                         (* 0.000907 (sin (* 2 g))) (* -0.002697 (cos (* 3 g))) (* 0.00148 (sin (* 3 g)))))
+                (la (* lat rad))
+                (x (- (/ (cos (* 90.833 rad)) (* (cos la) (cos decl))) (* (/ (sin la) (cos la)) (/ (sin decl) (cos decl)))))
+                (ha (/ (acos (max -1.0 (min 1.0 x))) rad))
+                (tz (/ theme-utc-offset 60.0))
+                (rise (+ (- 720.0 (* 4.0 (+ lon ha)) eq) tz))
+                (down (+ (- 720.0 (* 4.0 (- lon ha)) eq) tz)))
+           (cons (modulo (inexact->exact (round rise)) 1440) (modulo (inexact->exact (round down)) 1440))))))
+
+(define (theme-day-of-year y m d)
+  (let loop ((i 1) (n d))
+    (if (>= i m)
+        n
+        (loop (+ i 1) (+ n (list-ref (list 31 (if (and (= (modulo y 4) 0) (or (not (= (modulo y 100) 0)) (= (modulo y 400) 0))) 29 28)
+                                            31 30 31 30 31 31 30 31 30 31)
+                                      (- i 1)))))))
+
+(define (theme-by-sun)
+  (let ((s (theme-sun-times)) (now (theme-now-minutes)))
+    (if (and s now) (if (theme-in-day? now (car s) (cdr s)) "day" "night") (theme-by-time))))
+
+(define (theme-pick-mode)
+  (let ((m (theme-setting "theme" "auto")))
+    (cond ((string=? m "day") "day")
+          ((string=? m "night") "night")
+          (else (let ((how (theme-setting "theme_switch" "light")))
+                  (cond ((string=? how "time") (theme-by-time))
+                        ((string=? how "sun") (theme-by-sun))
+                        (else (theme-by-light))))))))
+
+;; The theme-* colors from the aliases of the scheme in use
+(define (theme-apply!)
+  (set! theme-scheme (theme-setting (if (string=? theme-mode "day") "theme_day" "theme_night") theme-mode))
+  (set! theme-cache '())
+  (set! theme-bg          (theme-color "bg"))
+  (set! theme-card-bg     (theme-color "card_bg"))
+  (set! theme-card-border (theme-color "card_border"))
+  (set! theme-card-hdr    (theme-color "titlebar_bg"))
+  (set! theme-text-main   (theme-color "text_fg"))
+  (set! theme-text-sub    (theme-color "text_sub_fg"))
+  (set! theme-text-muted  (theme-color "text_muted_fg"))
+  (set! theme-accent      (theme-color "accent_fg"))
+  (set! theme-accent-dark (theme-color "accent_bg"))
+  (set! theme-success     (theme-color "success_fg"))
+  (set! theme-warning     (theme-color "warning_fg"))
+  (set! theme-danger      (theme-color "danger_fg"))
+  (set! theme-purple      (theme-color "purple_fg"))
+  (set! theme-dark-gray   (theme-color "inactive_fg"))
+  (set! theme-divider     (theme-color "divider_border"))
+  (set! theme-seg-on      (theme-color "seg_on_fg"))
+  (set! theme-seg-off     (theme-color "seg_off_fg")))
+
+;; Reads the files again; #t when one changed
+(define (theme-read!)
+  (let ((sys (if (defined? 'theme-css) (theme-css) #f))
+        (app (fs-read "theme.css")))
+    (let ((changed (not (and (equal? sys theme-sys-text) (equal? app theme-app-text)))))
+      (if changed
+          (begin (set! theme-sys-text sys)
+                 (set! theme-app-text app)
+                 (set! theme-sys-css (theme-parse sys))
+                 (set! theme-app-css (if (equal? app sys) '() (theme-parse app)))))   ; the settings read the system's
+      changed)))
+
+(define (theme-load!)
+  (theme-read!)
+  (set! theme-mode (theme-pick-mode))
+  (theme-apply!))
+
+;; From the app loop once a second (utc: the second of the UTC day, the
+;; app-tick's tick once the clock is set: with the local time it gives the
+;; time zone, for the sunset); every 10 s the mode and the files are
+;; checked. #t when the colors changed: the screen is to be drawn again.
+(define (theme-tick! . utc)
+  (if (and (pair? utc) (integer? (car utc)) (>= (car utc) 0) (< (car utc) 86400))
+      (let ((t (time-local)))
+        (if t (set! theme-utc-offset
+                    (let ((d (- (+ (* 3600 (list-ref t 3)) (* 60 (list-ref t 4)) (list-ref t 5)) (car utc))))
+                      (* 900 (round->exact (/ (cond ((> d 50400) (- d 86400)) ((< d -50400) (+ d 86400)) (else d)) 900))))))))
+  (set! theme-ticks (+ theme-ticks 1))
+  (if (= (remainder theme-ticks 10) 0)
+      (let* ((files (theme-read!)) (mode (theme-pick-mode)) (changed (or files (not (string=? mode theme-mode)))))
+        (if changed (begin (set! theme-mode mode) (theme-apply!)))
+        changed)
+      #f))
+
+(define (round->exact x) (let ((r (round x))) (if (exact? r) r (inexact->exact r))))
+
+(theme-load!)
 
 ;; Fonts
 (define FONT-SYS-16   0) ; 16px Crisp System UI & CJK Font
@@ -1221,6 +1550,7 @@
     (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
         (app-carousel-tick!))
     (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
+    (if (theme-tick! tick) (app-invalidate-all))   ; the day / night scheme or a theme.css changed
     (if app-tick-proc (app-tick-proc tick))))
 
 ;; Short press: next page (the home page after the last; a carousel's
