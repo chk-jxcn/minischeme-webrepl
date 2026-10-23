@@ -6,7 +6,7 @@
  *        it into the system font ROM, save it to the file system or download it.
  *
  * Two engines produce the font:
- * - PC engine: web_repl/server.py runs tools/make_font.py (Pillow/FreeType),
+ * - PC engine: server.py runs tools/make_font.py (Pillow/FreeType),
  *   the same code as the command line, so both give identical fonts. It
  *   lists the installed font files and leaves out characters a face lacks.
  * - Browser engine (fallback, or for a font file chosen here): canvas text,

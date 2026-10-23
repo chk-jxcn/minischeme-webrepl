@@ -30,7 +30,7 @@
 /* Host clock (performance.now() in milliseconds) */
 extern double js_now_ms(void);
 
-/* Firmware-identical device VM profile (see examples/esp_idf/main/main.c) */
+/* Firmware-identical device VM profile (see minischeme-esp32 main/main.c) */
 #define DEV_HEAP_BYTES   (108 * 1024) /* what the ESP32 board gets */
 #define DEV_EDEN_BYTES   (4 * 1024)
 #define DEV_STACK_SLOTS  1024
@@ -290,7 +290,7 @@ static Value prim_mock_time_synced_p(MiniVM *vm, int argc, Value *argv) {
 #define MOCK_FS_TOTAL 1378241u /* usable SPIFFS bytes of the board's 1472K partition */
 static struct { char path[64]; uint8_t *data; size_t len, cap; bool used; } g_mock_fs[MOCK_FS_FILES];
 /* Bumped by every change of the simulated SPIFFS / font ROM: the page keeps
- * both in IndexedDB (web_repl/sim_storage.js) and saves when they move */
+ * both in IndexedDB (js/sim_storage.js) and saves when they move */
 static uint32_t g_fs_gen = 0;
 static uint32_t g_rom_gen = 0;
 

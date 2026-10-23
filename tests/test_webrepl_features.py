@@ -381,16 +381,9 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         self.assertIn("items", data)
-        types = {it["t"] for it in data["items"]}
-        self.assertIn("loc", types)
-        self.assertIn("now", types)
-        self.assertIn("day", types)
-        self.assertIn("hours", types)
-        self.assertIn("idx", types)
-        # When token is invalid or unauthenticated, fallback weather must indicate demo data
-        self.assertTrue(data.get("is_demo"))
-        self.assertEqual(data.get("title"), "天气【演示数据】")
-        self.assertIn("demo", types)
+        # a key QWeather refuses: an error item, never invented weather (the device
+        # keeps its last real data)
+        self.assertEqual([it["t"] for it in data["items"]], ["error"])
         conn.close()
 
     def test_09b_market_endpoints(self):
@@ -403,17 +396,25 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("q", tags, "Futures list must contain 'q' tags for Scheme app items-all")
-        self.assertIn("meta", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("q", tags, "Futures list must contain 'q' tags for Scheme app items-all")
+            self.assertIn("meta", tags)
 
         conn.request("GET", "/app/futures?view=all&codes=RB0,AU0,CU0&chart=AU0")
         res = conn.getresponse()
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("q", tags)
-        self.assertIn("trend", tags)
-        self.assertIn("k", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("q", tags)
+            self.assertIn("trend", tags)
+            self.assertIn("k", tags)
 
         # 2. Crypto: list view has "c", trend has "trend", all has both
         conn.request("GET", "/app/crypto?view=list&symbols=BTC,ETH,SOL")
@@ -421,17 +422,25 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("c", tags, "Crypto list must contain 'c' tags for Scheme app items-all")
-        self.assertIn("meta", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("c", tags, "Crypto list must contain 'c' tags for Scheme app items-all")
+            self.assertIn("meta", tags)
 
         conn.request("GET", "/app/crypto?view=all&symbols=BTC,ETH,SOL&chart=BTC")
         res = conn.getresponse()
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("c", tags)
-        self.assertIn("trend", tags)
-        self.assertIn("k", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("c", tags)
+            self.assertIn("trend", tags)
+            self.assertIn("k", tags)
 
         # 3. Stocks: home view has "idx", "trend", and "q", all has "k"
         conn.request("GET", "/app/stocks?view=home&codes=sh600519,sz300750&index=sh000001")
@@ -439,19 +448,27 @@ class TestWebReplFeatures(unittest.TestCase):
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("idx", tags, "Stocks home must contain 'idx' for index tiles")
-        self.assertIn("q", tags, "Stocks home must contain 'q' for watchlist rows")
-        self.assertIn("trend", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("idx", tags, "Stocks home must contain 'idx' for index tiles")
+            self.assertIn("q", tags, "Stocks home must contain 'q' for watchlist rows")
+            self.assertIn("trend", tags)
 
         conn.request("GET", "/app/stocks?view=all&codes=sh600519,sz300750&index=sh000001")
         res = conn.getresponse()
         self.assertEqual(res.status, 200)
         data = json.loads(res.read().decode("utf-8"))
         tags = {it["t"] for it in data["items"]}
-        self.assertIn("idx", tags)
-        self.assertIn("q", tags)
-        self.assertIn("trend", tags)
-        self.assertIn("k", tags)
+        self.assertNotIn("demo", tags)
+        if tags == {"error"}:
+            pass   # the live source is unreachable from here: no invented data
+        else:
+            self.assertIn("idx", tags)
+            self.assertIn("q", tags)
+            self.assertIn("trend", tags)
+            self.assertIn("k", tags)
 
         conn.close()
 

@@ -39,8 +39,9 @@ The simulated device needs no password and uses the local proxy.
 - **Scheme editor and compiler**: compile to `.msbc` in the browser (`compiler.wasm`), simulate, download, or install on the board.
 - **Device access over WiFi**: the device password is sent in the `X-MiniScheme-Auth` header (never in page URLs); the settings tab's password is written as the firmware's `[http] http_password` and applied at once. A failed read of `config.ini` stops a save instead of writing defaults.
 - **App pages**: an app's own web page runs in a sandboxed frame (no access to the WebREPL's storage or device connection; it talks to the app through `postMessage`).
-- **WASM simulator**: the same C runtime as the firmware (stack traces on in the simulator). It starts with the firmware's font ROM (`firmware/fontrom.bin`: **simsun-16, all of GB2312 levels 1 and 2**), so Chinese text needs no font generation; 16 px text uses it by default, as on the board.
-- **App market**: the apps of [minischeme-apps](https://github.com/chk-jxcn/minischeme-apps); install, edit and deploy.
+- **WASM simulator**: the same C runtime as the firmware (stack traces on in the simulator). It starts with the firmware's font ROM (`firmware/fontrom.bin`: **simsun-16, all of GB2312 levels 1 and 2**), so Chinese text needs no font generation; 16 px text uses it by default, as on the board. Characters the font ROM lacks (emoji, Korean, traditional) come from the font server like on a board (config.ini `[fonts] font_server`, set in the settings tab; minischeme-proxy `font_server.py`).
+- **Headless simulator** (`tools/sim.py`, for tests and agents): `--app`, `--install` (an image installed as the market does, its web page included), `--press`, `--wait`, `--shot`, `--webshot` (the app's web page), `--eval`, `--config`, `--js`, `--repl`; `--help` lists them.
+- **App market**: the apps of [minischeme-apps](https://github.com/chk-jxcn/minischeme-apps); install, edit and deploy. Served by a local `server.py`, the list also shows the apps of `apps/` that differ from the market (`build_apps.py --sync` in minischeme-apps), marked 本地编译.
 - **Fonts**: bitmap font (`.mfnt`) generation and the font ROM.
 
 ## Running from source
@@ -63,7 +64,7 @@ minischeme-webrepl/
 ├── js/         # front end
 ├── proxy/      # app proxy and protocol converter (same files as minischeme-proxy)
 ├── tests/      # Python integration tests and browser suites
-├── tools/      # build_exe.py, make_font.py, deploy_public_proxy.py
+├── tools/      # sim.py, build_exe.py, make_font.py, deploy_public_proxy.py
 ├── wasm/       # minischeme_vm.wasm, compiler.wasm and their C bridge
 ├── index.html
 ├── server.py   # local server and Windows tray program

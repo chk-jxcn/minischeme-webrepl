@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generates MFNT dot-matrix fonts and installs them on the board.
 
-The same engine serves the WebREPL font generator (web_repl/server.py,
+The same engine serves the WebREPL font generator (minischeme-webrepl server.py,
 /api/font/*), so a font made here and one made in the browser are identical.
 
     # list installed faces / character presets
@@ -79,7 +79,7 @@ class FontError(Exception):
 # ---------------------------------------------------------------------------
 
 def load_charsets():
-    """Presets from web_repl/font_charsets.json: [{id, label, chars}] with
+    """Presets from font_charsets.json: [{id, label, chars}] with
     composite presets ("parts") resolved."""
     with open(CHARSETS_PATH, encoding='utf-8') as f:
         data = json.load(f)
@@ -129,7 +129,7 @@ def _gb2312_rows(first, last):
 
 
 def write_charsets():
-    """Regenerates web_repl/font_charsets.json (developer use)."""
+    """Regenerates font_charsets.json (developer use)."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from compile_font_to_fasl import COMMON_CHARS
     uniq = lambda s: ''.join(sorted(set(s), key=ord))  # noqa: E731

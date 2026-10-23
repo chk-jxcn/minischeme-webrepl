@@ -3,14 +3,14 @@
  * @brief App manager for the WebREPL: the apps installed on the target (the
  *        board over HTTP or serial, or the WASM device), with their metadata,
  *        a settings form built from each app's [fields], the raw ini, the
- *        boot app, and installing the apps built into web_repl/apps/.
+ *        boot app, and installing the apps of the market and of apps/.
  *
  * A backend provides label, kind ('wasm' | 'device'), apps() -> the JSON of
  * the firmware's GET /api/apps (serial: "@APPS"; simulator: wasm_apps_json) ({boot, apps: [{path, id, name, description,
  * version, pages, size, ini, boot, meta}]}), run(source) -> printed result,
  * fsRead(path) -> Uint8Array, fsWrite(path, bytes), fsRemove(path) and
  * reset(). The form logic matches the board's settings page
- * (examples/esp_idf/main/setup_page.html); keep the two in step.
+ * (minischeme-esp32 main/setup_page.html); keep the two in step.
  */
 
 const AM_GITHUB_APPS_INDEX = 'https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json';

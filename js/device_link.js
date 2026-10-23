@@ -15,7 +15,7 @@
  *
  * Both expose the same file manager calls: fsList(), fsRead(path),
  * fsWrite(path, bytes), fsRemove(path), fsRename(from, to) and reset().
- * - SimDeviceLink:    local sim_esp32 process behind web_repl/server.py
+ * - SimDeviceLink:    local sim_esp32 process behind server.py
  */
 
 const SERIAL_EXEC_INLINE_MAX = 1024; // base64 chars sent in a single @EXEC line
