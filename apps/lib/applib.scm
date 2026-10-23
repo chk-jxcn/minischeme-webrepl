@@ -649,6 +649,7 @@
     (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
         (app-carousel-tick!))
     (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
+    (if (theme-tick! tick) (app-invalidate-all))   ; the day / night scheme or a theme.css changed
     (if app-tick-proc (app-tick-proc tick))))
 
 ;; Short press: next page (the home page after the last; a carousel's

@@ -542,6 +542,7 @@
 (define (app-touch x y) (app-button))
 
 (define (app-tick hm sec week date lux bl . rest)
+  (if (theme-tick! (if (pair? rest) (car rest) 0)) (redraw))   ; day / night, a theme.css changed
   (if (not (equal? hm clock))
       (begin (set! clock hm) (gui-invalidate 0 0 (scr-w) HDR-H)))
   (cond ((> restart-in 0)

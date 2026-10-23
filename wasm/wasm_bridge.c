@@ -590,6 +590,15 @@ static Value prim_mock_fs_read(MiniVM *vm, int argc, Value *argv) {
     return slot < 0 ? mini_false() : mini_make_string_len(vm, (const char *)g_mock_fs[slot].data, g_mock_fs[slot].len);
 }
 
+/* (theme-css): the system color scheme /spiffs/theme.css, read by any app
+ * (as minischeme_lib.c on the board), #f without one or over 16 KB */
+static Value prim_mock_theme_css(MiniVM *vm, int argc, Value *argv) {
+    (void)argc; (void)argv;
+    int slot = mock_fs_find("/spiffs/theme.css");
+    if (slot < 0 || g_mock_fs[slot].len > 16 * 1024) return mini_false();
+    return mini_make_string_len(vm, (const char *)g_mock_fs[slot].data, g_mock_fs[slot].len);
+}
+
 static Value prim_mock_fs_exists_p(MiniVM *vm, int argc, Value *argv) {
     char path[96];
     if (argc < 1 || !mini_is_string(argv[0])) return mini_false();
@@ -1487,6 +1496,7 @@ static void register_device_prims(MiniVM *vm) {
         { "time-synced?",       prim_mock_time_synced_p },
         { "fs-write",           prim_mock_fs_write },
         { "fs-read",            prim_mock_fs_read },
+        { "theme-css",          prim_mock_theme_css },
         { "fs-exists?",         prim_mock_fs_exists_p },
         { "fs-remove",          prim_mock_fs_remove },
         { "free-heap",          prim_mock_free_heap },

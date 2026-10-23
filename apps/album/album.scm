@@ -85,6 +85,11 @@
 
 ;; 3. Screen ---------------------------------------------------------------------------------
 
+;; The photos' surround: black at night, the day scheme's background by day
+;; (a theme.css may set photo_bg for either)
+(theme-defaults! "night" '(("photo_bg" . "#000000")))
+(theme-defaults! "day" '(("photo_bg" . "bg")))
+
 (define (album-render-empty)
   (let ((cx (quotient (scr-w) 2)))
     (txt-center cx 190 "还没有照片" theme-text-main)
@@ -97,14 +102,14 @@
 ;; The position and the state in a strip at the bottom
 (define (album-render-info)
   (let ((y (- (gui-height) 22)) (w (scr-w)))
-    (gui-rect 0 y w 22 0 #t)
+    (gui-rect 0 y w 22 (theme-color "photo_bg") #t)
     (txt 8 (+ y 3) (string-append (number->string (+ album-index 1)) " / " (number->string (album-count))
                                   (if album-paused "   已暂停" ""))
          theme-text-sub)
     (txt-right (- w 8) (+ y 3) app-time theme-text-sub)))
 
 (define (album-render)
-  (gui-clear 0)
+  (gui-clear (theme-color "photo_bg"))
   (if (= (album-count) 0)
       (album-render-empty)
       (let ((info (album-current-info)) (cx (quotient (scr-w) 2)))
