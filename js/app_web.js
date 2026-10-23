@@ -150,6 +150,31 @@ class AppWebPanel {
                         </section>
 
                         <section class="aw-section">
+                            <h3 class="aw-sec-title">🔤 字体服务器</h3>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">
+                                独立的服务（minischeme-proxy 的 font_server.py），不需要密码，没有应用代理也能用：板载字库没有的字（繁体、生僻字、韩文、emoji）从这里取，保存在设备上。保存后立即生效。
+                            </div>
+                            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="aw-sys-fs-on"> 使用字体服务器 (font_server_on)</label>
+                            <div class="aw-grid-2">
+                                <label>字体服务器地址 (font_server)
+                                    <input type="text" id="aw-sys-fs-url" placeholder="http://124.222.231.186:8090">
+                                </label>
+                                <label>优先级 (font_server_first)
+                                    <select id="aw-sys-fs-first">
+                                        <option value="0">板载字体优先：服务器只补缺字</option>
+                                        <option value="1">服务器字体优先：系统文字用服务器的字体</option>
+                                    </select>
+                                </label>
+                                <label>向服务器要的字体 (font_server_face)
+                                    <input type="text" id="aw-sys-fs-face" placeholder="留空：simsun（板载系统字体）" maxlength="15">
+                                </label>
+                                <label>&nbsp;
+                                    <button type="button" class="pill-btn" id="aw-sys-fs-open">打开字体服务器管理页</button>
+                                </label>
+                            </div>
+                        </section>
+
+                        <section class="aw-section">
                             <h3 class="aw-sec-title">🖥️ 屏幕显示与常用设置</h3>
                             <div class="aw-grid-2">
                                 <label>屏幕规格与方向
@@ -287,6 +312,11 @@ class AppWebPanel {
             sysProxyPwRow: root.querySelector('#aw-sys-proxy-pw-row'),
             sysConvPwRow: root.querySelector('#aw-sys-conv-pw-row'),
             sysPwNote: root.querySelector('#aw-sys-pw-note'),
+            sysFsOn: root.querySelector('#aw-sys-fs-on'),
+            sysFsUrl: root.querySelector('#aw-sys-fs-url'),
+            sysFsFirst: root.querySelector('#aw-sys-fs-first'),
+            sysFsFace: root.querySelector('#aw-sys-fs-face'),
+            sysFsOpen: root.querySelector('#aw-sys-fs-open'),
             sysHwPass: root.querySelector('#aw-sys-hw-pass'),
             sysHwPassNote: root.querySelector('#aw-sys-hw-pass-note'),
             sysOrientation: root.querySelector('#aw-sys-orientation'),
@@ -763,6 +793,20 @@ class AppWebPanel {
         if (this.el.sysProxyUrl) this.el.sysProxyUrl.value = srv['proxy_url'] || appSec['proxy'] || sys['proxy_url'] || '';
         if (this.el.sysConvUrl) this.el.sysConvUrl.value = srv['converter_url'] || appSec['https_proxy'] || sys['converter_url'] || '';
 
+        // 3b. Font server ([fonts]; missing keys: the firmware's defaults)
+        const fonts = ini['fonts'] || {};
+        if (this.el.sysFsUrl) this.el.sysFsUrl.value = 'font_server' in fonts ? fonts['font_server'] : 'http://124.222.231.186:8090';
+        if (this.el.sysFsOn) this.el.sysFsOn.checked = !/^(0|false|no|off)$/i.test(fonts['font_server_on'] || '1');
+        if (this.el.sysFsFirst) this.el.sysFsFirst.value = fonts['font_server_first'] === '1' ? '1' : '0';
+        if (this.el.sysFsFace) this.el.sysFsFace.value = fonts['font_server_face'] || '';
+        if (this.el.sysFsOpen && !this.el.sysFsOpen.dataset.bound) {
+            this.el.sysFsOpen.dataset.bound = '1';
+            this.el.sysFsOpen.addEventListener('click', () => {
+                const url = (this.el.sysFsUrl.value || '').trim().replace(/\/+$/, '');
+                if (/^https?:\/\//i.test(url)) window.open(url + '/', '_blank', 'noopener');
+            });
+        }
+
         // 4. Hardware password (the HTTP API only, editable) and each server's
         //    app service password (bound to the server once registered there)
         const hwPass = (httpSec['http_password'] || srv['hardware_password'] || sys['hardware_password'] || sec['hardware_password'] || '').trim();
@@ -891,6 +935,22 @@ class AppWebPanel {
             blMax = tmp;
         }
 
+        const fontUpdates = {
+            'fonts.font_server': (this.el.sysFsUrl ? this.el.sysFsUrl.value : '').trim(),
+            'fonts.font_server_on': this.el.sysFsOn && !this.el.sysFsOn.checked ? '0' : '1',
+            'fonts.font_server_first': this.el.sysFsFirst ? this.el.sysFsFirst.value : '0',
+            'fonts.font_server_face': (this.el.sysFsFace ? this.el.sysFsFace.value : '').trim()
+        };
+        for (const [k, v] of Object.entries(fontUpdates)) {
+            if (/[;#&\s]/.test(v)) {
+                if (this.el.sysSaveStatus) {
+                    this.el.sysSaveStatus.textContent = `❌ ${k}：不能含有空格、; # &`;
+                    this.el.sysSaveStatus.style.color = '#ee7c7c';
+                }
+                return;
+            }
+        }
+
         const applyWithRaw = (rawText) => {
             if (rawText === null || (!isWasm && !String(rawText).trim())) {
                 const msg = '读取设备当前 config.ini 失败，为避免覆盖设备上的配置，已取消保存。请检查连接后重试。';
@@ -931,7 +991,8 @@ class AppWebPanel {
                 'display.backlight': String(fixedVal),
                 'display.backlight_offset': String(blOffset),
                 'display.backlight_min': String(blMin),
-                'display.backlight_max': String(blMax)
+                'display.backlight_max': String(blMax),
+                ...fontUpdates
             };
 
             if (!isWasm) {
@@ -986,6 +1047,24 @@ class AppWebPanel {
                 }
             }
             if (ok) {
+                // the font server settings take effect at once: the simulator
+                // reads its config.ini again, a board through its settings API
+                if (isWasm) {
+                    const ex = this.target && this.target.exports ? this.target.exports() : null;
+                    if (ex && ex.wasm_fontnet_reconfigure) ex.wasm_fontnet_reconfigure();
+                } else {
+                    const link = (this.target && this.target.link) || window.activeLink;
+                    if (link && link.kind === 'http' && typeof link._json === 'function') {
+                        try {
+                            await link._json('/api/settings', {
+                                method: 'POST', headers: { 'Content-Type': 'text/plain' },
+                                body: new URLSearchParams(fontUpdates).toString()
+                            }, 8000);
+                        } catch (e) {
+                            this.log('info', `⚙️ 字体服务器设置已写入 config.ini，重启设备后生效 (${e.message || e})`);
+                        }
+                    }
+                }
                 this.savedHwPassword = hwPassToSave;
                 if (this.el.sysSaveStatus) {
                     this.el.sysSaveStatus.textContent = '✅ 系统配置已保存至 /spiffs/config.ini';

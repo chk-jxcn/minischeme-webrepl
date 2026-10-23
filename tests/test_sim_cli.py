@@ -1,11 +1,14 @@
 """tools/sim.py: the WebREPL simulator from the command line (skipped without
 Edge / Chrome / Chromium)."""
+import http.server
 import os
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -17,6 +20,29 @@ def _browser():
         return sim.find_browser()
     except sim.SimError:
         return None
+
+
+class _FakeFontServer(http.server.BaseHTTPRequestHandler):
+    """A font server (minischeme-proxy font_server.py) in miniature: every
+    code point a 20 px wide filled glyph, U+10FFFD absent"""
+    asked = []
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        cps = [int(c, 16) for c in qs["cps"][0].split(",")]
+        _FakeFontServer.asked.append((qs["face"][0], qs["size"][0], cps))
+        body = b"MGLY" + struct.pack("<BBBBIHH", 1, 16, 1, 0, 0x1234, len(cps), 0)
+        for cp in cps:
+            body += struct.pack("<IBB", cp, 0, 0) if cp == 0x10FFFD else struct.pack("<IBB", cp, 20, 3) + b"\xff" * 48
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 @unittest.skipUnless(_browser(), "no Edge / Chrome / Chromium")
@@ -114,6 +140,39 @@ class TestSimCli(unittest.TestCase):
                 head = f.read(24)
             self.assertEqual(head[:4], b"\x89PNG")
             self.assertGreater(struct.unpack(">II", head[16:24])[0], 300)
+
+    def test_font_server(self):
+        # a glyph no font has is asked for once, drawn when it arrives; one the
+        # server lacks is kept as absent; off: never asked
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _FakeFontServer)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{srv.server_address[1]}"
+        _FakeFontServer.asked.clear()
+        try:
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh",
+                                "--config", f"fonts.font_server={url}", "--js", "bootWasmDevice('font server')",
+                                "--wait", "3",
+                                "--eval", '(gui-text-width "\U0001F600\uD55C" 0)', "--wait", "2",
+                                "--eval", '(gui-text-width "\U0001F600\uD55C" 0)',
+                                "--eval", '(gui-text-width "\U0010FFFD" 0)', "--wait", "2",
+                                "--eval", "(let ((s (font-server))) (list (cdr (assq 'state s)) (cdr (assq 'absent s))))",
+                                "--config", "fonts.font_server_on=0", "--js", "wasmInstance.exports.wasm_fontnet_reconfigure()",
+                                "--eval", '(gui-text-width "\U0001F601" 0)', "--wait", "2",
+                                "--eval", "(cdr (assq 'state (font-server)))"],
+                               capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = [l for l in r.stdout.splitlines() if l and l not in ("null", "#t")]
+        self.assertEqual(lines[0], "32", r.stdout)       # before: the box width of both
+        self.assertEqual(lines[1], "40")       # the server's 20 px glyphs
+        self.assertEqual(lines[3], "(idle 1)")
+        self.assertEqual(lines[4], "16")       # off: not asked for
+        self.assertEqual(lines[5], "off")
+        asked = [cp for _, _, cps in _FakeFontServer.asked for cp in cps]
+        self.assertEqual(sorted(asked), [0xD55C, 0x1F600, 0x10FFFD])
+        self.assertEqual(_FakeFontServer.asked[0][:2], ("simsun", "16"))
 
     def test_errors_fail(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh",

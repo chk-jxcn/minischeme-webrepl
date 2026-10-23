@@ -1359,6 +1359,7 @@ async function pcmonPump() {
     const ex = wasmInstance && wasmInstance.exports;
     if (!ex || !ex.wasm_feed_url || !ex.wasm_feed_data) return;
     downloadPump(ex);   // an app's (fs-download url path), beside the feed
+    fontnetPump(ex);    // glyphs the fonts lack, from the font server
     const url = readStringFromWasm(ex.wasm_feed_url());
     const interval = ex.wasm_feed_interval ? ex.wasm_feed_interval() : 1000;
     // a new json-feed-start (page switch, refresh) fetches at once, as on the board
@@ -1507,6 +1508,51 @@ async function downloadPump(ex) {
             }
         }
         downloadBusy = false;
+    }
+}
+
+/* Glyphs from the font server (config.ini [fonts] font_server): the WASM
+ * device's request fetched directly (the font server allows any origin), or
+ * through server.py when the page cannot reach it (an https page and an
+ * http server); no device headers: the font server needs no password */
+let fontnetBusy = false;
+
+async function fontnetPump(ex) {
+    if (fontnetBusy || !ex.wasm_fontnet_take || !ex.wasm_fontnet_deliver) return;
+    const url = readStringFromWasm(ex.wasm_fontnet_take());
+    if (!url) return;
+    fontnetBusy = true;
+    let bytes = null, status = 0;
+    try {
+        if (!window.isSimWifiOnline || window.isSimWifiOnline()) {
+            let res = null;
+            try { res = await fetch(url, { cache: 'force-cache' }); } catch (e) { /* tried through server.py */ }
+            const base = localServerBase();
+            if ((!res || !res.ok) && base) {
+                try {
+                    res = await fetch(base + '/api/fetch?url=' + encodeURIComponent(url), { cache: 'no-store' });
+                } catch (e) { /* unreachable */ }
+            }
+            if (res) {
+                status = res.status;
+                if (res.ok) bytes = new Uint8Array(await res.arrayBuffer());
+            }
+        }
+    } catch (e) {
+        status = 0;
+    } finally {
+        const ex2 = wasmInstance && wasmInstance.exports;
+        if (ex2 && ex2.wasm_fontnet_deliver) {
+            if (bytes) {
+                const ptr = ex2.wasm_alloc_buffer(bytes.length || 1);
+                new Uint8Array(wasmMemory.buffer, ptr, bytes.length).set(bytes);
+                ex2.wasm_fontnet_deliver(ptr, bytes.length, 200);
+                ex2.wasm_free_buffer(ptr);
+            } else {
+                ex2.wasm_fontnet_deliver(0, 0, status && status !== 200 ? status : 0);
+            }
+        }
+        fontnetBusy = false;
     }
 }
 

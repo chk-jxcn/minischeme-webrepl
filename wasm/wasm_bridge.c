@@ -22,6 +22,7 @@
 #include "../../minischeme_help.h"
 #include "../../minischeme_device.h"
 #include "../../minischeme_jsonfeed.h"
+#include "../../minischeme_fontnet.h"
 #include "../msbc.h"
 #include "compiler_msbc.h"
 #include "../../examples/app_settings_msbc.h"
@@ -63,6 +64,7 @@ static void use_device(void) { mini_set_active_vm(g_dev); }
 static void register_device_prims(MiniVM *vm);
 static void mk_attach(void);   /* the app market's host (below) */
 static const uint8_t *mock_fs_font_file(const char *path, size_t *len);
+static const MiniFontnetIO g_mock_fontnet_io;
 static void mock_font_rom_attach(void);
 static void mock_font_config(void);
 static void mock_backlight_config(void);
@@ -89,6 +91,8 @@ static MiniVM *create_device_vm(void) {
     mini_register_help_lib(vm);
     mini_register_device_lib(vm);
     mini_register_json_feed_lib(vm);
+    mini_register_fontnet_lib(vm);
+    mini_fontnet_set_io(&g_mock_fontnet_io);
     mini_register_api_lib(vm);
     mini_api_set_extensions(mini_api_extension_bit("esp32"));  /* as the firmware */
     mini_register_market_lib(vm);
@@ -487,6 +491,59 @@ static const char *mock_fs_remove(const char *path) {
     g_fs_gen++;
     return NULL;
 }
+
+/* The font server's glyph file (minischeme_fontnet.c) in the mock file
+ * system: read and written in place at offsets. A file grows by half again
+ * each time (the bump allocator never frees). */
+static long mock_fn_size(const char *path) {
+    int slot = mock_fs_find(path);
+    return slot < 0 ? -1 : (long)g_mock_fs[slot].len;
+}
+
+static bool mock_fn_read(const char *path, long off, void *buf, size_t n) {
+    int slot = mock_fs_find(path);
+    if (slot < 0 || off < 0 || (size_t)off + n > g_mock_fs[slot].len) return false;
+    memcpy(buf, g_mock_fs[slot].data + off, n);
+    return true;
+}
+
+static bool mock_fn_write(const char *path, long off, const void *buf, size_t n) {
+    if (off < 0 || !mock_fs_path_ok(path)) return false;
+    int slot = mock_fs_find(path);
+    size_t len = slot >= 0 ? g_mock_fs[slot].len : 0;
+    size_t end = (size_t)off + n > len ? (size_t)off + n : len;
+    if (mock_fs_used() - len + end > MOCK_FS_TOTAL) return false;
+    if (slot < 0) {
+        for (int i = 0; slot < 0 && i < MOCK_FS_FILES; i++) if (!g_mock_fs[i].used) slot = i;
+        if (slot < 0) return false;
+        g_mock_fs[slot].data = NULL;
+        g_mock_fs[slot].cap = 0;
+        g_mock_fs[slot].len = 0;
+        snprintf(g_mock_fs[slot].path, sizeof(g_mock_fs[slot].path), "%s", path);
+        g_mock_fs[slot].used = true;
+    }
+    if (!g_mock_fs[slot].data || g_mock_fs[slot].cap < end + 1) {
+        size_t cap = end + end / 2 + 64;
+        uint8_t *nb = (uint8_t *)malloc(cap);
+        if (!nb) return false;
+        if (len) memcpy(nb, g_mock_fs[slot].data, len);
+        g_mock_fs[slot].data = nb;
+        g_mock_fs[slot].cap = cap;
+    }
+    uint8_t *d = g_mock_fs[slot].data;
+    if ((size_t)off > len) memset(d + len, 0, (size_t)off - len);
+    memcpy(d + off, buf, n);
+    g_mock_fs[slot].len = end;
+    d[end] = '\0';
+    g_fs_gen++;
+    return true;
+}
+
+static void mock_fn_remove(const char *path) {
+    mock_fs_remove(path);
+}
+
+static const MiniFontnetIO g_mock_fontnet_io = { mock_fn_size, mock_fn_read, mock_fn_write, mock_fn_remove };
 
 /* font-load / use-font read fonts uploaded to the mock file system */
 static const uint8_t *mock_fs_font_file(const char *path, size_t *len) {
@@ -2860,6 +2917,28 @@ void wasm_download_data(const uint8_t *buf, uint32_t len, int status) {
     }
     const char *why = mock_fs_put(mini_download_path(), buf, len);
     mini_download_done(why == NULL, why ? 0 : len, why);
+}
+
+/* Glyphs from the font server (minischeme_fontnet.h): the page takes the
+ * request URL ("" when none is due), fetches it (directly: the font server
+ * allows any origin) and hands the reply back; status 0: unreachable */
+__attribute__((visibility("default")))
+const char *wasm_fontnet_take(void) {
+    const char *url = mini_fontnet_take();
+    return url ? url : "";
+}
+
+__attribute__((visibility("default")))
+void wasm_fontnet_deliver(const uint8_t *buf, uint32_t len, int status) {
+    mini_fontnet_deliver(buf, len, status, status ? "" : "cannot connect");
+}
+
+/* The page saved [fonts] font_server*: applied at once, as the board's
+ * settings page does */
+__attribute__((visibility("default")))
+void wasm_fontnet_reconfigure(void) {
+    int slot = mock_fs_find("/spiffs/config.ini");
+    mini_device_apply_fontnet_config(slot >= 0 ? (const char *)g_mock_fs[slot].data : NULL);
 }
 
 /* ========================================================================= */
