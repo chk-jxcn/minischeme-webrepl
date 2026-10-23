@@ -7,7 +7,7 @@
 ;;; id = pcmonitor
 ;;; name = PC 性能监控
 ;;; description = LibreHardwareMonitor 的 CPU、温度、GPU、风扇曲线，按键切换链路和硬件页
-;;; version = 1
+;;; version = 2
 ;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
 ;;; 
 ;;; [fields]

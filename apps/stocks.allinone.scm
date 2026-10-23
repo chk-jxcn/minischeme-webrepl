@@ -8,7 +8,7 @@
 ;;; id = stocks
 ;;; name = 股票行情
 ;;; description = 大盘指数与分时走势、自选股报价、三大指数分时、自选股30日走势
-;;; version = 1
+;;; version = 2
 ;;; api = 1.8 ; the device API it needs (docs/api): theme-css (color schemes) since 1.8
 ;;; 
 ;;; [fields]

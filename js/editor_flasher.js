@@ -649,14 +649,17 @@ class WebSerialFirmwareFlasher {
                 for (const item of files) this.githubFirmware[item.key] = got[item.key];
                 // optional: the font ROM image (simsun-16, all of GB2312) of the same release
                 this.githubFirmware.fontrom = null;
+                this.githubFirmware.fontromOffset = 0;
                 const fontEntry = listed['fontrom.bin'];
-                if (fontEntry && Number(fontEntry.offset) === 0x190000) {
+                const fontAt = fontEntry ? Number(fontEntry.offset) : 0;   // its place in this release's partition table
+                if (fontEntry && fontAt >= 0x10000 && fontAt % 0x1000 === 0) {
                     const font = await get(src.url('fontrom.bin'));
                     const digest = font ? await sha256Hex(font) : null;
                     if (font && (!fontEntry.size || fontEntry.size === font.length) &&
                         (!fontEntry.sha256 || digest === null || digest === String(fontEntry.sha256).toLowerCase())) {
                         this.githubFirmware.fontrom = font;
-                        this.log('ok', `   fontrom.bin @0x190000 (${this._formatSize(font.length)}) 系统字库: 宋体 16px，GB2312 一、二级汉字`);
+                        this.githubFirmware.fontromOffset = fontAt;
+                        this.log('ok', `   fontrom.bin @0x${fontAt.toString(16)} (${this._formatSize(font.length)}) 系统字库: 宋体 16px，GB2312 一、二级汉字`);
                     } else {
                         this.log('error', `${src.label}: fontrom.bin 下载失败或校验不符，本次不写入系统字库`);
                     }
@@ -674,7 +677,7 @@ class WebSerialFirmwareFlasher {
 
             this.githubFirmware.status = 'ready';
             if (statusEl) {
-                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 固件下载完毕: Bootloader (0x1000), 分区表 (0x8000), 主固件 (0x10000)${this.githubFirmware.fontrom ? ', 系统字库 (0x190000)' : ''}</span>`;
+                statusEl.innerHTML = `<span style="color:#4ade80;">✔ 固件下载完毕: Bootloader (0x1000), 分区表 (0x8000), 主固件 (0x10000)${this.githubFirmware.fontrom ? `, 系统字库 (0x${this.githubFirmware.fontromOffset.toString(16)})` : ''}</span>`;
             }
         } catch (e) {
             this.log('error', `固件拉取失败: ${e.message}`);
@@ -806,11 +809,33 @@ class WebSerialFirmwareFlasher {
                 { data: toUint8(src.partition), address: 0x8000 },
                 { data: toUint8(src.firmware), address: 0x10000 }
             ];
-            // the release's font ROM (replaces the fontrom partition: fonts installed before are removed)
+            // A different partition table moves the file system: the board's files
+            // (config.ini, apps, their data) are gone after the flash. Compared with
+            // what the board has now; a blank board has nothing to lose.
+            let layoutChanged = false;
+            if (!eraseAll && typeof esploader.readFlash === 'function') {
+                try {
+                    const want = toUint8(src.partition);
+                    const have = toUint8(await esploader.readFlash(0x8000, want.length));
+                    const blank = have.every((b) => b === 0xFF);
+                    layoutChanged = !blank && have.some((b, i) => b !== want[i]);
+                } catch (e) {
+                    this.log('info', `读取板子上的分区表失败 (${e.message})，不做比较`);
+                }
+            }
+            if (layoutChanged) {
+                this.log('error', '⚠ 新固件的分区表与板子上的不同：文件系统换了位置，刷完后板子上的文件（配置、应用、数据）会被清空');
+                if (!confirm('新固件的分区表与板子上的不同，刷完后板子上的文件（config.ini、已装应用、吃药记录等数据）会被清空。\n\n' +
+                             '请先连接设备，在“文件管理”里点“⬇ 备份全部”；刷完后用“⬆ 恢复备份”写回。\n\n已经备份好了，继续刷机吗？')) {
+                    throw new Error('已取消：请先在文件管理中备份全部文件');
+                }
+            }
+            // the release's font ROM (replaces the fontrom partition: fonts installed before are removed);
+            // always when the layout changed, since the partition moved
             const fontCheck = document.getElementById('flasher-write-fontrom');
-            if (isGhMode && src.fontrom && fontCheck && fontCheck.checked) {
-                filesToFlash.push({ data: toUint8(src.fontrom), address: 0x190000 });
-                this.log('info', '同时写入系统字库 (宋体 16px，GB2312 一、二级汉字) 到 0x190000');
+            if (isGhMode && src.fontrom && src.fontromOffset && ((fontCheck && fontCheck.checked) || layoutChanged)) {
+                filesToFlash.push({ data: toUint8(src.fontrom), address: src.fontromOffset });
+                this.log('info', `同时写入系统字库 (宋体 16px，GB2312 一、二级汉字) 到 0x${src.fontromOffset.toString(16)}`);
             }
 
             const totalBytes = filesToFlash.reduce((acc, cur) => acc + cur.data.length, 0);

@@ -377,6 +377,8 @@ body {
     align-items: center;
 }
 
+.pill-btn[hidden] { display: none; }   /* display: inline-flex would override the attribute */
+
 .pill-btn:hover {
     background-color: rgba(59, 130, 246, 0.2);
     border-color: var(--accent-blue);

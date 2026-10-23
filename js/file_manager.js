@@ -60,6 +60,91 @@ function fmBaseName(path) {
     return path.startsWith(FM_ROOT) ? path.slice(FM_ROOT.length) : path;
 }
 
+/* ---- Backup and restore: every file in one standard ZIP ---------------- */
+
+/* Not backed up or restored: records of the board's App ROM slots and its
+ * staging file (rebuilt by the firmware; wrong after a reflash) */
+const FM_BACKUP_SKIP = new Set(['.approm', 'app.romsig', 'upload.tmp']);
+
+const FM_CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+        t[n] = c >>> 0;
+    }
+    return t;
+})();
+
+function fmCrc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = FM_CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+/* entries [{name, data: Uint8Array}] -> a ZIP Blob (stored, UTF-8 names) */
+function fmZip(entries) {
+    const enc = new TextEncoder();
+    const d = new Date();
+    const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const parts = [], central = [];
+    let offset = 0;
+    for (const e of entries) {
+        const name = enc.encode(e.name), crc = fmCrc32(e.data), n = e.data.length;
+        const h = new DataView(new ArrayBuffer(30));
+        h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true);
+        h.setUint16(10, time, true); h.setUint16(12, date, true); h.setUint32(14, crc, true);
+        h.setUint32(18, n, true); h.setUint32(22, n, true); h.setUint16(26, name.length, true);
+        parts.push(new Uint8Array(h.buffer), name, e.data);
+        const c = new DataView(new ArrayBuffer(46));
+        c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+        c.setUint16(8, 0x0800, true); c.setUint16(12, time, true); c.setUint16(14, date, true);
+        c.setUint32(16, crc, true); c.setUint32(20, n, true); c.setUint32(24, n, true);
+        c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+        central.push(new Uint8Array(c.buffer), name);
+        offset += 30 + name.length + n;
+    }
+    const size = central.reduce((s, p) => s + p.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true);
+    end.setUint16(10, entries.length, true); end.setUint32(12, size, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/zip' });
+}
+
+/* A ZIP (ours, or stored / deflated by another tool) -> [{name, data}] */
+async function fmUnzip(buf) {
+    const v = new DataView(buf), u8 = new Uint8Array(buf);
+    let eocd = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+        if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('不是 zip 文件');
+    const count = v.getUint16(eocd + 10, true);
+    let p = v.getUint32(eocd + 16, true);
+    const dec = new TextDecoder(), out = [];
+    for (let i = 0; i < count; i++) {
+        if (v.getUint32(p, true) !== 0x02014b50) throw new Error('zip 文件的目录损坏');
+        const method = v.getUint16(p + 10, true), crc = v.getUint32(p + 16, true);
+        const csize = v.getUint32(p + 20, true), nlen = v.getUint16(p + 28, true);
+        const local = v.getUint32(p + 42, true);
+        const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+        p += 46 + nlen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+        if (name.endsWith('/')) continue;
+        const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+        let data = u8.slice(start, start + csize);
+        if (method === 8) {
+            const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+            data = new Uint8Array(await new Response(stream).arrayBuffer());
+        } else if (method !== 0) {
+            throw new Error(`${name}: 不支持的压缩方式 (${method})`);
+        }
+        if (fmCrc32(data) !== crc) throw new Error(`${name}: 校验失败，备份文件已损坏`);
+        out.push({ name, data });
+    }
+    return out;
+}
+
 /* The WASM device's simulated file system (wasm_fs_* exports in wasm_bridge.c) */
 class WasmFsBackend {
     constructor(getExports, getMemory) {
@@ -169,9 +254,12 @@ class FileManager {
                         <button class="pill-btn" data-act="refresh">⟳ 刷新</button>
                         <button class="pill-btn" data-act="upload">⬆ 上传文件</button>
                         <button class="pill-btn" data-act="new">＋ 新建文本</button>
+                        <button class="pill-btn" data-act="backup" title="把文件系统里的所有文件下载成一个 zip（刷机、换分区前先备份）">⬇ 备份全部</button>
+                        <button class="pill-btn" data-act="restore" title="把备份 zip 里的文件写回文件系统，同名覆盖">⬆ 恢复备份</button>
                         <button class="pill-btn" data-act="reset" title="重启后 config.ini 与开机应用的修改才会生效">⏻ 重启设备</button>
                         <button class="pill-btn" data-act="wipe" title="清除浏览器中保存的模拟文件系统与系统字库，恢复初始状态" hidden>清空模拟 Flash</button>
                         <input type="file" class="fm-file-input" multiple hidden>
+                        <input type="file" class="fm-restore-input" accept=".zip,application/zip" hidden>
                     </div>
                     <div class="fm-table-wrap">
                         <table class="fm-table">
@@ -210,6 +298,7 @@ class FileManager {
             empty: q('.fm-empty'),
             tableWrap: q('.fm-table-wrap'),
             fileInput: q('.fm-file-input'),
+            restoreInput: q('.fm-restore-input'),
             resetBtn: q('[data-act="reset"]'),
             wipeBtn: q('[data-act="wipe"]'),
             editPath: q('.fm-edit-path'),
@@ -230,6 +319,11 @@ class FileManager {
                 e.preventDefault();
                 this._save();
             }
+        });
+        this.el.restoreInput.addEventListener('change', () => {
+            const file = this.el.restoreInput.files && this.el.restoreInput.files[0];
+            this.el.restoreInput.value = '';
+            if (file) this._restore(file);
         });
         this.el.fileInput.addEventListener('change', () => {
             const list = Array.from(this.el.fileInput.files || []);
@@ -434,6 +528,8 @@ class FileManager {
             case 'new': await this._newFile(); break;
             case 'reset': await this._reset(); break;
             case 'wipe': await this._wipe(); break;
+            case 'backup': await this._backup(); break;
+            case 'restore': this.el.restoreInput.click(); break;
             case 'edit': await this._edit(path); break;
             case 'download': await this._download(path); break;
             case 'rename': await this._rename(path); break;
@@ -526,6 +622,74 @@ class FileManager {
         } else {
             this._status('设备正在重启，约 10 秒后点击“刷新”', 'ok');
         }
+    }
+
+    /* Every file (but FM_BACKUP_SKIP) into minischeme-backup-<kind>-<when>.zip */
+    async _backup() {
+        const entries = await this._run('读取文件列表…', async () => {
+            const files = ((await this.backend.fsList()).files || [])
+                .filter((f) => !FM_BACKUP_SKIP.has(fmBaseName(f.path)));
+            const out = [];
+            for (let i = 0; i < files.length; i++) {
+                const f = files[i], name = fmBaseName(f.path);
+                this._status(`备份 ${i + 1}/${files.length}: ${name}…`);
+                const data = await this.backend.fsRead(f.path);
+                if (f.size >= 0 && data.length !== f.size) throw new Error(`${name}: 读到 ${data.length} 字节，应为 ${f.size} 字节`);
+                out.push({ name, data });
+            }
+            return out;
+        });
+        if (!entries) return;
+        const pad = (n) => String(n).padStart(2, '0');
+        const d = new Date();
+        const fname = `minischeme-backup-${this.backend.kind || 'device'}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.zip`;
+        const url = URL.createObjectURL(fmZip(entries));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        const bytes = entries.reduce((s, e) => s + e.data.length, 0);
+        this._status(`已备份 ${entries.length} 个文件 (${fmFormatSize(bytes)}) 到 ${fname}`, 'ok');
+        this.log('info', `🗂️ 已备份 ${entries.length} 个文件 (${bytes} 字节) 到 ${fname}`);
+    }
+
+    /* The files of a backup zip written back (same names replaced, others kept) */
+    async _restore(file) {
+        let entries;
+        try {
+            entries = await fmUnzip(await file.arrayBuffer());
+        } catch (e) {
+            this._status(fmErrorText(e), 'error');
+            return;
+        }
+        entries = entries.filter((e) => !FM_BACKUP_SKIP.has(e.name) && !e.name.startsWith('/') && !e.name.includes('..'));
+        if (!entries.length) {
+            this._status('备份里没有可以恢复的文件', 'error');
+            return;
+        }
+        const bytes = entries.reduce((s, e) => s + e.data.length, 0);
+        if (!confirm(`把 ${file.name} 中的 ${entries.length} 个文件 (${fmFormatSize(bytes)}) 写回 ${this.backend.label}？\n同名文件会被覆盖，其他文件保留。写完后重启设备生效。`)) return;
+        // config.ini first: on a freshly flashed board (serial link) the WiFi comes back with it
+        entries.sort((a, b) => (b.name === 'config.ini') - (a.name === 'config.ini'));
+        const ok = await this._run('恢复…', async () => {
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                this._status(`恢复 ${i + 1}/${entries.length}: ${e.name}…`);
+                try {
+                    await this.backend.fsWrite(FM_ROOT + e.name, e.data);
+                } catch (err) {
+                    throw new Error(`${e.name}: ${fmErrorText(err)}（之前的 ${i} 个文件已写入）`);
+                }
+            }
+            return true;
+        });
+        if (!ok) return;
+        await this.refresh();
+        this._status(`已恢复 ${entries.length} 个文件 (${fmFormatSize(bytes)})，重启设备后生效`, 'ok');
+        this.log('info', `🗂️ 已从 ${file.name} 恢复 ${entries.length} 个文件`);
     }
 
     async _wipe() {

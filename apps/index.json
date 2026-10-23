@@ -3,7 +3,7 @@
   "id": "album",
   "name": "电子相册",
   "description": "全屏轮播照片和 GIF 动图：在设备网页的应用选项卡上传 JPG、PNG、GIF，设置轮播间隔、顺序和动图速度；不需要代理",
-  "version": "4",
+  "version": "5",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -15,13 +15,13 @@
   "file": "album.msbc",
   "size": 70934,
   "scm": "album.allinone.scm",
-  "hash": "f88bd388"
+  "hash": "46962987"
  },
  {
   "id": "calendar",
   "name": "万年历",
   "description": "时间、世界时间、日期、农历、节气、宜忌和倒计日；当月日历（含农历）；月相与太阳、月亮的方位和高度",
-  "version": "5",
+  "version": "6",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -35,13 +35,13 @@
   "file": "calendar.msbc",
   "size": 68419,
   "scm": "calendar.allinone.scm",
-  "hash": "91a4f295"
+  "hash": "8bec53e8"
  },
  {
   "id": "combo",
   "name": "合集",
   "description": "把几个应用的页面合成一个轮播：天气、万年历、最新消息、股票等，每页标出所属应用和序号；各应用的设置仍在它自己的配置里",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -51,13 +51,13 @@
   "file": "combo.msbc",
   "size": 113889,
   "scm": "combo.allinone.scm",
-  "hash": "3c9c7569"
+  "hash": "a350431c"
  },
  {
   "id": "crypto",
   "name": "加密货币",
   "description": "比特币、以太坊等币种的价格与24小时涨跌、24小时走势、7日走势（OKX 行情）",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -71,13 +71,13 @@
   "file": "crypto.msbc",
   "size": 54767,
   "scm": "crypto.allinone.scm",
-  "hash": "b5af5ccb"
+  "hash": "5adb7964"
  },
  {
   "id": "futures",
   "name": "期货行情",
   "description": "国内期货主力合约报价、单个合约分时、30日走势（新浪行情）",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -91,13 +91,13 @@
   "file": "futures.msbc",
   "size": 54808,
   "scm": "futures.allinone.scm",
-  "hash": "9fac4826"
+  "hash": "62d2e25a"
  },
  {
   "id": "medicine",
   "name": "吃药提醒",
   "description": "按服药时间点自动弹出吃药提醒（从任何应用切换过来，断电重启后继续），大号粗体显示药名和服用量，逐个按键确认后回到原来的应用。药品可设长期、服用天数或按数量扣减；每个时间点选药、填服用量、可隔日；服药记录保存在设备上（默认 3 年），可在网页修改；可选同步到应用服务器长期保存（服务器连不上不影响使用）；网页可测试提醒；在设备网页的应用选项卡设置",
-  "version": "6",
+  "version": "7",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -109,13 +109,13 @@
   "file": "medicine.msbc",
   "size": 126580,
   "scm": "medicine.allinone.scm",
-  "hash": "590d0012"
+  "hash": "3428b1fc"
  },
  {
   "id": "memo",
   "name": "备忘录",
   "description": "待办和已完成的备忘，在设备网页的应用选项卡中添加、编辑、置顶；不需要代理",
-  "version": "4",
+  "version": "5",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -128,13 +128,13 @@
   "file": "memo.msbc",
   "size": 65557,
   "scm": "memo.allinone.scm",
-  "hash": "a0b2b5bb"
+  "hash": "a39f11b6"
  },
  {
   "id": "news",
   "name": "热点新闻",
   "description": "百度热搜、民生、财经、体育榜单，以及知乎或今日头条热榜，每页10条",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -149,13 +149,13 @@
   "file": "news.msbc",
   "size": 52474,
   "scm": "news.allinone.scm",
-  "hash": "fb1777aa"
+  "hash": "460b0561"
  },
  {
   "id": "notifier",
   "name": "消息提示",
   "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
-  "version": "6",
+  "version": "7",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -168,13 +168,13 @@
   "file": "notifier.msbc",
   "size": 67695,
   "scm": "notifier.allinone.scm",
-  "hash": "d5cc59e2"
+  "hash": "e2bfa0ef"
  },
  {
   "id": "pcmonitor",
   "name": "PC 性能监控",
   "description": "LibreHardwareMonitor 的 CPU、温度、GPU、风扇曲线，按键切换链路和硬件页",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -184,13 +184,13 @@
   "file": "pcmonitor.msbc",
   "size": 45452,
   "scm": "pcmonitor.allinone.scm",
-  "hash": "e38dbdc0"
+  "hash": "7e22fe03"
  },
  {
   "id": "settings",
   "name": "系统设置",
   "description": "设置模式（热点配网网页）、选择启动应用、网络/硬件/存储信息",
-  "version": "2",
+  "version": "3",
   "api": "1.8",
   "extensions": "",
   "kind": "system",
@@ -200,13 +200,13 @@
   "file": "settings.msbc",
   "size": 42149,
   "scm": "settings.allinone.scm",
-  "hash": "dcd9e639"
+  "hash": "3a06266d"
  },
  {
   "id": "stocks",
   "name": "股票行情",
   "description": "大盘指数与分时走势、自选股报价、三大指数分时、自选股30日走势",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -221,13 +221,13 @@
   "file": "stocks.msbc",
   "size": 57302,
   "scm": "stocks.allinone.scm",
-  "hash": "927a38c2"
+  "hash": "62422940"
  },
  {
   "id": "tide",
   "name": "潮汐",
   "description": "今天潮位曲线、当前潮高与涨落、高低潮时刻；应用代理按设备位置取全球潮汐模型，没有数据时用海口（秀英）官方月报表",
-  "version": "4",
+  "version": "5",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -241,13 +241,13 @@
   "file": "tide.msbc",
   "size": 68515,
   "scm": "tide.allinone.scm",
-  "hash": "93ee2a24"
+  "hash": "6a581f0a"
  },
  {
   "id": "usage",
   "name": "Token 用量",
   "description": "Claude Code、Gemini CLI、Codex 在本机的5小时与7天 token 用量、额度、按小时/天趋势和模型分布",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -262,13 +262,13 @@
   "file": "usage.msbc",
   "size": 58174,
   "scm": "usage.allinone.scm",
-  "hash": "a2614eb5"
+  "hash": "782a41ad"
  },
  {
   "id": "weather",
   "name": "天气预报",
   "description": "当前位置的实况、3天/7天预报、24小时气温、未来5小时与2小时降水、空气质量和生活指数",
-  "version": "1",
+  "version": "2",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -284,13 +284,13 @@
   "file": "weather.msbc",
   "size": 67195,
   "scm": "weather.allinone.scm",
-  "hash": "6d668f29"
+  "hash": "ea1444bc"
  },
  {
   "id": "wxpusher",
   "name": "WxPusher",
   "description": "WxPusher 接收终端：推送到你微信的消息显示在屏幕上，新消息时 LED 闪烁；首次使用时用微信扫屏幕上的二维码登录（经应用代理）",
-  "version": "9",
+  "version": "10",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -300,8 +300,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 71558,
+  "size": 71559,
   "scm": "wxpusher.allinone.scm",
-  "hash": "8c682cc7"
+  "hash": "879e12db"
  }
 ]
