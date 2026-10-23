@@ -114,13 +114,13 @@
     ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
 
 (define THEME-DAY
-  '(("bg" . "#f3f5f8") ("fg" . "#17202b") ("border" . "#8d9cae")
+  '(("bg" . "#ffffff") ("fg" . "#17202b") ("border" . "#8d9cae")
     ("card_bg" . "bg") ("card_border" . "#8d9cae") ("titlebar_bg" . "#d7e1ec")
     ("text_fg" . "#17202b") ("text_sub_fg" . "#33404f") ("text_muted_fg" . "#556377")
     ("accent_fg" . "#0a6f9c") ("accent_bg" . "#c2e0ee")
     ("success_fg" . "#1d7f45") ("warning_fg" . "#b8700a") ("danger_fg" . "#bf3434") ("purple_fg" . "#6c49b0")
     ("inactive_fg" . "#c4cdd8") ("divider_border" . "#a3b0bf")
-    ("seg_on_fg" . "#1f7a35") ("seg_off_fg" . "#dae6dd")
+    ("seg_on_fg" . "#000000") ("seg_off_fg" . "bg")      ; unlit segments not shown by day
     ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
 
 (define theme-mode "night")        ; "day" or "night"
@@ -1238,8 +1238,10 @@
   (let ((e (app-cache-entry (vector-ref app-urls app-page-index))))
     (if e (vector-ref e 1) #f)))
 
-(define (app-status key)
-  (let ((e (assq key (json-feed-status)))) (if e (cdr e) #f)))
+;; (json-feed-status) builds a new list on each call: a caller that needs
+;; several fields reads it once and passes it as st
+(define (app-status key . st)
+  (let ((e (assq key (if (pair? st) (car st) (json-feed-status))))) (if e (cdr e) #f)))
 
 ;; 6. Feed --------------------------------------------------------------------------------
 
@@ -1407,24 +1409,25 @@
                      (else (string-append "更新于 " (vector-ref entry 2)))))
          ;; this page's fetch only: a prefetch of another page failing says nothing about it
          (mine (equal? (json-feed-url) url))
-         (state (if mine (app-status 'state) 'ok))
+         (fs (json-feed-status))
+         (state (if mine (app-status 'state fs) 'ok))
          (page-error (and app-error (or (eq? app-error APP-NO-PROXY) (equal? app-error-url url)) app-error))
          ;; what the fetch waits for now (firmware 1.0.57+): it replaces an old error
-         (step (app-status 'step))
+         (step (app-status 'step fs))
          (busy (memq step '(clock register wifi)))
          (failed (and (not busy) (or page-error (eq? state 'error))))
          (text (cond ((eq? step 'register)
-                      (string-append "正在向 " (app-server-name (app-status 'step-server)) " 注册加密通道..."))
+                      (string-append "正在向 " (app-server-name (app-status 'step-server fs)) " 注册加密通道..."))
                      ((eq? step 'clock) "等待网络对时...")
                      ((eq? step 'wifi) "等待 WiFi 连接...")      ; firmware 1.0.61+
                      (page-error (string-append "代理: " page-error))
-                     ((eq? state 'error) (string-append "连接失败: " (app-status 'error)))
+                     ((eq? state 'error) (string-append "连接失败: " (app-status 'error fs)))
                      ((and app-loading mine) (if last (string-append last "，刷新中...") "加载中..."))
                      (last last)
                      (else "等待数据")))
-         (ms (app-status 'fetch-ms))
+         (ms (app-status 'fetch-ms fs))
          (right (if (and mine (eq? state 'ok) (number? ms) (> ms 0))
-                    (string-append (fixed->str (quotient (+ (app-status 'bytes) 51) 102) 1) "KB "
+                    (string-append (fixed->str (quotient (+ (app-status 'bytes fs) 51) 102) 1) "KB "
                                    (int->str ms) "ms")
                     "")))
     (gui-rect 0 y w FTR-H theme-card-hdr #t)

@@ -107,13 +107,13 @@
     ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
 
 (define THEME-DAY
-  '(("bg" . "#f3f5f8") ("fg" . "#17202b") ("border" . "#8d9cae")
+  '(("bg" . "#ffffff") ("fg" . "#17202b") ("border" . "#8d9cae")
     ("card_bg" . "bg") ("card_border" . "#8d9cae") ("titlebar_bg" . "#d7e1ec")
     ("text_fg" . "#17202b") ("text_sub_fg" . "#33404f") ("text_muted_fg" . "#556377")
     ("accent_fg" . "#0a6f9c") ("accent_bg" . "#c2e0ee")
     ("success_fg" . "#1d7f45") ("warning_fg" . "#b8700a") ("danger_fg" . "#bf3434") ("purple_fg" . "#6c49b0")
     ("inactive_fg" . "#c4cdd8") ("divider_border" . "#a3b0bf")
-    ("seg_on_fg" . "#1f7a35") ("seg_off_fg" . "#dae6dd")
+    ("seg_on_fg" . "#000000") ("seg_off_fg" . "bg")      ; unlit segments not shown by day
     ("bar_fg" . "accent_fg") ("bar_bg" . "titlebar_bg") ("icon_fg" . "accent_fg")))
 
 (define theme-mode "night")        ; "day" or "night"

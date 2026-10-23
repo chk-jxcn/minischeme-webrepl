@@ -171,7 +171,7 @@
   (cond ((< r 80) "小潮") ((< r 150) "中潮") (else "大潮")))
 
 ;; 3. The two data paths, one view ------------------------------------------------
-;; view: #(datum station samples lo hi es now-min now-cm rate source top bot labels)
+;; view: #(datum station samples lo hi es now-min now-cm rate source top bot labels days)
 ;;   es      ((minute cm kind) ...), minutes from today 00:00 (1440+ = tomorrow)
 ;;   labels  ("今日 农历十三" "明日 农历十四" "后日 农历十五")
 
@@ -179,7 +179,9 @@
   (vector datum station samples
           (- (* 20 (quotient bot 20)) 20)                 ; axis: 20 cm steps + pad
           (+ (* 20 (+ 1 (quotient top 20))) 20)
-          es now-min now-cm rate source top bot labels))
+          es now-min now-cm rate source top bot labels
+          ;; days: the extrema of today, tomorrow and the day after (page 2)
+          (list (tide-day-rows es 0) (tide-day-rows es 1) (tide-day-rows es 2))))
 
 (define (tide-v-datum v) (vector-ref v 0))
 (define (tide-v-station v) (vector-ref v 1))
@@ -194,6 +196,7 @@
 (define (tide-v-top v) (vector-ref v 10))
 (define (tide-v-bot v) (vector-ref v 11))
 (define (tide-v-labels v) (vector-ref v 12))
+(define (tide-v-day v d) (list-ref (vector-ref v 13) d))
 
 ;; Everything one lunar day needs, built once: the board redraws the chart
 ;; every minute and must not allocate a new vector and lists each time.
@@ -231,7 +234,20 @@
 (define (tide-shift es off)
   (map (lambda (e) (list (+ off (car e)) (cadr e) (caddr e))) es))
 
+;; The local view, made again only when the minute or the lunar day changes:
+;; a render must not allocate a new view (vector, lists, strings) each time.
+(define tide-local-time "")
+(define tide-local-lunar "")
+(define tide-local-view #f)
+
 (define (tide-view-local)
+  (if (not (and (string=? app-time tide-local-time) (string=? app-lunar tide-local-lunar)))
+      (begin (set! tide-local-view (tide-view-local-make))
+             (set! tide-local-time app-time)
+             (set! tide-local-lunar app-lunar)))
+  tide-local-view)
+
+(define (tide-view-local-make)
   (let ((L (tide-lunar-day)))
     (if (not L)
         #f
@@ -413,18 +429,18 @@
         (tide-render-waiting "等待网络对时")
         (let* ((es (tide-v-es v))
                (labels (tide-v-labels v))
-               (today (tide-day-rows es 0))
+               (today (tide-v-day v 0))
                (y0 (tide-render-rows today (+ (body-top) 24) 4)))
           (section-note (body-top) "今日" (if (pair? labels) (car labels) ""))
           (if (null? today)
               (txt 12 (+ (body-top) 26) "今天没有明显的高低潮" theme-text-muted))
           (section-note y0 "明日" (if (pair? (cdr labels)) (cadr labels) ""))
-          (let ((y1 (tide-render-rows (tide-day-rows es 1) (+ y0 22) 4)))
-            (if (and (< y1 400) (pair? (tide-day-rows es 2)))
+          (let ((y1 (tide-render-rows (tide-v-day v 1) (+ y0 22) 4)))
+            (if (and (< y1 400) (pair? (tide-v-day v 2)))
                 (begin
                   (section-note y1 "后日" (if (and (pair? (cdr labels)) (pair? (cddr labels)))
                                               (caddr labels) ""))
-                  (tide-render-rows (tide-day-rows es 2) (+ y1 22) 2))))))))
+                  (tide-render-rows (tide-v-day v 2) (+ y1 22) 2))))))))
 
 ;; 6. Page 3: about ----------------------------------------------------------------
 

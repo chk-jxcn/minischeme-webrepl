@@ -13,9 +13,9 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 70866,
+  "size": 70934,
   "scm": "album.allinone.scm",
-  "hash": "6ce503da"
+  "hash": "f88bd388"
  },
  {
   "id": "calendar",
@@ -33,9 +33,9 @@
   ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 68351,
+  "size": 68419,
   "scm": "calendar.allinone.scm",
-  "hash": "cebaa85f"
+  "hash": "91a4f295"
  },
  {
   "id": "combo",
@@ -49,9 +49,9 @@
   "page_ids": [],
   "web": false,
   "file": "combo.msbc",
-  "size": 113821,
+  "size": 113889,
   "scm": "combo.allinone.scm",
-  "hash": "0feeec3b"
+  "hash": "3c9c7569"
  },
  {
   "id": "crypto",
@@ -69,9 +69,9 @@
   ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 54699,
+  "size": 54767,
   "scm": "crypto.allinone.scm",
-  "hash": "37a75d05"
+  "hash": "b5af5ccb"
  },
  {
   "id": "futures",
@@ -89,9 +89,9 @@
   ],
   "web": false,
   "file": "futures.msbc",
-  "size": 54740,
+  "size": 54808,
   "scm": "futures.allinone.scm",
-  "hash": "5d8483f4"
+  "hash": "9fac4826"
  },
  {
   "id": "medicine",
@@ -107,9 +107,9 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 126512,
+  "size": 126580,
   "scm": "medicine.allinone.scm",
-  "hash": "111c4d44"
+  "hash": "590d0012"
  },
  {
   "id": "memo",
@@ -126,9 +126,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 65489,
+  "size": 65557,
   "scm": "memo.allinone.scm",
-  "hash": "b355c965"
+  "hash": "a0b2b5bb"
  },
  {
   "id": "news",
@@ -147,9 +147,9 @@
   ],
   "web": false,
   "file": "news.msbc",
-  "size": 52406,
+  "size": 52474,
   "scm": "news.allinone.scm",
-  "hash": "3d0dda78"
+  "hash": "fb1777aa"
  },
  {
   "id": "notifier",
@@ -166,9 +166,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 67627,
+  "size": 67695,
   "scm": "notifier.allinone.scm",
-  "hash": "232ae4dc"
+  "hash": "d5cc59e2"
  },
  {
   "id": "pcmonitor",
@@ -182,9 +182,9 @@
   "page_ids": [],
   "web": false,
   "file": "pcmonitor.msbc",
-  "size": 45457,
+  "size": 45452,
   "scm": "pcmonitor.allinone.scm",
-  "hash": "e0c521b8"
+  "hash": "e38dbdc0"
  },
  {
   "id": "settings",
@@ -198,9 +198,9 @@
   "page_ids": [],
   "web": false,
   "file": "settings.msbc",
-  "size": 42154,
+  "size": 42149,
   "scm": "settings.allinone.scm",
-  "hash": "75829c19"
+  "hash": "dcd9e639"
  },
  {
   "id": "stocks",
@@ -219,15 +219,15 @@
   ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 57234,
+  "size": 57302,
   "scm": "stocks.allinone.scm",
-  "hash": "5fdccebc"
+  "hash": "927a38c2"
  },
  {
   "id": "tide",
   "name": "潮汐",
   "description": "今天潮位曲线、当前潮高与涨落、高低潮时刻；应用代理按设备位置取全球潮汐模型，没有数据时用海口（秀英）官方月报表",
-  "version": "3",
+  "version": "4",
   "api": "1.8",
   "extensions": "",
   "kind": "app",
@@ -239,9 +239,9 @@
   ],
   "web": false,
   "file": "tide.msbc",
-  "size": 68012,
+  "size": 68515,
   "scm": "tide.allinone.scm",
-  "hash": "39080a6a"
+  "hash": "93ee2a24"
  },
  {
   "id": "usage",
@@ -260,9 +260,9 @@
   ],
   "web": false,
   "file": "usage.msbc",
-  "size": 58106,
+  "size": 58174,
   "scm": "usage.allinone.scm",
-  "hash": "0f4e2def"
+  "hash": "a2614eb5"
  },
  {
   "id": "weather",
@@ -282,9 +282,9 @@
   ],
   "web": false,
   "file": "weather.msbc",
-  "size": 67127,
+  "size": 67195,
   "scm": "weather.allinone.scm",
-  "hash": "b6bcbf1b"
+  "hash": "6d668f29"
  },
  {
   "id": "wxpusher",
@@ -300,8 +300,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 71490,
+  "size": 71558,
   "scm": "wxpusher.allinone.scm",
-  "hash": "6638913d"
+  "hash": "8c682cc7"
  }
 ]
