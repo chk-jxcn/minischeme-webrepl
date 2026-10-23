@@ -9,12 +9,17 @@ and takes commands in order:
     python tools/sim.py --app weather --wait 5 --shot weather.png
     python tools/sim.py --eval "(+ 1 2)" --eval "(api-version)"
     python tools/sim.py --config app.carousel=0 --app calendar --press short --wait 2 --shot month.png
+    python tools/sim.py --install ../minischeme-apps/apps/memo.msbc --wait 5 --webshot web.png
     python tools/sim.py --repl            # one command per line on stdin
 
 Commands (repeatable, run in the order given):
   --eval CODE        Scheme in the device VM (as the REPL); prints the result
   --app NAME|FILE    boot an app: a bundled one (apps/<NAME>.msbc), an .msbc
                      image, or Scheme source (.scm, compiled in the page)
+  --install NAME|FILE  install an .msbc image as the market does (/spiffs/apps/<id>/,
+                     id = the file name), make it the boot app and restart: its
+                     web page, config.ini and folder then work as on a board
+  --webshot FILE.png save the running app's web page (the WebREPL's 应用网页 panel)
   --press KIND       KEY 18: short, long (0.8 s), mid (3.5 s), hold (8 s), or seconds
   --wait SECONDS     let the device run (data fetches, carousel, clock)
   --shot FILE.png    save the LCD canvas
@@ -274,6 +279,44 @@ class Simulator:
                     f" if (String(r).startsWith('Error:')) throw new Error(r); return r; }})()")
         return self.page.js(expr)
 
+    def install(self, name):
+        path = name if os.path.isfile(name) else os.path.join(ROOT, "apps", name if name.endswith(".msbc") else name + ".msbc")
+        if not os.path.isfile(path) or not path.lower().endswith(".msbc"):
+            raise SimError(f"install: no image {name!r} (an .msbc file, or a bundled app's name)")
+        app_id = os.path.basename(path)[:-5]
+        b64 = base64.b64encode(open(path, "rb").read()).decode()
+        r = self.page.js(
+            f"(async () => {{ const b = Uint8Array.from(atob('{b64}'), (c) => c.charCodeAt(0));"
+            f" appManager.backend = appManager.getBackend();"
+            f" await appManager.backend.fsWrite('/spiffs/apps/{app_id}/app.msbc', b);"
+            f" await appManager.refresh();"
+            f" const i = appManager.apps.findIndex((a) => a.id === {json.dumps(app_id)});"
+            f" if (i < 0) throw new Error('the device did not list the installed app');"
+            f" await appManager._setBoot(i, true); appManager.close && appManager.close();"
+            f" return appManager.bootPath; }})()", timeout=60)
+        if not str(r or "").endswith(f"apps/{app_id}/app.msbc"):
+            raise SimError(f"install: the boot app is {r!r}")
+        time.sleep(2)   # the app starts
+        return f"installed {app_id} ({os.path.getsize(path)} bytes) and booted it"
+
+    def webshot(self, path):
+        self.page.js("(async () => { appWebPanel.open(); await new Promise((r) => setTimeout(r, 300));"
+                     " appWebPanel.loadAppTab(); })()")
+        time.sleep(4)   # the page loads and makes its first calls
+        rect = self.page.js("(() => { const f = appWebPanel.el.frame; if (!f || appWebPanel.el.root.hidden) return null;"
+                            " const r = f.getBoundingClientRect();"
+                            " return {x: r.left, y: r.top, width: r.width, height: r.height}; })()")
+        if not rect or rect["width"] < 10:
+            raise SimError("webshot: the app web panel did not open")
+        shot = self.page.call("Page.captureScreenshot", format="png", clip=dict(rect, scale=1))
+        data = base64.b64decode(shot["data"])
+        with open(path, "wb") as f:
+            f.write(data)
+        note = self.page.js("appWebPanel.el.status.textContent || ''")
+        self.page.js("appWebPanel.close()")
+        w, h = struct.unpack(">II", data[16:24])
+        return f"saved {path} ({w}x{h}){' - ' + note if note else ''}"
+
     def press(self, kind):
         secs = PRESS_SECONDS.get(kind)
         if secs is None:
@@ -316,7 +359,8 @@ class Simulator:
 
     def run(self, cmd, arg):
         fn = {"eval": self.eval, "app": self.app, "press": self.press, "wait": self.wait, "shot": self.shot,
-              "config": self.config, "js": self.js, "log": self.log}.get(cmd)
+              "config": self.config, "js": self.js, "log": self.log, "install": self.install,
+              "webshot": self.webshot}.get(cmd)
         if not fn:
             raise SimError(f"unknown command {cmd!r}")
         return fn(arg)
@@ -337,7 +381,7 @@ class Simulator:
 def parse_args(argv):
     opts = {"url": None, "port": None, "profile": None, "fresh": False, "browser": None, "show": False}
     commands, i = [], 0
-    takes = {"--eval", "--app", "--press", "--wait", "--shot", "--config", "--js"}
+    takes = {"--eval", "--app", "--press", "--wait", "--shot", "--config", "--js", "--install", "--webshot"}
     while i < len(argv):
         a = argv[i]
         if a in ("-h", "--help"):

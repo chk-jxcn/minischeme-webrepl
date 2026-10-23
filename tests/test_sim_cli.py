@@ -95,6 +95,26 @@ class TestSimCli(unittest.TestCase):
         self.assertEqual(lines[3], str(size))
         self.assertEqual(lines[4:6], ["#t", "error"])
 
+    def test_install_and_webshot(self):
+        # --install: the app's folder as the market writes it, booted; its web page
+        # then opens (--webshot), and the proxy URL it hands to the browser is the
+        # page's own server
+        with tempfile.TemporaryDirectory() as tmp:
+            shot = os.path.join(tmp, "web.png")
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh",
+                                "--install", "memo", "--wait", "3", "--webshot", shot,
+                                "--eval", "(app-proxy)", "--js", "window.location.origin"],
+                               capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = r.stdout.splitlines()
+            self.assertTrue(lines[0].startswith("installed memo"), lines[0])
+            self.assertIn("web.png", lines[1])
+            self.assertEqual(lines[2], lines[3])          # "http://127.0.0.1:PORT" both
+            with open(shot, "rb") as f:
+                head = f.read(24)
+            self.assertEqual(head[:4], b"\x89PNG")
+            self.assertGreater(struct.unpack(">II", head[16:24])[0], 300)
+
     def test_errors_fail(self):
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh",
                             "--eval", "(car 1)"], capture_output=True, encoding="utf-8", errors="replace",

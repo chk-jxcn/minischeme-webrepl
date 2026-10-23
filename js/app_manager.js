@@ -225,6 +225,7 @@ class AppManager {
                 const list = res.ok ? await res.json() : [];
                 this.bundled = list.filter((b) => (b.kind || 'app') === 'app');
                 this.marketSource = res.url.includes('github') ? 'GitHub 官方市场' : '本地离线包';
+                if (res.url.includes('github')) await this._mergeLocal();
             } catch (e) {
                 try {
                     const res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
@@ -237,6 +238,32 @@ class AppManager {
             }
             this._render();
         });
+    }
+
+    /* Served by a local server.py (not the published WebREPL): the apps its
+     * apps/ holds (minischeme-apps' build_apps.py --sync) win over the market's,
+     * so an app being developed is listed and installed from the local build */
+    async _mergeLocal() {
+        const published = window.DeviceSetupWizard && window.DeviceSetupWizard.isPublicWebRepl();
+        if (published || !window.location.protocol.startsWith('http')) return;
+        try {
+            const res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
+            if (!res.ok) return;
+            const local = (await res.json()).filter((b) => (b.kind || 'app') === 'app');
+            const byId = new Map(this.bundled.map((b, i) => [b.id, i]));
+            let added = 0;
+            for (const b of local) {
+                const mine = Object.assign({}, b, { local: true });
+                if (byId.has(b.id)) {
+                    const m = this.bundled[byId.get(b.id)];
+                    if (m.size !== b.size || m.version !== b.version) { this.bundled[byId.get(b.id)] = mine; added++; }
+                } else {
+                    this.bundled.push(mine);
+                    added++;
+                }
+            }
+            if (added) this.marketSource = `GitHub 官方市场 + 本地编译的 ${added} 个`;
+        } catch (e) { /* the market's list only */ }
     }
 
     _render() {
@@ -265,7 +292,7 @@ class AppManager {
             const state = !have ? '未安装' : (have.size === b.size && have.version === b.version ? '已安装' : '有更新');
             return `
             <div class="am-app">
-                <div class="am-name">${amEsc(b.name)} <span class="am-note">${state}</span></div>
+                <div class="am-name">${amEsc(b.name)} <span class="am-note">${state}${b.local ? ' · 本地编译' : ''}</span></div>
                 <div class="am-desc">${amEsc(b.description)}</div>
                 <div class="am-desc">${amEsc(b.file)} · ${amSize(b.size)} · v${amEsc(b.version)}</div>
                 <div class="am-actions">
@@ -530,6 +557,7 @@ class AppManager {
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
             const urls = [
+                ...(b.local ? [`apps/${b.file}`] : []),   /* a local build: the page's own apps/ */
                 `/api/release_asset?repo=minischeme-apps&asset=${encodeURIComponent(b.file)}`,
                 `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${b.file}`,
                 `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${b.file}`,

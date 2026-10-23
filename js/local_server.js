@@ -572,7 +572,7 @@ class LocalServerManager {
             }
 
             if (typeof window.syncWasmProxyUrl === 'function') {
-                window.syncWasmProxyUrl(window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087');
+                window.syncWasmProxyUrl(window.LOCAL_SERVER_BASE || (found ? window.location.origin : 'http://127.0.0.1:8087'));
             }
 
             if (found && found.baseUrl) {

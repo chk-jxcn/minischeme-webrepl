@@ -138,9 +138,12 @@ async function initWasm() {
 
         window.syncWasmProxyUrl = function(customUrl) {
             if (!wasmInstance || !wasmInstance.exports) return;
-            let url = customUrl || window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+            // the page's own server when it serves the page (LOCAL_SERVER_BASE is '' then): the
+            // proxy URL apps hand to the browser (pictures in a web page) must reach it
+            const own = window.LOCAL_SERVER_BASE || (window.LOCAL_SERVER_INFO ? window.location.origin : '') || 'http://127.0.0.1:8087';
+            let url = customUrl || own;
             if (window.DeviceSetupWizard && !window.DeviceSetupWizard.isSupportedProxyUrl(url)) {
-                url = window.LOCAL_SERVER_BASE || 'http://127.0.0.1:8087';
+                url = own;
             }
             if (typeof wasmInstance.exports.wasm_set_proxy_url === 'function' && typeof wasmInstance.exports.wasm_alloc_buffer === 'function') {
                 const bytes = new TextEncoder().encode(url + '\0');
