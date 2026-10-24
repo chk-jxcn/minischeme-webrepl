@@ -81,7 +81,7 @@
                         <div id="ac-list" class="ac-list"></div>
                     </div>
                     <span class="prompt-symbol">minischeme&gt;</span>
-                    <textarea id="cmd-input" rows="1" placeholder="输入 Scheme 代码，回车发送 (Tab 自动补全，Shift+Enter 换行)..." autofocus autocomplete="off" spellcheck="false"></textarea>
+                    <textarea id="cmd-input" rows="1" autofocus autocomplete="off" spellcheck="false"></textarea>
                     <button id="send-btn" class="action-btn">编译并执行</button>
                     <button id="btn-upload-fasl" class="action-btn upload-btn" title="选择 .msbc / .fasl / .scm 文件，在当前目标 (WASM 仿真或硬件) 的 REPL 中运行这段字节码 (.scm 先在浏览器编译)：不安装、不写入 Flash，运行完释放内存，类似再加载一个 fasl。安装应用请用编辑器的「安装到 ESP32」或应用管理。也可以把文件拖到页面上">📁 上传字节码</button>
                     <input type="file" id="input-fasl-upload" style="display:none;" accept=".fasl,.msbc,.bin,.scm">
