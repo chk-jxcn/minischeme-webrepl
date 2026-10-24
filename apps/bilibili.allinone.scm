@@ -7,7 +7,7 @@
 ;;; name = B站热门视频
 ;;; description = 多个榜单同时显示（综合热门/每周必看/入站必刷/排行榜/UP主最新视频），可在应用网页里增删排序，每个榜单单独设置条数和翻页
 ;;; version = 1
-;;; api = 1.11 ; fs-download needs 1.10 (11.7); 1.11 adds the font server, for titles full of emoji, Korean and traditional characters (9)
+;;; api = 1.11 ; fs-download needs 1.10 (11.7; on 1.12 its on-done starts the next cover at once); 1.11 adds the font server, for titles full of emoji, Korean and traditional characters (9)
 ;;; pages = 1
 ;;; page_ids = hot ; one applib page: it keeps its own lists and their screens (section 6.5), not applib pages
 ;;; storage_kb = 512 ; room for a few dozen small cover pictures (cache/)
@@ -1943,7 +1943,20 @@
                   (if (bilibili-want? aid w h) (set! bilibili-dl-queue (append bilibili-dl-queue (list (list aid w h)))))))
             (loop (+ k 1)))))))
 
-;; One fs-download in flight at a time; called every tick (cheap: one assq when idle). An
+;; Redraw only the row whose cover arrived: the whole body would decode every cover again, and the
+;; next download's on-done waits for that redraw
+(define (bilibili-invalidate-cover! aid)
+  (let* ((ps (bilibili-effective-page-size bilibili-current))
+         (base (* (vector-ref bilibili-screen bilibili-current) ps))
+         (total (vector-length bilibili-items)))
+    (let loop ((k 0))
+      (if (and (< k ps) (< (+ base k) total))
+          (if (equal? (it-b (vector-ref bilibili-items (+ base k))) aid)
+              (gui-invalidate 0 (+ (body-top) (* k bilibili-row-h)) (scr-w) bilibili-row-h)
+              (loop (+ k 1)))))))
+
+;; One fs-download in flight at a time; called when a download ends (its on-done, below) and
+;; every tick (the fallback on firmware before API 1.12, which ignores on-done). An
 ;; in-flight download cannot be cancelled when the queue is reset above; it still finishes (one
 ;; wasted download at most) and its result is simply not on screen any more by the time it lands.
 (define (bilibili-dl-step!)
@@ -1953,14 +1966,14 @@
                (set! bilibili-ready (cons (bilibili-pic-path (car bilibili-dl-current) (cadr bilibili-dl-current)
                                                              (caddr bilibili-dl-current))
                                          bilibili-ready))
-               (set! bilibili-dl-current #f)
-               (app-invalidate-body))
+               (bilibili-invalidate-cover! (car bilibili-dl-current))
+               (set! bilibili-dl-current #f))
               ((eq? state 'error) (set! bilibili-dl-current #f))
               (else #f)))   ; idle, queued or running: wait
       (if (pair? bilibili-dl-queue)
           (let* ((job (car bilibili-dl-queue)) (aid (car job)) (w (cadr job)) (h (caddr job)))
             (set! bilibili-dl-queue (cdr bilibili-dl-queue))
-            (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h))
+            (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h) bilibili-dl-done)
                 (set! bilibili-dl-current job)
                 (set! bilibili-dl-queue (append bilibili-dl-queue (list job))))))))  ; busy: retry later
 
@@ -2049,6 +2062,13 @@
 
 (define (app-button) (bilibili-next!))
 (define (app-long-press) (bilibili-prev!))
+
+;; The firmware calls it the moment a download ended: the cover is drawn and the next one starts
+;; at once (stepping only from the tick made each cover wait up to a second: five took 5..10 s).
+;; Twice: the first records the outcome, the second starts the next download.
+(define (bilibili-dl-done ok path)
+  (bilibili-dl-step!)
+  (bilibili-dl-step!))
 
 (define (bilibili-tick! tick)
   (bilibili-dl-step!)

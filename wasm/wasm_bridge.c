@@ -2522,6 +2522,11 @@ int wasm_app_step(void) {
     mini_device_call_hook(g_dev, "app-step", NULL, 0, NULL);
     bool failed = mini_get_error(g_dev) != NULL;
     wasm_check_app_error("app-step");
+    if (!failed) {
+        mini_download_poll(g_dev);   /* an fs-download's on-done */
+        failed = mini_get_error(g_dev) != NULL;
+        wasm_check_app_error("fs-download");
+    }
     return failed ? -1 : 1;
 }
 

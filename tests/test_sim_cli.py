@@ -121,6 +121,24 @@ class TestSimCli(unittest.TestCase):
         self.assertEqual(lines[3], str(size))
         self.assertEqual(lines[4:6], ["#t", "error"])
 
+    def test_fs_download_on_done(self):
+        # (fs-download url path on-done): the main loop calls (on-done ok path) once
+        # the download ended, done or failed; on-done must be a procedure
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "sim.py"), "--fresh", "--wait", "3",
+                            "--eval", "(define dl-seen '())",
+                            "--eval", "(define (dl-done ok path) (set! dl-seen (cons (list ok path) dl-seen)))",
+                            "--eval", '(fs-download "http://proxy.local/apps/index.json" "/spiffs/dl.json" dl-done)',
+                            "--wait", "3",
+                            "--eval", '(fs-download "http://proxy.local/no/such/file" "/spiffs/x.bin" dl-done)',
+                            "--wait", "3",
+                            "--eval", "dl-seen",
+                            "--eval", '(fs-download "http://proxy.local/apps/index.json" "/spiffs/y.json" 5)'],
+                           capture_output=True, encoding="utf-8", errors="replace", timeout=180)
+        self.assertEqual(r.returncode, 1, r.stdout)   # the last --eval is an error
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[2:5], ["#t", "#t", '((#f "/spiffs/x.bin") (#t "/spiffs/dl.json"))'])
+        self.assertIn("on-done must be a procedure", r.stdout + r.stderr)
+
     def test_install_and_webshot(self):
         # --install: the app's folder as the market writes it, booted; its web page
         # then opens (--webshot), and the proxy URL it hands to the browser is the

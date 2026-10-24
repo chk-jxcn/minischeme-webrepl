@@ -10,6 +10,8 @@
  *    and direct raw config.ini editing.
  * 3. App Config: Form-based configuration for running/installed applications.
  * 4. App Management: Lists installed apps in /spiffs/apps/ and allows execution/upload.
+ * 5. Color schemes: day / night switching and the theme.css editor with a preview,
+ *    as on the board's own page (its 配色方案 tab).
  * 5. System Info: Live telemetry of simulated memory, heap, VFB, flash, and firmware API.
  *
  * For ESP32 hardware over HTTP, opens the board's own web portal in a new tab.
@@ -43,6 +45,91 @@ window.fetch = function (url, opts) {
   });
 };
 })();</script>`;
+
+/* ---- 配色方案: the board page's theme tab (minischeme-esp32 main/setup_page.html,
+ * the same cascade as apps/lib/gui.scm; keep the three in step) ---- */
+const AW_THEME_BUILTIN = {
+    night: {bg: '#0b1118', fg: '#e6ecf3', border: '#5b7090', card_bg: 'bg', card_border: '#5b7090', titlebar_bg: '#152030',
+        text_fg: '#e6ecf3', text_sub_fg: '#bac7d6', text_muted_fg: '#a2b2c6', accent_fg: '#62d0f0', accent_bg: '#173f52',
+        success_fg: '#72d696', warning_fg: '#f0bc55', danger_fg: '#ee7c7c', purple_fg: '#c0a2f2', inactive_fg: '#34414f',
+        divider_border: '#688098', seg_on_fg: '#6fcf7f', seg_off_fg: '#142a1c', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'},
+    day: {bg: '#ffffff', fg: '#17202b', border: '#8d9cae', card_bg: 'bg', card_border: '#8d9cae', titlebar_bg: '#d7e1ec',
+        text_fg: '#17202b', text_sub_fg: '#33404f', text_muted_fg: '#556377', accent_fg: '#0a6f9c', accent_bg: '#c2e0ee',
+        success_fg: '#1d7f45', warning_fg: '#b8700a', danger_fg: '#bf3434', purple_fg: '#6c49b0', inactive_fg: '#c4cdd8',
+        divider_border: '#a3b0bf', seg_on_fg: '#000000', seg_off_fg: 'bg', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}
+};
+const AW_THEME_NAMES = {bg: '背景', fg: '文字（大类）', border: '边框（大类）', titlebar_bg: '标题栏、底栏', card_bg: '卡片背景',
+    card_border: '卡片边框', text_fg: '正文', text_sub_fg: '次要文字', text_muted_fg: '提示文字', accent_fg: '强调色',
+    accent_bg: '强调背景、按钮', success_fg: '正常、上涨', warning_fg: '警告', danger_fg: '危险、下跌', purple_fg: '紫色',
+    inactive_fg: '未激活', divider_border: '分隔线', seg_on_fg: '数码管亮段', seg_off_fg: '数码管暗段', bar_fg: '进度条',
+    bar_bg: '进度条底', icon_fg: '图标'};
+const AW_THEME_FIELDS = [['light_day', 'theme_light_day'], ['light_night', 'theme_light_night'], ['day_start', 'theme_day_start'],
+    ['night_start', 'theme_night_start'], ['lat', 'theme_lat'], ['lon', 'theme_lon']];
+
+function awThemeParse(text) {
+    const blocks = [];
+    const t = String(text || '').replace(/\/\*[\s\S]*?(\*\/|$)/g, '');
+    for (const chunk of t.split('}')) {
+        const open = chunk.indexOf('{');
+        if (open < 0) continue;
+        const pairs = {};
+        for (const part of chunk.slice(open + 1).split(';')) {
+            const c = part.indexOf(':');
+            if (c < 0) continue;
+            const k = part.slice(0, c).trim(), v = part.slice(c + 1).trim();
+            if (k && v) pairs[k] = v;
+        }
+        for (const n of chunk.slice(0, open).split(',').map(x => x.trim()).filter(Boolean)) blocks.push({name: n, pairs});
+    }
+    return blocks;
+}
+
+function awThemeBlockGet(css, scheme, alias) {
+    let own = null, any = null;
+    for (const b of css) {
+        if (!(alias in b.pairs)) continue;
+        if (b.name === scheme) own = b.pairs[alias];
+        else if (b.name === '*') any = b.pairs[alias];
+    }
+    return own != null ? own : any;
+}
+
+function awThemeLiteral(v) {
+    let m = /^#([0-9a-fA-F]{6})$/.exec(v);
+    if (m) return '#' + m[1].toLowerCase();
+    m = /^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/.exec(v);
+    if (m) return ('#' + m[1] + m[1] + m[2] + m[2] + m[3] + m[3]).toLowerCase();
+    m = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/.exec(v);
+    if (m) return '#' + [m[1], m[2], m[3]].map(x => Math.min(255, +x).toString(16).padStart(2, '0')).join('');
+    return null;
+}
+
+function awThemeResolve(ctx, name, depth) {
+    const lit = awThemeLiteral(name);
+    if (lit || depth >= 8) return lit;
+    const v = awThemeBlockGet(ctx.app, ctx.scheme, name) ?? awThemeBlockGet(ctx.sys, ctx.scheme, name) ?? AW_THEME_BUILTIN[ctx.mode][name];
+    const r = v != null ? awThemeResolve(ctx, v, depth + 1) : null;
+    if (r) return r;
+    const u = name.lastIndexOf('_');
+    return u >= 0 ? awThemeResolve(ctx, name.slice(u + 1), depth + 1) : null;
+}
+
+/* text with `alias: value;` set in the block named scheme alone (added when missing) */
+function awThemeSetAlias(text, scheme, alias, value) {
+    const re = /([^{}]*)\{([^}]*)\}/g;
+    let m;
+    while ((m = re.exec(text))) {
+        const names = m[1].replace(/\/\*[\s\S]*?\*\//g, '').split(',').map(x => x.trim());
+        if (names.length !== 1 || names[0] !== scheme) continue;
+        const start = m.index + m[1].length + 1, body = m[2];
+        /* aliases are letters, digits, _ and -: no regex escaping needed */
+        const k = new RegExp('(^|[;\\s])(' + alias + ')(\\s*:\\s*)([^;}]*)').exec(body);
+        const nb = k ? body.slice(0, k.index + k[1].length) + k[2] + k[3] + value + body.slice(k.index + k[0].length)
+                     : body.replace(/\s*$/, '') + '\n  ' + alias + ': ' + value + ';\n';
+        return text.slice(0, start) + nb + text.slice(start + body.length);
+    }
+    return (text.trim() ? text.replace(/\s*$/, '\n\n') : '') + scheme + ' {\n  ' + alias + ': ' + value + ';\n}\n';
+}
 
 class AppWebPanel {
     /**
@@ -78,6 +165,7 @@ class AppWebPanel {
                     <button class="aw-tab-btn" data-tab="system">⚙️ 系统配置</button>
                     <button class="aw-tab-btn" data-tab="config">📝 应用配置</button>
                     <button class="aw-tab-btn" data-tab="manage">📦 应用管理</button>
+                    <button class="aw-tab-btn" data-tab="theme">🎨 配色方案</button>
                     <button class="aw-tab-btn" data-tab="info">ℹ️ 系统信息</button>
                 </div>
                 <div class="aw-body">
@@ -275,6 +363,54 @@ class AppWebPanel {
                         </section>
                     </div>
 
+                    <!-- Tab: 配色方案 (the board page's theme tab) -->
+                    <div class="aw-pane" id="aw-pane-theme" hidden>
+                        <section class="aw-section">
+                            <h3 class="aw-sec-title">🌗 白天 / 黑夜</h3>
+                            <div class="aw-grid-2">
+                                <label>模式
+                                    <select id="aw-th-mode"><option value="auto">自动切换</option><option value="day">一直白天（亮色）</option><option value="night">一直黑夜（暗色）</option></select>
+                                </label>
+                                <label id="aw-th-switch-box">自动切换依据
+                                    <select id="aw-th-switch"><option value="light">光感</option><option value="time">固定时间</option><option value="sun">日出日落</option></select>
+                                </label>
+                            </div>
+                            <div class="aw-grid-2" id="aw-th-light-box">
+                                <label>光感达到多少变白天 <input type="number" id="aw-th-light_day" min="0" max="1000" placeholder="120"></label>
+                                <label>光感降到多少变黑夜 <input type="number" id="aw-th-light_night" min="0" max="1000" placeholder="50"></label>
+                            </div>
+                            <div class="aw-grid-2" id="aw-th-time-box">
+                                <label>白天开始 <input type="time" id="aw-th-day_start" placeholder="07:00"></label>
+                                <label>黑夜开始 <input type="time" id="aw-th-night_start" placeholder="19:00"></label>
+                            </div>
+                            <div class="aw-grid-2" id="aw-th-sun-box">
+                                <label>纬度（北纬为正） <input type="number" id="aw-th-lat" step="0.0001" min="-90" max="90" placeholder="39.9042"></label>
+                                <label>经度（东经为正） <input type="number" id="aw-th-lon" step="0.0001" min="-180" max="180" placeholder="116.4074"></label>
+                            </div>
+                            <div class="aw-grid-2">
+                                <label>白天用的配色 <select id="aw-th-day-scheme"></select></label>
+                                <label>黑夜用的配色 <select id="aw-th-night-scheme"></select></label>
+                            </div>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin: 4px 0 8px;">光感是 0..1000 的大致亮度（light-lux），两个阈值之间保持原来的模式，不会来回闪；日出日落按设备的时区计算，没有经纬度时按固定时间。应用每 10 秒检查一次，保存后 10 秒内生效。单个应用可在自己的配置里用同名的键（theme、theme_switch …）覆盖。</div>
+                            <button class="pill-btn" data-th="save-mode">保存</button>
+                        </section>
+                        <section class="aw-section">
+                            <h3 class="aw-sec-title">🎨 配色（类似 CSS）</h3>
+                            <label>编辑 <select id="aw-th-scope"></select></label>
+                            <textarea id="aw-th-css" spellcheck="false" style="width: 100%; min-height: 240px; margin-top: 6px; font-family: var(--font-mono); font-size: 12px;"></textarea>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin: 4px 0 8px;">每块是一套配色：<b>day</b>、<b>night</b>、自己起名的（如 sakura，可在上面选为白天或黑夜用的配色），<b>*</b> 对所有配色生效。块里写 <code>别名: 颜色;</code>，颜色是 #rgb、#rrggbb、rgb(r, g, b) 或另一个别名，也可以起自己的别名再引用。查找顺序：程序里直接给的颜色 → 应用目录的 theme.css → 系统的 theme.css → 应用自带的默认值 → 内置的白天 / 黑夜配色；都没写的别名用它最后一段的大类（titlebar_bg → bg，text_sub_fg → fg，card_border → border）。</div>
+                            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                <button class="pill-btn" data-th="save-css">保存</button>
+                                <button class="pill-btn compact" data-th="insert-day">插入内置白天配色</button>
+                                <button class="pill-btn compact" data-th="insert-night">插入内置黑夜配色</button>
+                                <button class="pill-btn compact" data-th="reload">重新读取</button>
+                            </div>
+                            <h4 style="margin: 12px 0 4px;">预览（系统和所选应用的 theme.css 加内置配色；应用自带的默认值不在这里）</h4>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin-bottom: 6px;">点任意一个颜色可以用调色盘修改：改动写进上面编辑的配色文件里对应的块（白天或黑夜用的配色），点“保存”后生效。显示的颜色位数和调色板在“系统配置”里。</div>
+                            <div id="aw-th-preview"></div>
+                        </section>
+                    </div>
+
                     <!-- Tab 5: 系统信息 -->
                     <div class="aw-pane" id="aw-pane-info" hidden>
                         <section class="aw-section">
@@ -299,6 +435,7 @@ class AppWebPanel {
                 system: root.querySelector('#aw-pane-system'),
                 config: root.querySelector('#aw-pane-config'),
                 manage: root.querySelector('#aw-pane-manage'),
+                theme: root.querySelector('#aw-pane-theme'),
                 info: root.querySelector('#aw-pane-info')
             },
             // System tab elements
@@ -343,6 +480,8 @@ class AppWebPanel {
             // Info tab
             infoGrid: root.querySelector('#aw-info-grid')
         };
+
+        this._bindThemeTab();
 
         // Tab switching events
         this.el.navTabs.forEach(btn => {
@@ -620,6 +759,7 @@ class AppWebPanel {
         else if (tabName === 'system') this.loadSystemTab();
         else if (tabName === 'config') this.loadConfigTab();
         else if (tabName === 'manage') this.loadManageTab();
+        else if (tabName === 'theme') this.loadThemeTab();
         else if (tabName === 'info') this.loadInfoTab();
     }
 
@@ -658,6 +798,8 @@ class AppWebPanel {
     }
 
     async loadAppTab() {
+        this.el.frame.style.flex = '';     /* the next page reports its own height */
+        this.el.frame.style.height = '';
         if (!this.target && this.getTarget) {
             try { this.target = this.getTarget(); } catch (e) {}
         }
@@ -1760,8 +1902,193 @@ class AppWebPanel {
         e.source.postMessage(Object.assign({ appAnswer: true, id: d.id }, reply), '*');
     }
 
+    /* ---- 配色方案 tab ---- */
+
+    _th(id) { return this.el.root.querySelector('#aw-th-' + id); }
+
+    /* a file of the device as text, '' when missing (the simulator, or a connected board) */
+    async _readTextAsync(path) {
+        let bytes = null;
+        if (this.target && this.target.kind === 'wasm') {
+            bytes = this._fsRead(path);
+        } else {
+            const link = (this.target && this.target.link) || window.activeLink;
+            if (link && typeof link.fsRead === 'function') {
+                try { bytes = await link.fsRead(path); } catch (e) { bytes = null; }
+            }
+        }
+        const text = bytes ? new TextDecoder('utf-8').decode(bytes) : '';
+        return /^\{\s*"success"\s*:\s*false/.test(text) ? '' : text;
+    }
+
+    async _writeTextAsync(path, text) {
+        const bytes = new TextEncoder().encode(text);
+        if (this.target && this.target.kind === 'wasm') return this._fsWrite(path, bytes);
+        const link = (this.target && this.target.link) || window.activeLink;
+        if (!link || typeof link.fsWrite !== 'function') return false;
+        try { await link.fsWrite(path, bytes); return true; } catch (e) { return false; }
+    }
+
+    _themeFormShow() {
+        const auto = this._th('mode').value === 'auto', how = this._th('switch').value;
+        this._th('switch-box').style.display = auto ? '' : 'none';
+        this._th('light-box').style.display = auto && how === 'light' ? '' : 'none';
+        this._th('time-box').style.display = auto && (how === 'time' || how === 'sun') ? '' : 'none';
+        this._th('sun-box').style.display = auto && how === 'sun' ? '' : 'none';
+    }
+
+    _themeCssPath() {
+        const scope = this._th('scope').value;
+        return scope === 'sys' ? '/spiffs/theme.css' : scope + '/theme.css';
+    }
+
+    _themeSelects() {
+        const names = new Set(['day', 'night']);
+        const texts = [this.themeSys, this._th('scope').value === 'sys' ? this._th('css').value : ''];
+        for (const t of texts) for (const b of awThemeParse(t)) if (b.name !== '*') names.add(b.name);
+        for (const [id, key, def] of [['day-scheme', 'theme_day', 'day'], ['night-scheme', 'theme_night', 'night']]) {
+            const sel = this._th(id);
+            const cur = sel.value || this.themeCfg[key] || def;
+            sel.innerHTML = [...names].map(n => `<option value="${this._esc(n)}"${n === cur ? ' selected' : ''}>${this._esc(n)}` +
+                `${n === 'day' ? '（内置白天）' : n === 'night' ? '（内置黑夜）' : ''}</option>`).join('');
+        }
+    }
+
+    _themePreview() {
+        const scope = this._th('scope').value;
+        const sys = awThemeParse(scope === 'sys' ? this._th('css').value : this.themeSys);
+        const app = awThemeParse(scope === 'sys' ? '' : this._th('css').value);
+        const aliases = new Set(Object.keys(AW_THEME_NAMES));
+        for (const b of sys.concat(app)) for (const k of Object.keys(b.pairs)) aliases.add(k);
+        const col = (mode) => {
+            const scheme = this._th(mode === 'day' ? 'day-scheme' : 'night-scheme').value || mode;
+            const ctx = {app, sys, scheme, mode};
+            const bg = awThemeResolve(ctx, 'bg', 0), fg = awThemeResolve(ctx, 'text_fg', 0);
+            return `<div style="flex:1 1 240px;border:1px solid var(--border-color);border-radius:8px;padding:8px;background:${bg};color:${fg}">
+                <div style="font-weight:600;margin-bottom:6px">${mode === 'day' ? '白天' : '黑夜'}（${this._esc(scheme)}）</div>` +
+                [...aliases].map(a => {
+                    const c = awThemeResolve(ctx, a, 0) || '#ff00ff';
+                    const edit = /^[A-Za-z0-9_-]+$/.test(a);
+                    return `<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:2px 0;cursor:${edit ? 'pointer' : 'default'}">
+                        <input type="color" value="${c}" data-mode="${mode}" data-alias="${edit ? a : ''}" ${edit ? '' : 'disabled'}
+                          style="width:34px;height:18px;padding:0;margin:0;border:1px solid ${fg}55;border-radius:3px;background:${c};flex:none;cursor:inherit">
+                        <span style="flex:1">${this._esc(a)}${AW_THEME_NAMES[a] ? ' · ' + AW_THEME_NAMES[a] : ''}</span><code>${c}</code></label>`;
+                }).join('') + '</div>';
+        };
+        this._th('preview').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap">${col('day')}${col('night')}</div>`;
+    }
+
+    async _themeLoadCss() {
+        this._th('css').value = await this._readTextAsync(this._themeCssPath());
+        this._themeSelects();
+        this._themePreview();
+    }
+
+    async loadThemeTab() {
+        const ini = await this._readConfigIniAsync();
+        this.themeCfg = ini ? (this._parseIni(ini)['theme'] || {}) : {};
+        this.themeSys = await this._readTextAsync('/spiffs/theme.css');
+        this._th('mode').value = this.themeCfg.theme || 'auto';
+        this._th('switch').value = this.themeCfg.theme_switch || 'light';
+        for (const [id, key] of AW_THEME_FIELDS) this._th(id).value = this.themeCfg[key] || '';
+        let files = [];
+        if (this.target && this.target.kind === 'wasm') {
+            files = this._fsList();
+        } else {
+            const link = (this.target && this.target.link) || window.activeLink;
+            if (link && typeof link.fsList === 'function') {
+                try {
+                    const res = await link.fsList();
+                    files = Array.isArray(res) ? res : (res && res.files) || [];
+                } catch (e) { files = []; }
+            }
+        }
+        const dirs = [...new Set(files.map(f => /^(\/spiffs\/apps\/[^/]+)\/app\.msbc$/.exec(f.path || '')).filter(Boolean).map(m => m[1]))].sort();
+        const scope = this._th('scope');
+        const keep = scope.value;
+        scope.innerHTML = '<option value="sys">系统（/spiffs/theme.css，所有应用）</option>' +
+            dirs.map(d => `<option value="${this._esc(d)}">${this._esc(d.slice(13))}（${this._esc(d)}/theme.css）</option>`).join('');
+        if (keep && [...scope.options].some(o => o.value === keep)) scope.value = keep;
+        this._themeFormShow();
+        await this._themeLoadCss();
+    }
+
+    async themeSaveMode() {
+        const vals = {theme: this._th('mode').value, theme_switch: this._th('switch').value,
+            theme_day: this._th('day-scheme').value || 'day', theme_night: this._th('night-scheme').value || 'night'};
+        for (const [id, key] of AW_THEME_FIELDS) {
+            const v = this._th(id).value.trim();
+            if (/[;#&\s]/.test(v)) { this._status(`${key}：不能含有空格、; # &`, 'error'); return; }
+            vals[key] = v;
+        }
+        const updates = Object.fromEntries(Object.entries(vals).map(([k, v]) => ['theme.' + k, v]));
+        const ini = await this._readConfigIniAsync();
+        if (ini == null) { this._status('读取 config.ini 失败，没有保存', 'error'); return; }
+        const ok = await this._writeConfigIniAsync(this._updateIni(ini, updates));
+        if (ok) this.themeCfg = Object.assign({}, this.themeCfg, vals);
+        this._status(ok ? '已保存，应用 10 秒内换上' : '保存失败', ok ? 'ok' : 'error');
+    }
+
+    async themeSaveCss() {
+        const text = this._th('css').value, path = this._themeCssPath();
+        if (text.length > 16384) { this._status('配色文件不能超过 16 KB', 'error'); return; }
+        const ok = await this._writeTextAsync(path, text);
+        if (ok && this._th('scope').value === 'sys') this.themeSys = text;
+        this._themeSelects();
+        this._status(ok ? `已保存 ${path}，应用 10 秒内换上` : `保存 ${path} 失败`, ok ? 'ok' : 'error');
+    }
+
+    _themeInsert(mode) {
+        const text = `${mode} {\n` + Object.entries(AW_THEME_BUILTIN[mode]).map(([k, v]) =>
+            `  ${k}: ${v};${AW_THEME_NAMES[k] ? '  /* ' + AW_THEME_NAMES[k] + ' */' : ''}`).join('\n') + '\n}\n';
+        const ta = this._th('css');
+        ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '\n\n') : '') + text;
+        this._themeSelects();
+        this._themePreview();
+    }
+
+    /* a color picked in the preview: written into the css being edited (saved with 保存) */
+    _themePicked(mode, alias, value) {
+        const scheme = this._th(mode === 'day' ? 'day-scheme' : 'night-scheme').value || mode;
+        this._th('css').value = awThemeSetAlias(this._th('css').value, scheme, alias, value);
+        this._themePreview();
+        this._status(`${scheme} 的 ${alias} 改成 ${value}，点“保存”生效`);
+    }
+
+    _bindThemeTab() {
+        const pane = this.el.panes.theme;
+        this.themeSys = '';
+        this.themeCfg = {};
+        pane.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-th]');
+            if (!b) return;
+            const act = b.dataset.th;
+            if (act === 'save-mode') this.themeSaveMode();
+            else if (act === 'save-css') this.themeSaveCss();
+            else if (act === 'insert-day') this._themeInsert('day');
+            else if (act === 'insert-night') this._themeInsert('night');
+            else if (act === 'reload') this._themeLoadCss();
+        });
+        pane.addEventListener('change', (e) => {
+            const t = e.target;
+            if (t.id === 'aw-th-mode' || t.id === 'aw-th-switch') this._themeFormShow();
+            else if (t.id === 'aw-th-scope') this._themeLoadCss();
+            else if (t.id === 'aw-th-day-scheme' || t.id === 'aw-th-night-scheme') this._themePreview();
+            else if (t.type === 'color' && t.dataset.alias) this._themePicked(t.dataset.mode, t.dataset.alias, t.value);
+        });
+        this._th('css').addEventListener('input', () => this._themePreview());
+    }
+
     _onMessage(e) {
         const d = e.data;
+        /* the app page (appweb.js) does not scroll itself: it reports its height
+         * and the panel grows the frame, as the board's page does; the panel's
+         * body scrolls */
+        if (d && d.appHeight && e.source === this.el.frame.contentWindow) {
+            this.el.frame.style.flex = 'none';
+            this.el.frame.style.height = Math.max(300, Number(d.appHeight) || 0) + 'px';
+            return;
+        }
         if (d && d.appFile && e.source === this.el.frame.contentWindow && this.target) {
             this._onFile(e, d);
             return;
