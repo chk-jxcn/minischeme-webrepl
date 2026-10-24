@@ -1832,6 +1832,7 @@
 ;; the moment the user moves to a different list (section 1). Its screen position is kept per
 ;; list regardless (bilibili-screen, bilibili-screen-n: two small integers, not the videos).
 (define bilibili-items (vector))     ; the list on screen's latest document's videos
+(define bilibili-loaded #f)          ; a document of the list on screen came (empty: "暂无数据")
 (define bilibili-meta "")            ; its resolved label (weekly's theme, the UP主's name)
 (define bilibili-screen (vector))    ; one remembered screen index per list
 (define bilibili-screen-n (vector))  ; one remembered screen count per list (1 until first fetched)
@@ -1839,6 +1840,7 @@
 (define (bilibili-reset-runtime!)
   (let ((n (vector-length bilibili-lists)))
     (set! bilibili-items (vector))
+    (set! bilibili-loaded #f)
     (set! bilibili-meta "")
     (set! bilibili-screen (make-vector n 0))
     (set! bilibili-screen-n (make-vector n 1))))
@@ -2067,9 +2069,11 @@
 ;; 7. New document arrives: rebuild the view once, not in render (section 16); ignored if the --
 ;; user has already moved to a different list while it was in flight (nothing to update any more).
 
-(define (bilibili-on-data! items)
-  (if (equal? (json-feed-url) (bilibili-list-url bilibili-current))
-      (let ((i bilibili-current))
+;; A document of the list on screen: the fresh one from the feed, or the one applib still keeps in
+;; memory for it (bilibili-switch-list!: shown at once, replaced when the fresh one comes)
+(define (bilibili-take-items! items)
+  (let ((i bilibili-current))
+        (set! bilibili-loaded #t)
         (set! bilibili-items (list->vector (items-all items "v")))
         (let ((meta (items-find items "meta"))) (set! bilibili-meta (if meta (it-a meta) "")))
         (vector-set! bilibili-screen-n i (bilibili-screen-count i))
@@ -2077,9 +2081,20 @@
         (if (< bilibili-room 16) (bilibili-room-update!))   ; fs-info takes ~0.25 s on the board
         (bilibili-rebuild-ready!)
         (bilibili-queue-active-screen!)
-        (app-invalidate-all))))
+        (app-invalidate-all)))
+
+(define (bilibili-on-data! items)
+  (if (equal? (json-feed-url) (bilibili-list-url bilibili-current)) (bilibili-take-items! items)))
 
 (set! app-data-proc bilibili-on-data!)
+
+;; "暂无数据" only when it is known: the server sent the list without videos, or it could not be
+;; fetched (no proxy, an error object for it, the feed failing). While it loads the body is blank.
+(define (bilibili-no-data?)
+  (or bilibili-loaded
+      (eq? app-error APP-NO-PROXY)
+      (and app-error (equal? app-error-url (bilibili-list-url bilibili-current)))
+      (eq? (app-status 'state) 'error)))
 
 ;; 8. Navigation: short press next screen, long press previous; both cross list boundaries -------
 ;; at the ends (6.5: "the last screen of a list goes on to the next list"), wrapping around.
@@ -2098,9 +2113,12 @@
     (set! bilibili-current j)
     (vector-set! bilibili-screen j (clamp land 0 (- (vector-ref bilibili-screen-n j) 1)))
     (set! bilibili-items (vector))
+    (set! bilibili-loaded #f)
     (set! bilibili-meta "")
     (set! bilibili-ready '())
     (bilibili-recompute-layout!)
+    (let ((e (app-cache-entry (bilibili-list-url j))))   ; seen recently: shown now, refreshed below
+      (if e (bilibili-take-items! (vector-ref e 1))))
     (app-set-url! 0 (bilibili-list-url j))
     (bilibili-after-nav!)))
 
@@ -2186,7 +2204,7 @@
   (let* ((ps (bilibili-effective-page-size bilibili-current))
          (total (vector-length bilibili-items)) (base (* (vector-ref bilibili-screen bilibili-current) ps)))
     (if (= total 0)
-        (txt 14 (+ (body-top) 30) "暂无数据" theme-text-muted)
+        (if (bilibili-no-data?) (txt 14 (+ (body-top) 30) "暂无数据" theme-text-muted))   ; loading: blank
         (let loop ((k 0))
           (if (< k ps)
               (begin
@@ -2234,6 +2252,7 @@
 
 ;; 12. Start ---------------------------------------------------------------------------------------
 
+(set! app-render-empty-pages '(0))   ; no document yet: bilibili-render draws a blank body, not applib's waiting text
 (app-define! "B站热门" (list (app-page "热门" (lambda () (bilibili-list-url 0)) BILIBILI-INTERVAL bilibili-render)))
 (bilibili-queue-active-screen!)
 
