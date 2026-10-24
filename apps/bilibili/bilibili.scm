@@ -19,9 +19,10 @@
 ;;; Screens turn by themselves, each for its list's seconds: through the
 ;;; list on screen, or through every list (auto_switch); the header shows
 ;;; the countdown and the position ("1/10") like other carousel apps. A mid
-;;; press stops and starts the turning; while it runs a short or long press
-;;; switches between the two cycles; while stopped a short press goes to the
-;;; next screen (the next list after the last one), a long press back.
+;;; press stops and starts the turning. A short press turns to the next
+;;; screen (while it runs: the way the cycle goes, restarting the count). A
+;;; long press switches between the two cycles while it runs, and goes back a
+;;; screen while it is stopped.
 ;;;
 ;;; Every setting (the lists themselves - type, ranking partition or UP主,
 ;;; whether a list pages at all, how many videos and how many per screen,
@@ -409,7 +410,7 @@
 ;; Pages also turn by themselves (below): any move restarts the countdown.
 
 ;; Turning by itself: running (a mid press stops and starts it), going through the list on screen
-;; or through every list (auto_switch; a short or long press while running switches the two).
+;; or through every list (auto_switch; a long press while running switches the two).
 (define bilibili-auto-running #t)
 (define bilibili-cycle-all bilibili-auto-switch)
 (define bilibili-auto-left 0)        ; seconds left on this screen
@@ -462,13 +463,15 @@
           ((> scr 0) (vector-set! bilibili-screen i 0) (bilibili-after-nav!))
           (else (bilibili-auto-reset!) (gui-invalidate 0 0 (scr-w) HDR-H)))))   ; one screen: it stays
 
-;; Running: a press switches between the list on screen and every list; stopped: it turns screens
+;; Running: a long press switches between the list on screen and every list
 (define (bilibili-toggle-cycle!)
   (set! bilibili-cycle-all (not bilibili-cycle-all))
   (bilibili-auto-reset!)
   (app-invalidate-all))
 
-(define (app-button) (if bilibili-auto-running (bilibili-toggle-cycle!) (bilibili-next!)))
+;; Short press: the next screen; while turning by itself the way the cycle goes (in the list on
+;; screen it wraps to its first screen), the count starting again
+(define (app-button) (if bilibili-auto-running (bilibili-auto-step!) (bilibili-next!)))
 (define (app-long-press) (if bilibili-auto-running (bilibili-toggle-cycle!) (bilibili-prev!)))
 (define (app-mid-press)
   (set! bilibili-auto-running (not bilibili-auto-running))
