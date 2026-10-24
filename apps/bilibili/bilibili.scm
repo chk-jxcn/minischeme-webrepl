@@ -39,7 +39,7 @@
 ;;; downloaded one at a time into cache/ (fs-download, section 11.7),
 ;;; named by both the id and the box size (so a list switch that also
 ;;; changes the box size never draws a stale cover at the wrong size);
-;;; kept only as long as the list on screen still names that video.
+;;; kept as one LRU cache for all lists (section 6).
 ;;; Titles reach the screen as the server sends them (api = 1.11: the font
 ;;; server fills any glyph the board's own fonts lack, section 9).
 ;;; Every global name starts with "bilibili-": all files share one namespace.
@@ -47,9 +47,9 @@
 
 ;; 1. Limits: how many lists, and how many videos each may ask for -------------------------------
 ;; Each list is its own document (~4 KB of values, section 11.3) and, while shown, its own cover
-;; files (a few KB each, 11.7). Only the list on screen is kept (see above), so VM heap and
-;; storage both stay close to what a single such app would use, regardless of how many lists are
-;; configured; the limits below mainly keep one list's own document and screen count sane. See
+;; files (a few KB each, 11.7). Only the list on screen keeps its videos, so the VM heap stays
+;; close to what a single such app would use; the covers of all lists share one cache whose size
+;; follows these limits (section 6). The limits also keep one list's document and screens sane. See
 ;; the guide's own "cap the number of lists and of entries per list" (6.5).
 
 (define BILIBILI-MAX-LISTS 6)        ; at most this many lists at once
@@ -199,13 +199,69 @@
 (define (bilibili-pic-url aid w h)
   (app-url (string-append "/app/bilibili/pic?id=" aid "&w=" (int->str w) "&h=" (int->str h))))
 
-;; 6. Cover pictures: one at a time, only for the list and screen on display (11.7) ---------------
+;; 6. Cover pictures: downloaded one at a time for the screen on display (11.7), kept in cache/ as
+;; one LRU cache shared by every list. Switching lists (by hand or auto_advance) then shows covers
+;; already on disk instead of deleting and downloading them again: every download is a flash
+;; write. The cache holds twice as many covers as all lists name together (at most
+;; BILIBILI-CACHE-MAX, ~3 KB each against the app's quota); on the flash a cover takes a whole 4 KB
+;; block, and the cache never leaves the file system less than BILIBILI-FS-RESERVE free.
 
-(define bilibili-ready '())          ; cover paths whose file already exists (the list on screen)
+(define BILIBILI-CACHE-MAX 100)      ; covers at most (storage_kb 512 holds them with the app image)
+(define BILIBILI-FS-RESERVE 131072)  ; bytes of the file system the cache always leaves free
+(define BILIBILI-BLOCK 4096)         ; flash one cover takes (a LittleFS block)
+
+(define bilibili-ready '())          ; cover paths on disk for the list on screen (what render draws)
+(define bilibili-lru '())            ; every cover path on disk, most recently shown first
+(define bilibili-lru-n 0)            ; (length bilibili-lru)
+(define bilibili-room 0)             ; covers that still fit above the reserve (counted down; fs-info when low)
 (define bilibili-dl-queue '())       ; (aid w h) triples waiting to download
 (define bilibili-dl-current #f)      ; the (aid w h) triple downloading now, or #f
 
 (define (bilibili-cover-ready? path) (and (member path bilibili-ready) #t))
+
+(define (bilibili-cache-cap)
+  (let loop ((i 0) (n 0))
+    (if (< i (vector-length bilibili-lists))
+        (loop (+ i 1) (+ n (bilibili-fetch-n i)))
+        (min BILIBILI-CACHE-MAX (* 2 n)))))
+
+(define (bilibili-room-update!)
+  (let ((info (fs-info)))
+    (set! bilibili-room (quotient (- (car info) (cadr info) BILIBILI-FS-RESERVE) BILIBILI-BLOCK))))
+
+(define (bilibili-list-without l x)
+  (cond ((null? l) '()) ((equal? (car l) x) (cdr l)) (else (cons (car l) (bilibili-list-without (cdr l) x)))))
+
+;; A cover shown or just downloaded goes to the front
+(define (bilibili-lru-touch! path)
+  (cond ((and (pair? bilibili-lru) (equal? (car bilibili-lru) path)) #f)
+        ((member path bilibili-lru) (set! bilibili-lru (cons path (bilibili-list-without bilibili-lru path))))
+        (else (set! bilibili-lru (cons path bilibili-lru)) (set! bilibili-lru-n (+ bilibili-lru-n 1)))))
+
+;; Deletes the least recently shown covers until n remain. The screen on display was touched
+;; last, so it is never among them while n is at least one screen.
+(define (bilibili-lru-trim! n)
+  (if (> bilibili-lru-n n)
+      (let ((gone (list-tail bilibili-lru n)))
+        (set! bilibili-lru (take bilibili-lru n))
+        (set! bilibili-lru-n n)
+        (set! bilibili-room (+ bilibili-room (length gone)))
+        (for-each (lambda (path)
+                    (fs-remove path)
+                    (set! bilibili-ready (bilibili-list-without bilibili-ready path)))
+                  gone))))
+
+;; At the start: the covers already on disk (from before a restart) join the cache, all as least
+;; recently shown; what an interrupted download left behind (not a .jpg) is deleted.
+(define (bilibili-cache-load!)
+  (for-each (lambda (entry)
+              (let* ((name (car entry)) (n (string-length name)) (path (string-append BILIBILI-DIR "/" name)))
+                (if (and (str-starts? name "p") (> n 4) (string=? (substring name (- n 4) n) ".jpg"))
+                    (begin (set! bilibili-lru (cons path bilibili-lru)) (set! bilibili-lru-n (+ bilibili-lru-n 1)))
+                    (fs-remove path))))
+            (fs-list BILIBILI-DIR))
+  (bilibili-room-update!)
+  (bilibili-lru-trim! (bilibili-cache-cap)))
 
 (define (bilibili-want? aid w h)
   (and (> (string-length aid) 0)
@@ -213,21 +269,21 @@
        (not (equal? (list aid w h) bilibili-dl-current))
        (not (member (list aid w h) bilibili-dl-queue))))
 
-;; Queue the covers of the screen now on display: starts from an empty queue every time, so a
-;; screen or list change never waits behind covers for a screen the user has already left (this
-;; is the fix for covers taking several seconds to appear after turning to a new screen: before,
-;; a still-downloading backlog from the previous screen was served first).
+;; Queue the covers of the screen now on display (the ones on disk count as shown): starts from an
+;; empty queue every time, so a screen or list change never waits behind covers for a screen the
+;; user has already left.
 (define (bilibili-queue-active-screen!)
   (set! bilibili-dl-queue '())
   (let* ((ps (bilibili-effective-page-size bilibili-current)) (scr (vector-ref bilibili-screen bilibili-current))
          (base (* scr ps)) (total (vector-length bilibili-items)) (w bilibili-cover-w) (h bilibili-cover-h))
-    (let loop ((k 0))
-      (if (< k ps)
+    (let loop ((k (- ps 1)))         ; the top row last: it ends up most recently shown
+      (if (>= k 0)
           (begin
             (if (< (+ base k) total)
-                (let ((aid (it-b (vector-ref bilibili-items (+ base k)))))
-                  (if (bilibili-want? aid w h) (set! bilibili-dl-queue (append bilibili-dl-queue (list (list aid w h)))))))
-            (loop (+ k 1)))))))
+                (let* ((aid (it-b (vector-ref bilibili-items (+ base k)))) (path (bilibili-pic-path aid w h)))
+                  (cond ((bilibili-cover-ready? path) (bilibili-lru-touch! path))
+                        ((bilibili-want? aid w h) (set! bilibili-dl-queue (cons (list aid w h) bilibili-dl-queue))))))
+            (loop (- k 1)))))))
 
 ;; Redraw only the row whose cover arrived: the whole body would decode every cover again, and the
 ;; next download's on-done waits for that redraw
@@ -243,31 +299,38 @@
 
 ;; One fs-download in flight at a time; called when a download ends (its on-done, below) and
 ;; every tick (the fallback on firmware before API 1.12, which ignores on-done). An
-;; in-flight download cannot be cancelled when the queue is reset above; it still finishes (one
-;; wasted download at most) and its result is simply not on screen any more by the time it lands.
+;; in-flight download cannot be cancelled when the queue is reset above; it still finishes and
+;; joins the cache (it is simply not on screen any more by the time it lands).
 (define (bilibili-dl-step!)
   (if bilibili-dl-current
       (let ((state (cdr (assq 'state (fs-download-status)))))
         (cond ((eq? state 'done)
-               (set! bilibili-ready (cons (bilibili-pic-path (car bilibili-dl-current) (cadr bilibili-dl-current)
-                                                             (caddr bilibili-dl-current))
-                                         bilibili-ready))
-               (bilibili-invalidate-cover! (car bilibili-dl-current))
-               (set! bilibili-dl-current #f))
+               (let ((path (bilibili-pic-path (car bilibili-dl-current) (cadr bilibili-dl-current) (caddr bilibili-dl-current))))
+                 (if (not (member path bilibili-lru)) (set! bilibili-room (- bilibili-room 1)))
+                 (bilibili-lru-touch! path)
+                 (if (equal? (cdr bilibili-dl-current) (list bilibili-cover-w bilibili-cover-h))
+                     (set! bilibili-ready (cons path bilibili-ready)))
+                 (bilibili-lru-trim! (bilibili-cache-cap))
+                 (bilibili-invalidate-cover! (car bilibili-dl-current))
+                 (set! bilibili-dl-current #f)))
               ((eq? state 'error) (set! bilibili-dl-current #f))
               (else #f)))   ; idle, queued or running: wait
       (if (pair? bilibili-dl-queue)
           (let* ((job (car bilibili-dl-queue)) (aid (car job)) (w (cadr job)) (h (caddr job)))
-            (set! bilibili-dl-queue (cdr bilibili-dl-queue))
-            (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h) bilibili-dl-done)
-                (set! bilibili-dl-current job)
-                (set! bilibili-dl-queue (append bilibili-dl-queue (list job))))))))  ; busy: retry later
+            ;; no room above the reserve: the least recently shown cover makes way (never the
+            ;; screen on display); none to spare: the placeholders stay
+            (if (and (<= bilibili-room 0) (> bilibili-lru-n (bilibili-effective-page-size bilibili-current)))
+                (bilibili-lru-trim! (- bilibili-lru-n 1)))
+            (if (<= bilibili-room 0)
+                (set! bilibili-dl-queue '())
+                (begin
+                  (set! bilibili-dl-queue (cdr bilibili-dl-queue))
+                  (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h) bilibili-dl-done)
+                      (set! bilibili-dl-current job)
+                      (set! bilibili-dl-queue (append bilibili-dl-queue (list job)))))))))) ; busy: retry later
 
-;; The list on screen's current videos, at its own cover size: a cover stays as long as it is
-;; still named, regardless of screen (11.7's "keep the ones already shown"); covers for any list
-;; since left are swept the next time this runs (after that list's own next fetch, or a list
-;; switch - bilibili-switch-list! clears the queue and bilibili-ready at once; the files
-;; themselves are dropped here, the next time a document is processed).
+;; The list on screen's current videos, at its own cover size: those already in the cache are
+;; ready at once (a list switched back to shows its covers without a download).
 (define (bilibili-keep-paths)
   (let ((dims (bilibili-cover-dims (bilibili-effective-page-size bilibili-current))))
     (let loop ((k 0) (acc '()))
@@ -275,24 +338,17 @@
           (loop (+ k 1) (cons (bilibili-pic-path (it-b (vector-ref bilibili-items k)) (car dims) (cdr dims)) acc))
           acc))))
 
-(define (bilibili-cleanup-files!)
-  (let ((keep (bilibili-keep-paths)))
-    (for-each (lambda (entry)
-                (let ((path (string-append BILIBILI-DIR "/" (car entry))))
-                  (if (and (str-starts? (car entry) "p") (not (member path keep)))
-                      (fs-remove path))))
-              (fs-list BILIBILI-DIR))))
-
 (define (bilibili-rebuild-ready!)
-  (set! bilibili-ready (filter (lambda (path) (fs-exists? path)) (bilibili-keep-paths))))
+  (set! bilibili-ready (filter (lambda (path) (member path bilibili-lru)) (bilibili-keep-paths))))
 
-;; Every list's lists changed at once (a web settings edit): nothing is comparable to what was
-;; there, so start the cache clean rather than reason about which old files might still apply.
-(define (bilibili-clear-all-covers!)
-  (for-each (lambda (entry) (fs-remove (string-append BILIBILI-DIR "/" (car entry)))) (fs-list BILIBILI-DIR))
+;; The lists changed (a web settings edit): the covers stay in the cache, trimmed to the new size;
+;; the in-flight download still lands (bilibili-dl-step!)
+(define (bilibili-reset-covers!)
   (set! bilibili-ready '())
   (set! bilibili-dl-queue '())
-  (set! bilibili-dl-current #f))
+  (bilibili-lru-trim! (bilibili-cache-cap)))
+
+(bilibili-cache-load!)
 
 ;; 7. New document arrives: rebuild the view once, not in render (section 16); ignored if the --
 ;; user has already moved to a different list while it was in flight (nothing to update any more).
@@ -304,7 +360,7 @@
         (let ((meta (items-find items "meta"))) (set! bilibili-meta (if meta (it-a meta) "")))
         (vector-set! bilibili-screen-n i (bilibili-screen-count i))
         (vector-set! bilibili-screen i (clamp (vector-ref bilibili-screen i) 0 (- (vector-ref bilibili-screen-n i) 1)))
-        (bilibili-cleanup-files!)
+        (if (< bilibili-room 16) (bilibili-room-update!))   ; fs-info takes ~0.25 s on the board
         (bilibili-rebuild-ready!)
         (bilibili-queue-active-screen!)
         (app-invalidate-all))))
@@ -446,7 +502,7 @@
   (bilibili-reset-runtime!)
   (set! bilibili-current 0)
   (bilibili-recompute-layout!)
-  (bilibili-clear-all-covers!)
+  (bilibili-reset-covers!)
   ;; always re-fetch, even if list 0's new URL happens to equal the old one: bilibili-items was
   ;; just wiped above, and app-set-url! skips the fetch when the URL has not actually changed
   (vector-set! app-urls 0 (bilibili-list-url 0))
