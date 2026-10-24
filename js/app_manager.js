@@ -147,7 +147,7 @@ class AppManager {
                     <span class="am-boot"></span>
                     <span class="fm-spacer"></span>
                     <button class="pill-btn" data-act="refresh">⟳ 刷新</button>
-                    <button class="pill-btn" data-act="reset" title="重启设备，运行启动应用">⏻ 重启并运行启动应用</button>
+                    <button class="pill-btn" data-act="update-all" disabled title="没有可更新的应用">⇪ 更新全部</button>
                 </div>
                 <div class="am-body">
                     <h4 class="am-h">设备上的应用</h4>
@@ -161,7 +161,7 @@ class AppManager {
         const q = (sel) => root.querySelector(sel);
         this.el = {
             root, target: q('.fm-target'), boot: q('.am-boot'), installed: q('.am-installed'),
-            bundled: q('.am-bundled'), status: q('.fm-status'), resetBtn: q('[data-act="reset"]'),
+            bundled: q('.am-bundled'), status: q('.fm-status'), updateAllBtn: q('[data-act="update-all"]'),
             marketNote: q('.am-market-note'),
         };
         root.addEventListener('click', (e) => {
@@ -182,7 +182,6 @@ class AppManager {
             return;
         }
         this.el.target.textContent = this.backend.label || '';
-        this.el.resetBtn.hidden = typeof this.backend.reset !== 'function';
         this.el.root.hidden = false;
         this.el.root.tabIndex = -1;
         this.el.root.focus();
@@ -287,6 +286,11 @@ class AppManager {
                 <div class="am-box" id="am-box-${i}"></div>
             </div>`).join('') || '<div class="am-desc">设备上没有应用，可以从下面安装</div>';
         const byId = new Map(this.apps.map((a) => [a.id, a]));
+        const updates = this._updatable();
+        this.el.updateAllBtn.disabled = updates.length === 0;
+        this.el.updateAllBtn.textContent = updates.length ? `⇪ 更新全部 (${updates.length})` : '⇪ 更新全部';
+        this.el.updateAllBtn.title = updates.length
+            ? `更新：${updates.map((i) => this.bundled[i].name).join('、')}` : '没有可更新的应用';
         this.el.bundled.innerHTML = this.bundled.map((b, i) => {
             const have = byId.get(b.id);
             const state = !have ? '未安装' : (have.size === b.size && have.version === b.version ? '已安装' : '有更新');
@@ -308,7 +312,7 @@ class AppManager {
         switch (act) {
             case 'close': this.close(); break;
             case 'refresh': await this.refresh(); break;
-            case 'reset': await this._reset(); break;
+            case 'update-all': await this._updateAll(); break;
             case 'boot': await this._setBoot(n, false); break;
             case 'run': await this._setBoot(n, true); break;
             case 'form': await this._toggleForm(n); break;
@@ -552,7 +556,37 @@ class AppManager {
         this._status(`已删除 ${app.name}${app.boot ? '；它是启动应用，重启后会运行 app.msbc' : ''}`, 'ok');
     }
 
-    async _install(i) {
+    /* Indexes into this.bundled of the installed apps the list has another
+     * image of (a newer version, or the same version built again) */
+    _updatable() {
+        const byId = new Map(this.apps.map((a) => [a.id, a]));
+        const out = [];
+        this.bundled.forEach((b, i) => {
+            const have = byId.get(b.id);
+            if (have && (have.size !== b.size || have.version !== b.version)) out.push(i);
+        });
+        return out;
+    }
+
+    /* Every app with an update, one after the other; the list is read
+     * again once at the end */
+    async _updateAll() {
+        const todo = this._updatable();
+        if (!todo.length) return;
+        let done = 0;
+        const failed = [];
+        for (const i of todo) {
+            if (await this._install(i, true)) done++;
+            else failed.push(this.bundled[i].name);
+        }
+        await this.refresh();
+        if (failed.length) this._status(`已更新 ${done} 个应用；失败：${failed.join('、')}`, 'error');
+        else this._status(`已更新 ${done} 个应用；正在运行的应用重启后用新版本`, 'ok');
+    }
+
+    /* batch: part of "更新全部" (no list refresh, no status of its own);
+     * true when the image was written */
+    async _install(i, batch) {
         const b = this.bundled[i];
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
@@ -583,9 +617,11 @@ class AppManager {
             await this.backend.fsWrite(`/spiffs/apps/${b.id}/app.msbc`, bytes);   /* the app's folder, as the market */
             return true;
         });
-        if (!ok) return;
+        if (!ok) return false;
         this.log('info', `📦 已安装 ${b.name} 到 /spiffs/apps/${b.id}/app.msbc`);
+        if (batch) return true;
         await this.refresh();
         this._status(`已安装 ${b.name}，可以“设为启动并重启”运行它`, 'ok');
+        return true;
     }
 }
