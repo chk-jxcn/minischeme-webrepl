@@ -18,7 +18,7 @@
 <h2>B站热门视频：榜单列表</h2>
 <div class="desc">每个榜单是独立的一个小分类：可以是综合热门、每周必看、入站必刷、某个分区的排行榜，或某个 UP 主的最新视频。
 "本榜单内翻页" 关闭时只显示前面几个（"显示条数"，默认 5，可改）；打开时再设"总条数"（一共取多少个）和
-"每屏条数"（一屏显示几个），在本榜单内一屏一屏地翻。</div>
+"每屏条数"（一屏显示几个），在本榜单内一屏一屏地自动翻。"翻页时间"是这个榜单每一屏停留的秒数（默认 10 秒）。</div>
 <div id="lists"></div>
 <button class="small" id="addBtn" onclick="addRow()">+ 添加榜单</button>
 </section>
@@ -26,15 +26,14 @@
 <section>
 <h2>切换方式</h2>
 <div class="row">
-  <div>
-    <label>自动切换秒数（0 为关闭）</label>
-    <input id="auto_advance" type="number" min="0" max="120" step="1">
-  </div>
+  <div><label class="check"><input type="checkbox" id="auto_switch"> 自动切换榜单</label></div>
   <button onclick="attempt(apply)">应用全部设置</button>
 </div>
-<div class="desc" style="margin-top:8px">设备上：短按切到下一屏；翻完本榜单最后一屏后，短按进入下一个榜单的第一屏。
-长按切到上一屏；在本榜单第一屏时，长按进入上一个榜单的最后一屏。都会循环（最后一个榜单之后回到第一个）。
-自动切换只在榜单之间进行（不会自动翻本榜单内的屏），按任意键后重新计时。
+<div class="desc" style="margin-top:8px">屏幕自动翻页，每屏按所在榜单的"翻页时间"停留：
+打开"自动切换榜单"时，翻完一个榜单的所有屏（不翻页的榜单只有一屏）进入下一个榜单，所有榜单循环；
+关闭时只在当前榜单内循环翻屏（不翻页的榜单就停在那里）。标题栏右侧是倒计时条和在循环里的位置（如 1/10）。<br>
+设备上：中长按（约 3.5 秒）停止自动翻页，再中长按重新开始。自动翻页时，短按或长按在"本榜单循环"和"所有榜单循环"之间切换；
+停止时短按切到下一屏（本榜单最后一屏之后进入下一个榜单），长按切到上一屏，都会循环。
 以上设置点"应用全部设置"后立即生效，设备屏幕马上更新，不需要重启应用。</div>
 </section>
 </main>
@@ -51,7 +50,7 @@ const PARTITIONS = [
 ];
 
 let lists = [];
-let limits = {max_lists: 6, min_total: 1, max_total: 15, min_page: 3, max_page: 10};
+let limits = {max_lists: 6, min_total: 1, max_total: 15, min_page: 3, max_page: 10, min_secs: 3, max_secs: 600};
 
 function optionsHtml(options, value) {
   return options.map(([v, n]) => `<option value="${v}"${value === v ? ' selected' : ''}>${esc(n)}</option>`).join('');
@@ -71,6 +70,8 @@ function rowHtml(row, i) {
          value="${row.page}" onchange="setNum(${i},'page',this.value)"></div>`
     : `<div><label>显示条数</label><input type="number" min="${limits.min_total}" max="${limits.max_total}"
          value="${row.total}" onchange="setNum(${i},'total',this.value)"></div>`;
+  const secs = `<div><label>翻页时间（秒）</label><input type="number" min="${limits.min_secs}" max="${limits.max_secs}"
+         value="${row.secs}" onchange="setNum(${i},'secs',this.value)"></div>`;
   return `
   <div class="item listrow">
     <div class="grow">
@@ -80,6 +81,7 @@ function rowHtml(row, i) {
         <div><label class="check"><input type="checkbox" ${row.paginate ? 'checked' : ''}
           onchange="setPaginate(${i},this.checked)"> 本榜单内翻页</label></div>
         ${counts}
+        ${secs}
       </div>
     </div>
     <div class="btns">
@@ -122,28 +124,28 @@ function removeRow(i) {
 }
 function addRow() {
   if (lists.length >= limits.max_lists) return;
-  lists.push({cat: 'popular', param: '', paginate: 0, total: 5, page: 5});
+  lists.push({cat: 'popular', param: '', paginate: 0, total: 5, page: 5, secs: 10});
   render();
 }
 
 function encodeLists() {
-  return lists.map((r) => `${r.cat}:${encodeURIComponent(r.param || '')}:${r.paginate ? 1 : 0}:${r.total}:${r.page}`).join('|');
+  return lists.map((r) => `${r.cat}:${encodeURIComponent(r.param || '')}:${r.paginate ? 1 : 0}:${r.total}:${r.page}:${r.secs || 10}`).join('|');
 }
 
 function take(r) {
   limits = {
     max_lists: r.max_lists, min_total: r.min_total, max_total: r.max_total,
-    min_page: r.min_page, max_page: r.max_page,
+    min_page: r.min_page, max_page: r.max_page, min_secs: r.min_secs, max_secs: r.max_secs,
   };
   lists = Array.from(r.lists);
-  $('auto_advance').value = r.auto_advance;
+  $('auto_switch').checked = !!r.auto_switch;
   render();
 }
 
 async function load() { await attempt(async () => take(await appCall('state', {}))); }
 
 async function apply() {
-  const r = await appCall('set', {lists: encodeLists(), auto_advance: $('auto_advance').value});
+  const r = await appCall('set', {lists: encodeLists(), auto_switch: $('auto_switch').checked ? 1 : 0});
   take(r);
   say('已应用，设备屏幕已更新', 'ok');
 }

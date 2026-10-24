@@ -16,17 +16,16 @@
 ;;; matters more with up to BILIBILI-MAX-LISTS lists). Each list's screen
 ;;; position is still remembered (a single integer per list, negligible).
 ;;;
-;;; Header: "<list label> 屏<screen+1>/<screens> 榜<list+1>/<lists>" - "屏"
-;;; and "榜" say in one character which number is which, however many lists
-;;; or screens there are. Short press: next screen, or the next list's first
-;;; screen once the current list's last screen is showing. Long press: the
-;;; mirror, backwards (the previous list's last screen). An optional
-;;; auto-advance (its own setting, seconds) turns lists by itself; any key
-;;; press restarts its countdown.
+;;; Screens turn by themselves, each for its list's seconds: through the
+;;; list on screen, or through every list (auto_switch); the header shows
+;;; the countdown and the position ("1/10") like other carousel apps. A mid
+;;; press stops and starts the turning; while it runs a short or long press
+;;; switches between the two cycles; while stopped a short press goes to the
+;;; next screen (the next list after the last one), a long press back.
 ;;;
 ;;; Every setting (the lists themselves - type, ranking partition or UP主,
-;;; whether a list pages at all, how many videos and how many per screen -
-;;; and the auto-advance seconds) lives in the app's own web page and takes
+;;; whether a list pages at all, how many videos and how many per screen,
+;;; its seconds per screen - and auto_switch) lives in the app's own web page and takes
 ;;; effect at once, no restart (section 13). The web page returns the
 ;;; lists' own small configuration, never their videos: that would mean
 ;;; building and returning up to BILIBILI-MAX-TOTAL items per list on every
@@ -57,10 +56,13 @@
 (define BILIBILI-MAX-TOTAL 15)       ; ... and the most
 (define BILIBILI-MIN-PAGE 3)         ; a paging list's videos per screen: fewest
 (define BILIBILI-MAX-PAGE 10)        ; ... and the most
+(define BILIBILI-MIN-SECS 3)         ; a list's seconds per screen when pages turn by themselves
+(define BILIBILI-MAX-SECS 600)
+(define BILIBILI-DEFAULT-SECS 10)
 (define BILIBILI-DIR "cache")        ; covers live in the app's own cache/ subfolder
 (define BILIBILI-INTERVAL 300000)    ; ms between re-fetches of the list on screen (proxy caches too)
 (define BILIBILI-CATEGORIES '("popular" "weekly" "precious" "rank" "up"))
-(define BILIBILI-DEFAULT-LISTS "popular::1:10:5|precious::1:10:5")   ; shipped default: two lists
+(define BILIBILI-DEFAULT-LISTS "popular::1:10:5:10|precious::1:10:5:10")   ; shipped default: two lists
 
 ;; The top-level content zones /app/bilibili?cat=rank accepts (must match
 ;; proxy/bilibili.py's PARTITIONS so the label shown matches the data asked for).
@@ -71,18 +73,24 @@
         (cons "211" "美食") (cons "217" "动物圈") (cons "223" "汽车") (cons "234" "运动")))
 
 ;; 2. Lists: parsed from one config string, encoded back the same way ----------------------------
-;; One list: #(cat param paginate total page). param is the ranking partition's rid, or the UP主
+;; One list: #(cat param paginate total page secs). param is the ranking partition's rid, or the UP主
 ;; text the user typed (percent-decoded already); "" for popular/weekly/precious. paginate is 1
 ;; when the list turns its own screens, 0 when it only ever shows its first "total" videos on one
-;; screen (page is kept but unused then, so toggling paginate back on remembers it). Encoded as
-;; "cat:param:paginate:total:page", lists joined by "|"; param is percent-encoded first (it may
+;; screen (page is kept but unused then, so toggling paginate back on remembers it). secs: how long
+;; each of its screens shows when pages turn by themselves (section 8). Encoded as
+;; "cat:param:paginate:total:page:secs", lists joined by "|" (secs may be missing: the settings of
+;; an older version); param is percent-encoded first (it may
 ;; hold any character, including "|" and ":", so it never reaches the parser literally).
 
 (define (bilibili-encode-list v)
   (string-append (vector-ref v 0) ":" (url-encode (vector-ref v 1)) ":" (int->str (vector-ref v 2)) ":"
-                 (int->str (vector-ref v 3)) ":" (int->str (vector-ref v 4))))
+                 (int->str (vector-ref v 3)) ":" (int->str (vector-ref v 4)) ":" (int->str (vector-ref v 5))))
 
 (define (bilibili-encode-lists v) (web-join (map bilibili-encode-list (vector->list v)) "|"))
+
+;; Settings of an older version: one auto_advance (seconds between lists, 0 off) for all lists
+(define bilibili-legacy-advance (or (string->fixed (app-config "auto_advance" "0") 0) 0))
+(define bilibili-legacy-secs (if (> bilibili-legacy-advance 0) bilibili-legacy-advance BILIBILI-DEFAULT-SECS))
 
 (define (bilibili-decode-list s)
   (let ((f (str-split s #\:)))
@@ -91,7 +99,9 @@
                 (web-decode (cadr f))
                 (if (equal? (caddr f) "1") 1 0)
                 (clamp (or (string->fixed (list-ref f 3) 0) 10) BILIBILI-MIN-TOTAL BILIBILI-MAX-TOTAL)
-                (clamp (or (string->fixed (list-ref f 4) 0) 5) BILIBILI-MIN-PAGE BILIBILI-MAX-PAGE))
+                (clamp (or (string->fixed (list-ref f 4) 0) 5) BILIBILI-MIN-PAGE BILIBILI-MAX-PAGE)
+                (clamp (or (and (>= (length f) 6) (string->fixed (list-ref f 5) 0)) bilibili-legacy-secs)
+                       BILIBILI-MIN-SECS BILIBILI-MAX-SECS))
         #f)))
 
 ;; Malformed entries are dropped; an empty or all-malformed string falls back to the default so
@@ -105,12 +115,15 @@
 ;; 3. Settings: read once at the start; bilibili-apply-lists! changes them live ------------------
 
 (define bilibili-lists (list->vector (bilibili-parse-lists (app-config "sections" BILIBILI-DEFAULT-LISTS))))
-(define bilibili-auto-advance (clamp (or (string->fixed (app-config "auto_advance" "0") 0) 0) 0 120))
-(define bilibili-auto-left bilibili-auto-advance)
+;; auto_switch: the pages turning by themselves go on through every list (else they stay in the
+;; list on screen); the older auto_advance > 0 meant that too
+(define bilibili-auto-switch
+  (equal? (app-config "auto_switch" (if (> bilibili-legacy-advance 0) "1" "0")) "1"))
 (define bilibili-current 0)          ; which list is on screen
 
 (define (bilibili-paginate? i) (= (vector-ref (vector-ref bilibili-lists i) 2) 1))
 (define (bilibili-fetch-n i) (vector-ref (vector-ref bilibili-lists i) 3))         ; videos to fetch / show
+(define (bilibili-list-secs i) (vector-ref (vector-ref bilibili-lists i) 5))       ; seconds per screen
 (define (bilibili-effective-page-size i)                                          ; videos per screen
   (if (bilibili-paginate? i) (vector-ref (vector-ref bilibili-lists i) 4) (bilibili-fetch-n i)))
 
@@ -129,7 +142,16 @@
     (set! bilibili-loaded #f)
     (set! bilibili-meta "")
     (set! bilibili-screen (make-vector n 0))
-    (set! bilibili-screen-n (make-vector n 1))))
+    (set! bilibili-screen-n (make-vector n 1))
+    (let loop ((i 0))                ; until a list is fetched: the screens its settings ask for
+      (if (< i n)
+          (begin
+            (vector-set! bilibili-screen-n i
+                         (if (bilibili-paginate? i)
+                             (quotient (+ (bilibili-fetch-n i) (bilibili-effective-page-size i) -1)
+                                       (bilibili-effective-page-size i))
+                             1))
+            (loop (+ i 1)))))))
 
 (bilibili-reset-runtime!)
 
@@ -384,10 +406,19 @@
 
 ;; 8. Navigation: short press next screen, long press previous; both cross list boundaries -------
 ;; at the ends (6.5: "the last screen of a list goes on to the next list"), wrapping around.
-;; An optional auto-advance turns lists by themselves; any move restarts its countdown.
+;; Pages also turn by themselves (below): any move restarts the countdown.
+
+;; Turning by itself: running (a mid press stops and starts it), going through the list on screen
+;; or through every list (auto_switch; a short or long press while running switches the two).
+(define bilibili-auto-running #t)
+(define bilibili-cycle-all bilibili-auto-switch)
+(define bilibili-auto-left 0)        ; seconds left on this screen
+
+(define (bilibili-auto-reset!) (set! bilibili-auto-left (bilibili-list-secs bilibili-current)))
+(define (bilibili-cycle-all?) (and bilibili-cycle-all (> (vector-length bilibili-lists) 1)))
 
 (define (bilibili-after-nav!)
-  (set! bilibili-auto-left bilibili-auto-advance)
+  (bilibili-auto-reset!)
   (bilibili-queue-active-screen!)
   (app-invalidate-all))
 
@@ -420,8 +451,29 @@
         (begin (vector-set! bilibili-screen i (- scr 1)) (bilibili-after-nav!))
         (bilibili-switch-list! (- i 1) 9999))))   ; land on the previous list's last remembered screen
 
-(define (app-button) (bilibili-next!))
-(define (app-long-press) (bilibili-prev!))
+;; One turn by itself: the list's next screen if it turns its screens; after its last one the next
+;; list (every list) or its first screen again (the list on screen)
+(define (bilibili-auto-step!)
+  (let* ((i bilibili-current) (scr (vector-ref bilibili-screen i)))
+    (cond ((and (bilibili-paginate? i) (< (+ scr 1) (bilibili-screen-count i)))
+           (vector-set! bilibili-screen i (+ scr 1))
+           (bilibili-after-nav!))
+          ((bilibili-cycle-all?) (bilibili-switch-list! (+ i 1) 0))
+          ((> scr 0) (vector-set! bilibili-screen i 0) (bilibili-after-nav!))
+          (else (bilibili-auto-reset!) (gui-invalidate 0 0 (scr-w) HDR-H)))))   ; one screen: it stays
+
+;; Running: a press switches between the list on screen and every list; stopped: it turns screens
+(define (bilibili-toggle-cycle!)
+  (set! bilibili-cycle-all (not bilibili-cycle-all))
+  (bilibili-auto-reset!)
+  (app-invalidate-all))
+
+(define (app-button) (if bilibili-auto-running (bilibili-toggle-cycle!) (bilibili-next!)))
+(define (app-long-press) (if bilibili-auto-running (bilibili-toggle-cycle!) (bilibili-prev!)))
+(define (app-mid-press)
+  (set! bilibili-auto-running (not bilibili-auto-running))
+  (bilibili-auto-reset!)
+  (app-invalidate-all))
 
 ;; The firmware calls it the moment a download ended: the cover is drawn and the next one starts
 ;; at once (stepping only from the tick made each cover wait up to a second: five took 5..10 s).
@@ -432,23 +484,65 @@
 
 (define (bilibili-tick! tick)
   (bilibili-dl-step!)
-  (if (and (> bilibili-auto-advance 0) (not (info-active?)) (> (vector-length bilibili-lists) 1))
+  (if (and bilibili-auto-running (not (info-active?)))
       (begin
         (set! bilibili-auto-left (- bilibili-auto-left 1))
-        (if (<= bilibili-auto-left 0) (bilibili-switch-list! (+ bilibili-current 1) 0)))))
+        (if (<= bilibili-auto-left 0)
+            (bilibili-auto-step!)
+            (gui-invalidate 0 0 (scr-w) HDR-H)))))   ; the countdown
 
 (set! app-tick-proc bilibili-tick!)
 
-;; 9. Header: "<list label> 屏<screen+1>/<screens> 榜<list+1>/<lists>" ----------------------------
-;; "屏" and "榜" name which number is which so the two fractions are never confused, with any
-;; number of lists or screens.
+;; 9. Header ---------------------------------------------------------------------------------------
+;; The header as in other apps whose pages turn by themselves: the title and the list's name, then
+;; the countdown bar and the position in the turning ("1/2" through the list on screen, "1/10"
+;; through every list, where a list without screens of its own counts once) left of the clock.
 
-(define (bilibili-subtitle items)
-  (let ((i bilibili-current))
-    (string-append (bilibili-list-label i)
-                    " 屏" (int->str (+ (vector-ref bilibili-screen i) 1)) "/" (int->str (bilibili-screen-count i))
-                    " 榜" (int->str (+ i 1)) "/" (int->str (vector-length bilibili-lists)))))
+(define (bilibili-list-screens i) (if (bilibili-paginate? i) (max 1 (bilibili-screen-count i)) 1))
 
+;; (position . count) of the screen on display in the turning
+(define (bilibili-cycle-pos)
+  (let* ((i bilibili-current) (here (if (bilibili-paginate? i) (+ (vector-ref bilibili-screen i) 1) 1)))
+    (if (bilibili-cycle-all?)
+        (let loop ((j 0) (before 0) (total 0))
+          (if (< j (vector-length bilibili-lists))
+              (loop (+ j 1) (if (< j i) (+ before (bilibili-list-screens j)) before) (+ total (bilibili-list-screens j)))
+              (cons (+ before here) total)))
+        (cons here (bilibili-list-screens i)))))
+
+;; The countdown, right-aligned at xr (applib's bar): a faint track and what is left; one even bar
+;; while stopped
+(define (bilibili-render-countdown xr secs)
+  (let* ((full (carousel-bar-w secs))
+         (left (min full (* (max 0 bilibili-auto-left) (carousel-px secs))))
+         (y (quotient (- HDR-H CAROUSEL-BAR-H) 2)))
+    (gui-rect (- xr full) y full CAROUSEL-BAR-H (if bilibili-auto-running theme-dark-gray theme-divider) #t)
+    (if (and bilibili-auto-running (> left 0))
+        (gui-rect (- xr left) y left CAROUSEL-BAR-H CAROUSEL-BAR-COLOR #t))))
+
+;; app-header-proc: [x, x + w) is the header left of the clock (applib keeps 8 px more before it)
+(define (bilibili-header items x w)
+  (let* ((right (+ x w 6))
+         (pos (bilibili-cycle-pos))
+         (ind (string-append (int->str (car pos)) "/" (int->str (cdr pos))))
+         (iw (+ (txt-w ind) 12))
+         (bx (- right iw))
+         (secs (bilibili-list-secs bilibili-current))
+         (bar-r (- bx 6))
+         (text-r (- bar-r (carousel-bar-w secs) 8))
+         (sub (bilibili-list-label bilibili-current))
+         (tw (txt-w app-title)))
+    (gui-round-rect bx 5 iw 22 6 theme-accent-dark #t)
+    (txt (+ bx 6) 8 ind theme-accent)
+    (bilibili-render-countdown bar-r secs)
+    (txt-fit x 8 (- text-r x) app-title theme-text-main)
+    (if (< (+ x tw 10) (- text-r 20))
+        (txt-fit (+ x tw 10) 8 (- text-r x tw 10) sub theme-accent))))
+
+(set! app-header-proc bilibili-header)
+
+;; A combined app (合集) draws its own header: the list's name after the title there
+(define (bilibili-subtitle items) (bilibili-list-label bilibili-current))
 (set! app-subtitle-proc bilibili-subtitle)
 
 ;; 10. Render: only the list and screen on display, covers already on disk or a placeholder box --
@@ -504,22 +598,24 @@
   (web-ok (cons 'lists (list->vector
                          (map (lambda (cfg) (list (cons 'cat (vector-ref cfg 0)) (cons 'param (vector-ref cfg 1))
                                                   (cons 'paginate (vector-ref cfg 2)) (cons 'total (vector-ref cfg 3))
-                                                  (cons 'page (vector-ref cfg 4))))
+                                                  (cons 'page (vector-ref cfg 4)) (cons 'secs (vector-ref cfg 5))))
                               (vector->list bilibili-lists))))
-          (cons 'auto_advance bilibili-auto-advance)
+          (cons 'auto_switch (if bilibili-auto-switch 1 0))
+          (cons 'min_secs BILIBILI-MIN-SECS) (cons 'max_secs BILIBILI-MAX-SECS)
           (cons 'max_lists BILIBILI-MAX-LISTS)
           (cons 'min_total BILIBILI-MIN-TOTAL) (cons 'max_total BILIBILI-MAX-TOTAL)
           (cons 'min_page BILIBILI-MIN-PAGE) (cons 'max_page BILIBILI-MAX-PAGE)))
 
-(define (bilibili-apply-lists! encoded auto)
+(define (bilibili-apply-lists! encoded switch)
   (set! bilibili-lists (list->vector (bilibili-parse-lists encoded)))
-  (set! bilibili-auto-advance (clamp auto 0 120))
-  (set! bilibili-auto-left bilibili-auto-advance)
+  (set! bilibili-auto-switch switch)
+  (set! bilibili-cycle-all switch)
   (app-config-set! "sections" (bilibili-encode-lists bilibili-lists))
-  (app-config-set! "auto_advance" (int->str bilibili-auto-advance))
+  (app-config-set! "auto_switch" (if switch "1" "0"))
   (bilibili-reset-runtime!)
   (set! bilibili-current 0)
   (bilibili-recompute-layout!)
+  (bilibili-auto-reset!)
   (bilibili-reset-covers!)
   ;; always re-fetch, even if list 0's new URL happens to equal the old one: bilibili-items was
   ;; just wiped above, and app-set-url! skips the fetch when the URL has not actually changed
@@ -532,7 +628,7 @@
   (cond ((string=? name "state") (bilibili-web-state))
         ((string=? name "set")
          (bilibili-apply-lists! (or (web-field body "lists") (bilibili-encode-lists bilibili-lists))
-                                 (web-field-int body "auto_advance" bilibili-auto-advance))
+                                 (= (web-field-int body "auto_switch" (if bilibili-auto-switch 1 0)) 1))
          (bilibili-web-state))
         (else (web-error (string-append "unknown call: " name)))))
 
@@ -540,4 +636,5 @@
 
 (set! app-render-empty-pages '(0))   ; no document yet: bilibili-render draws a blank body, not applib's waiting text
 (app-define! "B站热门" (list (app-page "热门" (lambda () (bilibili-list-url 0)) BILIBILI-INTERVAL bilibili-render)))
+(bilibili-auto-reset!)
 (bilibili-queue-active-screen!)
