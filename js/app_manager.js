@@ -270,13 +270,16 @@ class AppManager {
             this.el.marketNote.textContent = `（来源: ${this.marketSource || 'GitHub 官方市场'}）`;
         }
         const bootApp = this.apps.find((a) => a.boot);
+        /* an installed app's update: the index of its newer image in this.bundled */
+        const updateOf = new Map(this._updatable().map((i) => [this.bundled[i].id, i]));
         this.el.boot.innerHTML = `启动应用：<b>${amEsc(bootApp ? bootApp.name : amRel(this.bootPath))}</b>`;
         this.el.installed.innerHTML = this.apps.map((a, i) => `
             <div class="am-app">
-                <div class="am-name">${amEsc(a.name)}${a.boot ? '<span class="am-tag">启动</span>' : ''}</div>
+                <div class="am-name">${amEsc(a.name)}${a.boot ? '<span class="am-tag">启动</span>' : ''}${updateOf.has(a.id) ? ' <span class="am-note">有更新</span>' : ''}</div>
                 <div class="am-desc">${amEsc(a.description)}</div>
                 <div class="am-desc">${amEsc(amRel(a.path))} · ${amSize(a.size)} · v${amEsc(a.version)} · 配置 ${amEsc(amRel(a.ini))}</div>
                 <div class="am-actions">
+                    ${updateOf.has(a.id) ? `<button class="pill-btn highlight" data-act="install" data-i="${updateOf.get(a.id)}" title="v${amEsc(a.version)} → v${amEsc(this.bundled[updateOf.get(a.id)].version)}">⇪ 更新</button>` : ''}
                     ${a.boot ? '' : `<button class="pill-btn" data-act="boot" data-i="${i}">设为启动应用</button>`}
                     ${this.backend.reset ? `<button class="pill-btn" data-act="run" data-i="${i}">设为启动并重启</button>` : ''}
                     ${amAppFields(a.meta).length ? `<button class="pill-btn" data-act="form" data-i="${i}">配置</button>` : ''}
@@ -588,6 +591,7 @@ class AppManager {
      * true when the image was written */
     async _install(i, batch) {
         const b = this.bundled[i];
+        const update = this.apps.some((a) => a.id === b.id);
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
             const urls = [
@@ -621,7 +625,8 @@ class AppManager {
         this.log('info', `📦 已安装 ${b.name} 到 /spiffs/apps/${b.id}/app.msbc`);
         if (batch) return true;
         await this.refresh();
-        this._status(`已安装 ${b.name}，可以“设为启动并重启”运行它`, 'ok');
+        this._status(update ? `已更新 ${b.name}（v${b.version}），正在运行的话重启后用新版本`
+                            : `已安装 ${b.name}，可以“设为启动并重启”运行它`, 'ok');
         return true;
     }
 }
