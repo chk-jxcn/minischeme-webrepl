@@ -921,7 +921,7 @@
 ;;;   interval-ms  how often the board fetches it while the page is shown
 ;;;   render-proc  (items) -> draws the body between header and footer
 ;;;
-;;; Data: the app proxy (tools/app_proxy.py) answers {"items":[{t a..e}]}.
+;;; Data: the app proxy (minischeme-proxy) answers {"items":[{t a..e}]}.
 ;;; Each document is copied into vectors #(t a b c d e) and kept per URL, so a
 ;;; page switch shows the last data at once while its new fetch runs.
 ;;; Screen: header (title, page n/N except on the home page, clock), body,
@@ -1195,7 +1195,7 @@
   (let ((v (config-get key)))
     (if (and (string? v) (> (string-length v) 0)) v default)))
 
-;; config.ini [server] proxy_url / [app] proxy = http://<pc>:8087 (tools/app_proxy.py); "" when unset
+;; config.ini [server] proxy_url / [app] proxy = http://<host>:8087 (minischeme-proxy); "" when unset
 (define (app-proxy)
   (let* ((p (app-config "proxy_url" (app-config "proxy" ""))) (n (string-length p)))
     (if (and (> n 0) (char=? (string-ref p (- n 1)) #\/)) (substring p 0 (- n 1)) p)))
@@ -1393,6 +1393,16 @@
 (define (app-render-footer)
   (if (app-local? app-page-index) (app-render-local-footer) (app-render-feed-footer)))
 
+;; What the footer shows now, as one string: app-tick redraws the footer only
+;; when it changed (a redraw also makes the screen be recorded again, which
+;; every scrolling title would pay for)
+(define app-footer-shown #f)
+(define (app-footer-key)
+  (if (app-local? app-page-index)
+      app-footer-text
+      (let ((parts (app-feed-footer-parts)))
+        (string-append (vector-ref parts 0) "|" (vector-ref parts 1) (if (vector-ref parts 2) "!" "")))))
+
 ;; "http://host:port" shown as "host:port"
 (define (app-server-name s)
   (cond ((not (string? s)) "服务器")
@@ -1403,7 +1413,16 @@
 (define (app-render-feed-footer)
   (let* ((y (- (gui-height) FTR-H))
          (w (scr-w))
-         (url (vector-ref app-urls app-page-index))
+         (parts (app-feed-footer-parts))
+         (text (vector-ref parts 0))
+         (right (vector-ref parts 1)))
+    (gui-rect 0 y w FTR-H theme-card-hdr #t)
+    (txt-right (- w 8) (+ y 3) right theme-text-muted)
+    (txt-fit 8 (+ y 3) (- w 24 (txt-w right)) text (if (vector-ref parts 2) theme-warning theme-text-muted))))
+
+;; #(text right failed?) of the shown page's feed footer
+(define (app-feed-footer-parts)
+  (let* ((url (vector-ref app-urls app-page-index))
          (entry (app-cache-entry url))
          (upd (and entry (items-find (vector-ref entry 1) "upd")))  ; the server's data time
          ;; the time the server gives for its data ({"t": "upd"}), else when
@@ -1435,9 +1454,7 @@
                     (string-append (fixed->str (quotient (+ (app-status 'bytes fs) 51) 102) 1) "KB "
                                    (int->str ms) "ms")
                     "")))
-    (gui-rect 0 y w FTR-H theme-card-hdr #t)
-    (txt-right (- w 8) (+ y 3) right theme-text-muted)
-    (txt-fit 8 (+ y 3) (- w 24 (txt-w right)) text (if failed theme-warning theme-text-muted))))
+    (vector text right failed)))
 
 (define (app-render-waiting)
   (let ((cx (quotient (scr-w) 2)) (y (- (quotient (gui-height) 2) 60)))
@@ -1446,7 +1463,7 @@
     (gui-text-wrap 16 (+ y 34) (- (scr-w) 32) 60 (car (str-split app-feed-url #\?)) theme-text-muted F-TEXT LINE-H)
     (if (or app-error (eq? (app-status 'state) 'error))
         (txt-wrap 16 (+ y 100) (- (scr-w) 32) 80
-                  "请在电脑上运行 tools/app_proxy.py，并在 config.ini [app] proxy 中填写它的地址"
+                  "请在设备网页的常用设置里填写应用代理地址（minischeme-proxy 或公网服务器），并确认能连上"
                   theme-warning))))
 
 (define (app-render)
@@ -1553,8 +1570,12 @@
         (begin
           (set! app-time hm)
           (gui-invalidate 0 0 (scr-w) HDR-H)))
-    (if (= (remainder tick 2) 0)
-        (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H))
+    (if (= (remainder tick 2) 0)   ; the fetch's state, shown only when it changed
+        (let ((key (app-footer-key)))
+          (if (not (equal? key app-footer-shown))
+              (begin
+                (set! app-footer-shown key)
+                (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H)))))
     (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
         (app-carousel-tick!))
     (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
@@ -1591,7 +1612,7 @@
 ;;;
 ;;; on the main loop, between frames. Answer JSON with (web-json value); read
 ;;; the fields with (web-field body "key"). The WASM simulator calls the same
-;;; hook from its app page panel (web_repl/app_web.js).
+;;; hook from its app page panel (minischeme-webrepl js/app_web.js).
 ;;; =========================================================================
 
 ;; Percent-decoding of a form value ("a+b%41" -> "a bA"): bytes in, bytes out

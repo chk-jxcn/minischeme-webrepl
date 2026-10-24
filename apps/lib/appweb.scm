@@ -9,7 +9,7 @@
 ;;;
 ;;; on the main loop, between frames. Answer JSON with (web-json value); read
 ;;; the fields with (web-field body "key"). The WASM simulator calls the same
-;;; hook from its app page panel (web_repl/app_web.js).
+;;; hook from its app page panel (minischeme-webrepl js/app_web.js).
 ;;; =========================================================================
 
 ;; Percent-decoding of a form value ("a+b%41" -> "a bA"): bytes in, bytes out

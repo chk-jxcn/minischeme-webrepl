@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B站热门视频</title>
+<!-- appweb -->
+<style>
+.listrow{align-items:flex-start}
+.listrow .grow .row{margin:0}
+.listrow .btns{flex:none;display:flex;flex-direction:column;gap:4px;margin-top:18px}
+.listrow .btns button{margin:0}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2>B站热门视频：榜单列表</h2>
+<div class="desc">每个榜单是独立的一个小分类：可以是综合热门、每周必看、入站必刷、某个分区的排行榜，或某个 UP 主的最新视频。
+"本榜单内翻页" 关闭时只显示前面几个（"显示条数"，默认 5，可改）；打开时再设"总条数"（一共取多少个）和
+"每屏条数"（一屏显示几个），在本榜单内一屏一屏地翻。</div>
+<div id="lists"></div>
+<button class="small" id="addBtn" onclick="addRow()">+ 添加榜单</button>
+</section>
+
+<section>
+<h2>切换方式</h2>
+<div class="row">
+  <div>
+    <label>自动切换秒数（0 为关闭）</label>
+    <input id="auto_advance" type="number" min="0" max="120" step="1">
+  </div>
+  <button onclick="attempt(apply)">应用全部设置</button>
+</div>
+<div class="desc" style="margin-top:8px">设备上：短按切到下一屏；翻完本榜单最后一屏后，短按进入下一个榜单的第一屏。
+长按切到上一屏；在本榜单第一屏时，长按进入上一个榜单的最后一屏。都会循环（最后一个榜单之后回到第一个）。
+自动切换只在榜单之间进行（不会自动翻本榜单内的屏），按任意键后重新计时。
+以上设置点"应用全部设置"后立即生效，设备屏幕马上更新，不需要重启应用。</div>
+</section>
+</main>
+<script>
+const CATS = [
+  ['popular', '综合热门'], ['weekly', '每周必看'], ['precious', '入站必刷'],
+  ['rank', '排行榜'], ['up', 'UP主最新视频'],
+];
+const PARTITIONS = [
+  ['0', '全站'], ['1', '动画'], ['3', '音乐'], ['4', '游戏'], ['5', '娱乐'],
+  ['36', '知识'], ['119', '鬼畜'], ['129', '舞蹈'], ['155', '时尚'], ['160', '生活'],
+  ['168', '国创相关'], ['177', '纪录片'], ['181', '影视'], ['188', '科技'],
+  ['211', '美食'], ['217', '动物圈'], ['223', '汽车'], ['234', '运动'],
+];
+
+let lists = [];
+let limits = {max_lists: 6, min_total: 1, max_total: 15, min_page: 3, max_page: 10};
+
+function optionsHtml(options, value) {
+  return options.map(([v, n]) => `<option value="${v}"${value === v ? ' selected' : ''}>${esc(n)}</option>`).join('');
+}
+
+function rowHtml(row, i) {
+  const extra = row.cat === 'rank'
+    ? `<div><label>分区</label><select onchange="setField(${i},'param',this.value)">${optionsHtml(PARTITIONS, row.param)}</select></div>`
+    : row.cat === 'up'
+    ? `<div><label>UP 主</label><input value="${esc(row.param)}" placeholder="UID、空间链接或名字"
+         onchange="setField(${i},'param',this.value)"></div>`
+    : '';
+  const counts = row.paginate
+    ? `<div><label>总条数</label><input type="number" min="${limits.min_total}" max="${limits.max_total}"
+         value="${row.total}" onchange="setNum(${i},'total',this.value)"></div>
+       <div><label>每屏条数</label><input type="number" min="${limits.min_page}" max="${limits.max_page}"
+         value="${row.page}" onchange="setNum(${i},'page',this.value)"></div>`
+    : `<div><label>显示条数</label><input type="number" min="${limits.min_total}" max="${limits.max_total}"
+         value="${row.total}" onchange="setNum(${i},'total',this.value)"></div>`;
+  return `
+  <div class="item listrow">
+    <div class="grow">
+      <div class="row">
+        <div><label>类型</label><select onchange="setCat(${i},this.value)">${optionsHtml(CATS, row.cat)}</select></div>
+        ${extra}
+        <div><label class="check"><input type="checkbox" ${row.paginate ? 'checked' : ''}
+          onchange="setPaginate(${i},this.checked)"> 本榜单内翻页</label></div>
+        ${counts}
+      </div>
+    </div>
+    <div class="btns">
+      <button class="small plain" onclick="move(${i},-1)"${i === 0 ? ' disabled' : ''}>上移</button>
+      <button class="small plain" onclick="move(${i},1)"${i === lists.length - 1 ? ' disabled' : ''}>下移</button>
+      <button class="small danger" onclick="removeRow(${i})"${lists.length <= 1 ? ' disabled' : ''}>删除</button>
+    </div>
+  </div>`;
+}
+
+function render() {
+  $('lists').innerHTML = lists.map(rowHtml).join('');
+  const atMax = lists.length >= limits.max_lists;
+  $('addBtn').disabled = atMax;
+  $('addBtn').title = atMax ? `最多 ${limits.max_lists} 个榜单` : '';
+}
+
+function setCat(i, v) {
+  lists[i].cat = v;
+  if (v === 'rank' && !PARTITIONS.some((p) => p[0] === lists[i].param)) lists[i].param = '0';
+  if (v !== 'rank' && v !== 'up') lists[i].param = '';
+  render();
+}
+function setPaginate(i, on) { lists[i].paginate = on ? 1 : 0; render(); }
+function setField(i, key, v) { lists[i][key] = v; }
+function setNum(i, key, v) {
+  const n = parseInt(v, 10);
+  if (!isNaN(n)) lists[i][key] = n;
+}
+function move(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= lists.length) return;
+  [lists[i], lists[j]] = [lists[j], lists[i]];
+  render();
+}
+function removeRow(i) {
+  if (lists.length <= 1) return;
+  lists.splice(i, 1);
+  render();
+}
+function addRow() {
+  if (lists.length >= limits.max_lists) return;
+  lists.push({cat: 'popular', param: '', paginate: 0, total: 5, page: 5});
+  render();
+}
+
+function encodeLists() {
+  return lists.map((r) => `${r.cat}:${encodeURIComponent(r.param || '')}:${r.paginate ? 1 : 0}:${r.total}:${r.page}`).join('|');
+}
+
+function take(r) {
+  limits = {
+    max_lists: r.max_lists, min_total: r.min_total, max_total: r.max_total,
+    min_page: r.min_page, max_page: r.max_page,
+  };
+  lists = Array.from(r.lists);
+  $('auto_advance').value = r.auto_advance;
+  render();
+}
+
+async function load() { await attempt(async () => take(await appCall('state', {}))); }
+
+async function apply() {
+  const r = await appCall('set', {lists: encodeLists(), auto_advance: $('auto_advance').value});
+  take(r);
+  say('已应用，设备屏幕已更新', 'ok');
+}
+
+attempt(load);
+</script>
+</body>
+</html>

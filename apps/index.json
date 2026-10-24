@@ -13,9 +13,27 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 56397,
+  "size": 56726,
   "scm": "album.allinone.scm",
-  "hash": "0ce13072"
+  "hash": "a8ce3e23"
+ },
+ {
+  "id": "bilibili",
+  "name": "B站热门视频",
+  "description": "多个榜单同时显示（综合热门/每周必看/入站必刷/排行榜/UP主最新视频），可在应用网页里增删排序，每个榜单单独设置条数和翻页",
+  "version": "1",
+  "api": "1.11",
+  "extensions": "",
+  "kind": "app",
+  "pages": 1,
+  "page_ids": [
+   "hot"
+  ],
+  "web": true,
+  "file": "bilibili.msbc",
+  "size": 56026,
+  "scm": "bilibili.allinone.scm",
+  "hash": "8b359388"
  },
  {
   "id": "calendar",
@@ -33,9 +51,9 @@
   ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 52766,
+  "size": 53095,
   "scm": "calendar.allinone.scm",
-  "hash": "4ad26035"
+  "hash": "a240d82c"
  },
  {
   "id": "combo",
@@ -49,9 +67,9 @@
   "page_ids": [],
   "web": false,
   "file": "combo.msbc",
-  "size": 85928,
+  "size": 86258,
   "scm": "combo.allinone.scm",
-  "hash": "32ca8352"
+  "hash": "c2b91bdd"
  },
  {
   "id": "crypto",
@@ -69,9 +87,9 @@
   ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 41921,
+  "size": 42250,
   "scm": "crypto.allinone.scm",
-  "hash": "d48b4e0f"
+  "hash": "d752562b"
  },
  {
   "id": "futures",
@@ -89,9 +107,9 @@
   ],
   "web": false,
   "file": "futures.msbc",
-  "size": 41966,
+  "size": 42295,
   "scm": "futures.allinone.scm",
-  "hash": "cdc8f1e2"
+  "hash": "1cb6bcac"
  },
  {
   "id": "medicine",
@@ -107,9 +125,9 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 97503,
+  "size": 97833,
   "scm": "medicine.allinone.scm",
-  "hash": "ec0fd766"
+  "hash": "697cb19f"
  },
  {
   "id": "memo",
@@ -126,9 +144,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 50696,
+  "size": 51025,
   "scm": "memo.allinone.scm",
-  "hash": "a0d6126f"
+  "hash": "fdb36a9c"
  },
  {
   "id": "news",
@@ -147,9 +165,9 @@
   ],
   "web": false,
   "file": "news.msbc",
-  "size": 40224,
+  "size": 40553,
   "scm": "news.allinone.scm",
-  "hash": "fe679b54"
+  "hash": "bddff31a"
  },
  {
   "id": "notifier",
@@ -166,9 +184,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 52482,
+  "size": 52811,
   "scm": "notifier.allinone.scm",
-  "hash": "4f3a7963"
+  "hash": "a272a487"
  },
  {
   "id": "pcmonitor",
@@ -219,9 +237,9 @@
   ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 43707,
+  "size": 44036,
   "scm": "stocks.allinone.scm",
-  "hash": "bb4dc5ea"
+  "hash": "49d89018"
  },
  {
   "id": "tide",
@@ -239,9 +257,9 @@
   ],
   "web": false,
   "file": "tide.msbc",
-  "size": 53038,
+  "size": 53367,
   "scm": "tide.allinone.scm",
-  "hash": "a8cd9706"
+  "hash": "b8e50a23"
  },
  {
   "id": "usage",
@@ -260,9 +278,9 @@
   ],
   "web": false,
   "file": "usage.msbc",
-  "size": 44419,
+  "size": 44748,
   "scm": "usage.allinone.scm",
-  "hash": "67cf593b"
+  "hash": "a9397875"
  },
  {
   "id": "weather",
@@ -282,9 +300,9 @@
   ],
   "web": false,
   "file": "weather.msbc",
-  "size": 51766,
+  "size": 52095,
   "scm": "weather.allinone.scm",
-  "hash": "63400c51"
+  "hash": "04d001de"
  },
  {
   "id": "wxpusher",
@@ -300,8 +318,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 55174,
+  "size": 55504,
   "scm": "wxpusher.allinone.scm",
-  "hash": "f8425181"
+  "hash": "add355a1"
  }
 ]

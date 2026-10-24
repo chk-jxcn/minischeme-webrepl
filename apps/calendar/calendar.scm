@@ -119,7 +119,7 @@
     (gui-seg7 (+ x hm-w 10) (+ y (- dh sh)) sw sh st sec theme-seg-on theme-seg-off theme-seg-on theme-seg-on)))
 
 ;; World clocks. The proxy gives each place's UTC offset (DST included, see
-;; world_clocks in tools/app_proxy.py); the time runs here from the UTC
+;; world_clocks in minischeme-proxy proxy/calendar_data.py); the time runs here from the UTC
 ;; second of the day (app-utc-sec) and the device's own offset, worked out
 ;; from its local time.
 (define (cal-local-sec)                  ; "20:29" ":06" -> seconds of the day, #f unsynced
