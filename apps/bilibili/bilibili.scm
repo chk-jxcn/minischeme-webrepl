@@ -366,21 +366,30 @@
 ;; "pixel" by default): since firmware v1.0.79 a moving box replays one recording of the screen
 ;; instead of re-running render every step, so this costs about what static text does (section
 ;; 9). Never gui-text-wrap here: a wrapped title stops at "…" and never shows the rest.
+;; Beside the cover, as the row's height allows: title, @UP主, plays on three lines (rows of 60
+;; px and more: 3..6 videos a screen); title, then @UP主 and the plays on the right (41..59 px:
+;; 7..10 a screen); the title alone.
 (define (bilibili-render-row items idx y)
   (let* ((it (vector-ref items idx)) (aid (it-b it))
          (cov-y (+ y (quotient (- bilibili-row-h bilibili-cover-h) 2)))
-         (title-w (- (scr-w) BILIBILI-TITLE-X 10))
-         (show-views? (>= bilibili-row-h 40))
-         (title-area-h (if show-views? (- bilibili-row-h 20) bilibili-row-h))
-         (title-y (+ y (max 0 (quotient (- title-area-h 18) 2))))
-         (views (it-c it)))
+         (x BILIBILI-TITLE-X)
+         (w (- (scr-w) x 10))
+         (lines (cond ((>= bilibili-row-h 60) 3) ((>= bilibili-row-h 40) 2) (else 1)))
+         (y0 (+ y (max 0 (quotient (- bilibili-row-h (* lines LINE-H)) 2))))
+         (up (if (str-empty? (it-d it)) "" (string-append "@" (it-d it))))
+         (views (if (str-empty? (it-c it)) "" (string-append "播放 " (it-c it)))))
     (bilibili-draw-rank BILIBILI-RANK-X y (+ idx 1))
     (if (bilibili-cover-ready? (bilibili-pic-path aid bilibili-cover-w bilibili-cover-h))
         (gui-image BILIBILI-COVER-X cov-y (bilibili-pic-path aid bilibili-cover-w bilibili-cover-h))
         (gui-round-rect BILIBILI-COVER-X cov-y bilibili-cover-w bilibili-cover-h 4 theme-card-hdr #t))
-    (txt-fit BILIBILI-TITLE-X title-y title-w (it-a it) theme-text-main)
-    (if (and show-views? (> (string-length views) 0))
-        (txt BILIBILI-TITLE-X (+ y bilibili-row-h -18) (string-append "播放 " views) theme-text-muted))
+    (txt-fit x y0 w (it-a it) theme-text-main)
+    (cond ((= lines 3)
+           (txt-fit x (+ y0 LINE-H) w up theme-text-sub)
+           (txt x (+ y0 (* 2 LINE-H)) views theme-text-muted))
+          ((= lines 2)   ; the plays stay put on the right, a long name scrolls in what is left
+           (let ((vw (txt-w views)))
+             (txt-right (+ x w) (+ y0 LINE-H) views theme-text-muted)
+             (txt-fit x (+ y0 LINE-H) (- w vw 10) up theme-text-sub))))
     (gui-line BILIBILI-RANK-X (+ y bilibili-row-h -1) (- (scr-w) 10) (+ y bilibili-row-h -1) theme-divider)))
 
 (define (bilibili-render items)

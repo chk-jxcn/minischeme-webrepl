@@ -31,9 +31,9 @@
   ],
   "web": true,
   "file": "bilibili.msbc",
-  "size": 56026,
+  "size": 56228,
   "scm": "bilibili.allinone.scm",
-  "hash": "8b359388"
+  "hash": "949e3cef"
  },
  {
   "id": "calendar",
