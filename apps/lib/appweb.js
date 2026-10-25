@@ -7,7 +7,10 @@
 /* The board serves this page as /app?t=<token>: a sandboxed page sends no
  * Referer, so its calls carry the token back to show they come from it */
 const APP_PAGE_TOKEN = new URLSearchParams(location.search).get('t') || '';
+/* /app?member=<id>: a member's page of a combined app: its calls and files are that member's */
+const APP_PAGE_MEMBER = new URLSearchParams(location.search).get('member') || '';
 function appUrl(url) {
+  if (APP_PAGE_MEMBER) url += '&member=' + encodeURIComponent(APP_PAGE_MEMBER);
   return APP_PAGE_TOKEN ? url + '&t=' + encodeURIComponent(APP_PAGE_TOKEN) : url;
 }
 

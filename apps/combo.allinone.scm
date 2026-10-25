@@ -17,11 +17,13 @@
 ;;; entries = text | 显示的页面 | 逗号分开，按顺序轮播。应用.页名（英文页名，如 weather.sevendays、calendar.today；front 为第一页），或应用提供的视图，如 wxpusher.news[0]（最新一条消息）。留空：全部页面
 ;;; carousel = select:=跟随系统,1=自动轮播,0=手动翻页 | 自动轮播 | 留空跟随 config.ini
 ;;; carousel_seconds = text | 每页秒数 | 一个数，或每页一个：15,10,10
+;;; alerts = text | 成员的强提醒 | 覆盖成员自己的提醒设置，逗号分开：应用:优先级[:结束方式[:秒数]]，如 wxpusher:7:both:60,notifier:4；优先级 0 关闭该应用的提醒；结束方式 button、time、both
 ;;; 
 ;;; [config]
 ;;; entries = ; app.page (English page names) or a view, comma separated; empty: every page
 ;;; carousel = 1 ; 1: turn the pages by themselves
 ;;; carousel_seconds = 10 ; seconds per page, or one per page
+;;; alerts = ; per member: id:priority[:exit[:seconds]], comma separated (empty: the members' own settings)
 
 ;;; =========================================================================
 ;;; Section: apps/lib/gui.scm
@@ -1151,6 +1153,13 @@
 (define app-views '())                       ; (name . (lambda (items i) ...)): views a combined app can show
 (define app-index-always #f)                 ; #t: the page number also on page 1 (a combined app)
 (define app-footer-text "")                  ; the footer of a local page (no proxy data)
+(define app-long-press #f)                   ; () -> the app's long press, if it has one
+(define app-schedule #f)                     ; (at) -> a time of the app's schedule.ini came while it runs
+(define app-hold-proc #f)                    ; () -> #t: the carousel waits on this page (the app's own cycle
+                                             ; runs); once it says #f again the carousel goes on at once
+(define app-show-proc #f)                    ; () -> a page of the app came on screen (app-goto!)
+(define app-step-proc #f)                    ; () -> every main-loop pass; #t: it used the feed stream itself
+                                             ; (a sync), the framework's step waits
 (define app-pages (vector))
 (define app-urls (vector))
 (define app-page-index 0)
@@ -1292,14 +1301,18 @@
     (set! app-loading #f)
     (if (and (pair? items) (eq? (it-t (car items)) 'error))
         (begin (set! app-error (it-a (car items))) (set! app-error-url (json-feed-url)))
+        (if (app-page-url? (json-feed-url))
+            (begin
+              (set! app-error #f)
+              (app-cache-put! (json-feed-url) items)
+              (if app-data-proc (app-data-proc items)))
+            (app-watch-deliver! (json-feed-url) items)))
+    (if (not (and (pair? items) (eq? (it-t (car items)) 'error)))
         (begin
-          (set! app-error #f)
-          (app-cache-put! (json-feed-url) items)
-          (if app-data-proc (app-data-proc items))
           ;; every page cached: the firmware's one stream goes back to the
           ;; page on screen when its data is due (app-tick checks again)
           (if (not (app-prefetch-next!)) (app-follow-page!))))
-    (app-invalidate-all)))
+    (if (app-page-url? (json-feed-url)) (app-invalidate-all))))   ; a watched feed's: its alert draws itself
 
 ;; 7. Drawing --------------------------------------------------------------------------------
 
@@ -1388,10 +1401,13 @@
 ;; every scrolling title would pay for)
 (define app-footer-shown #f)
 (define (app-footer-key)
-  (if (app-local? app-page-index)
-      app-footer-text
+  (cond
+    ((app-alert-current) (string-append "alert|" (app-al-id (app-alert-current))))
+    ((app-local? app-page-index)
+     app-footer-text)
+    (else
       (let ((parts (app-feed-footer-parts)))
-        (string-append (vector-ref parts 0) "|" (vector-ref parts 1) (if (vector-ref parts 2) "!" "")))))
+        (string-append (vector-ref parts 0) "|" (vector-ref parts 1) (if (vector-ref parts 2) "!" ""))))))
 
 ;; "http://host:port" shown as "host:port"
 (define (app-server-name s)
@@ -1462,6 +1478,10 @@
   (gui-flush))
 
 (define (app-render-page)
+  (let ((a (app-alert-current)))
+    (if a (app-alert-render a) (app-render-pages))))
+
+(define (app-render-pages)
   (let ((items (if (app-local? app-page-index) '() (app-items))))   ; a local page: no document
     (if (gui-visible? 0 HDR-H) (app-render-header items))
     (if (gui-visible? HDR-H (- (gui-height) HDR-H FTR-H))
@@ -1500,11 +1520,14 @@
   (app-carousel-reset!)
   (app-init-fonts!)
   (app-start-feed!)
+  (app-alert-wrap-buttons!)
   (app-invalidate-all))
 
 (define (app-goto! i)
   (set! app-page-index i)
+  (set! app-carousel-held #f)
   (app-carousel-reset!)
+  (if app-show-proc (app-show-proc))
   (app-follow-page!)                 ; its data still fresh: shown from the cache
   (app-invalidate-all))
 
@@ -1535,19 +1558,31 @@
   (gui-invalidate 0 0 (scr-w) HDR-H)
   (app-carousel-state))
 
-;; One second of the carousel: the next page when this one's time is up
+;; One second of the carousel: the next page when this one's time is up. A page whose app
+;; cycles through its own screens (app-hold-proc) keeps it waiting, and is left as soon as
+;; its cycle went round.
+(define app-carousel-held #f)
 (define (app-carousel-tick!)
-  (set! app-carousel-left (- app-carousel-left 1))
-  (if (<= app-carousel-left 0)
-      (app-next-page!)
-      (gui-invalidate 0 0 (scr-w) HDR-H)))
+  (cond ((and app-hold-proc (app-hold-proc))
+         (if (not app-carousel-held) (gui-invalidate 0 0 (scr-w) HDR-H))
+         (set! app-carousel-held #t)
+         (app-carousel-reset!))
+        (app-carousel-held
+         (set! app-carousel-held #f)
+         (app-next-page!))
+        (else
+         (set! app-carousel-left (- app-carousel-left 1))
+         (if (<= app-carousel-left 0)
+             (app-next-page!)
+             (gui-invalidate 0 0 (scr-w) HDR-H)))))
 
 (define (app-step)
-  (let ((seq (json-feed-seq)))
-    (if (and (> seq 0) (not (= seq app-last-seq)))
-        (begin
-          (set! app-last-seq seq)
-          (app-take-document!)))))
+  (if (not (and app-step-proc (app-step-proc)))
+      (let ((seq (json-feed-seq)))
+        (if (and (> seq 0) (not (= seq app-last-seq)))
+            (begin
+              (set! app-last-seq seq)
+              (app-take-document!))))))
 
 (define (app-tick hm sec week date lux bl . rest)
   (let ((tick (if (pair? rest) (car rest) 0)))
@@ -1566,9 +1601,12 @@
               (begin
                 (set! app-footer-shown key)
                 (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H)))))
-    (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
+    (app-alert-tick!)
+    ;; also stops on the hardware pages and while an alert shows
+    (if (and app-carousel (not (info-active?)) (not app-carousel-paused) (not (app-alert-current)))
         (app-carousel-tick!))
     (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
+    (app-watch-step!)                            ; else a watched feed that is due
     (if (theme-tick! tick) (app-invalidate-all))   ; the day / night scheme or a theme.css changed
     (if app-tick-proc (app-tick-proc tick))))
 
@@ -1586,6 +1624,284 @@
   (app-init-fonts!)
   (app-start-feed!)
   (app-invalidate-all))
+
+;; 9. Alerts (强提醒) ---------------------------------------------------------------------------
+;; Something that needs the user now (a dose due, a new message) takes the screen over the
+;; pages: (app-alert! key title render [opts]). The alert with the highest priority shows
+;; (1..9, 9 the highest; equal ones in the order they came); a higher one raised meanwhile
+;; goes in front, and the one it covered comes back after it with the seconds it had left.
+;; While one shows the carousel stops, a short press confirms it (its ack runs, then it
+;; closes) and a long press puts it off for a few minutes. How it ends: button (a short
+;; press), time (after its seconds), both, or app (only the app's own (app-alert-done! key),
+;; e.g. once every dose is taken; a short press still runs its ack). The user's settings
+;; come first: a combined app's alerts setting for the member (combo.scm), then the app's
+;; own alert (0: none of its alerts), alert_priority, alert_exit (button, time, both),
+;; alert_seconds, alert_snooze (minutes); then the options the app passes; then 5 / both /
+;; 30 s / 5 min. opts: an alist of (ack . thunk), (priority . n), (exit . symbol),
+;; (seconds . n), (snooze . minutes), (full . #t) (render draws the whole screen, its own
+;; title bar and hints: the medicine reminder). key: a string the app picks (one per message, per
+;; dose time); raising it again updates the alert; an alert that ended is not raised again
+;; under the same key until the app restarts.
+;; (app-watch! url-proc interval-ms proc): a feed fetched in the background at its
+;; interval while the page on screen does not need the stream (a combined app's member
+;; that is not on screen still sees its new messages); proc gets its documents.
+
+(define APP-ALERT-PRIORITY 5)
+(define APP-ALERT-EXIT 'both)
+(define APP-ALERT-SECONDS 30)
+(define APP-ALERT-SNOOZE 5)
+(define APP-ALERT-DONE-MAX 40)
+
+;; #(id owner app title render ack priority exit seconds snooze seq left wake full)
+(define app-alerts '())                      ; in queue order: priority, then arrival
+(define app-alert-seq 0)
+(define app-alert-clock 0)                   ; seconds since the start (snoozes wake on it)
+(define app-alert-done-ids '())              ; alerts that ended: raising one again does nothing
+(define app-alert-user-button #f)            ; the app's own presses (app-define! wraps them)
+(define app-alert-user-long #f)
+
+(define (app-al-id a) (vector-ref a 0))
+(define (app-al-owner a) (vector-ref a 1))
+(define (app-al-app a) (vector-ref a 2))
+(define (app-al-title a) (vector-ref a 3))
+(define (app-al-render a) (vector-ref a 4))
+(define (app-al-ack a) (vector-ref a 5))
+(define (app-al-priority a) (vector-ref a 6))
+(define (app-al-exit a) (vector-ref a 7))
+(define (app-al-seconds a) (vector-ref a 8))
+(define (app-al-snooze a) (vector-ref a 9))
+(define (app-al-seq a) (vector-ref a 10))
+(define (app-al-left a) (vector-ref a 11))
+(define (app-al-wake a) (vector-ref a 12))
+(define (app-al-full a) (vector-ref a 13))
+
+;; A combined app's hooks (combo.scm): which member raises an alert, running code as that
+;; member, its name and its settings. Alone, the app itself.
+(define (app-alert-owner) #f)
+(define (app-alert-owner-id owner) "")
+(define (app-alert-run owner thunk) (thunk))
+(define (app-alert-app-name owner) app-title)
+(define (app-alert-setting owner name) (app-config name #f))   ; runs inside app-alert-run
+
+;; A callback the firmware calls later (fs-download's on-done): it runs as the code that made it
+;; (in a combined app, as that member: its folder, its settings)
+(define (app-callback proc)
+  (let ((owner (app-alert-owner)))
+    (lambda args (app-alert-run owner (lambda () (apply proc args))))))
+
+(define (app-alert-opt opts key) (let ((p (assq key opts))) (and p (cdr p))))
+
+;; One setting: the user's (as text), else the app's option, else the default
+(define (app-alert-value owner opts key name default)
+  (let* ((s (app-alert-run owner (lambda () (app-alert-setting owner name))))
+         (v (and (string? s) (> (string-length s) 0) s))
+         (given (app-alert-opt opts key)))
+    (cond ((and v (eq? key 'exit) (not (eq? given 'app)))      ; app: the app ends it, always
+           (let ((sym (string->symbol v))) (if (memq sym '(button time both)) sym (or given default))))
+          ((and v (not (eq? key 'exit)) (string->number v)) (string->number v))
+          (else (or given default)))))
+
+(define (app-alert-find id)
+  (let loop ((l app-alerts))
+    (cond ((null? l) #f) ((string=? (app-al-id (car l)) id) (car l)) (else (loop (cdr l))))))
+
+;; The queue with a in its place: a higher priority first, then the one that came first
+(define (app-alert-insert a l)
+  (cond ((null? l) (list a))
+        ((> (app-al-priority a) (app-al-priority (car l))) (cons a l))
+        (else (cons (car l) (app-alert-insert a (cdr l))))))
+
+;; The alert on screen: the first one not put off, or #f
+(define (app-alert-current)
+  (let loop ((l app-alerts))
+    (cond ((null? l) #f) ((app-al-wake (car l)) (loop (cdr l))) (else (car l)))))
+
+(define (app-alert-waiting) (length (filter (lambda (a) (not (app-al-wake a))) app-alerts)))
+
+(define (app-alert-changed!)
+  (if (not (app-alert-current)) (app-carousel-reset!))   ; the pages again: a full count
+  (app-invalidate-all))
+
+(define (app-alert-key-id owner key) (string-append (app-alert-owner-id owner) "/" key))
+
+(define (app-alert! key title render . rest)
+  (let* ((opts (if (pair? rest) (car rest) '()))
+         (owner (app-alert-owner))
+         (id (app-alert-key-id owner key))
+         (old (app-alert-find id)))
+    (cond
+      ((member id app-alert-done-ids) #f)
+      ((equal? (app-alert-run owner (lambda () (app-alert-setting owner "alert"))) "0") #f)
+      (old (vector-set! old 3 title)
+           (vector-set! old 4 render)
+           (vector-set! old 5 (app-alert-opt opts 'ack))
+           (if (eq? old (app-alert-current)) (app-invalidate-all))
+           #t)
+      (else
+        (let* ((secs (clamp (app-alert-value owner opts 'seconds "alert_seconds" APP-ALERT-SECONDS) 3 3600))
+               (a (vector id owner (app-alert-app-name owner) title render (app-alert-opt opts 'ack)
+                          (clamp (app-alert-value owner opts 'priority "alert_priority" APP-ALERT-PRIORITY) 1 9)
+                          (app-alert-value owner opts 'exit "alert_exit" APP-ALERT-EXIT)
+                          secs
+                          (clamp (app-alert-value owner opts 'snooze "alert_snooze" APP-ALERT-SNOOZE) 1 120)
+                          app-alert-seq secs #f (and (app-alert-opt opts 'full) #t))))
+          (set! app-alert-seq (+ app-alert-seq 1))
+          (set! app-alerts (app-alert-insert a app-alerts))
+          (app-alert-changed!)
+          #t)))))
+
+;; The alert leaves the queue for good (its ack first when confirmed)
+(define (app-alert-end! a)
+  (set! app-alerts (filter (lambda (x) (not (eq? x a))) app-alerts))
+  (set! app-alert-done-ids (cons (app-al-id a) app-alert-done-ids))
+  (if (> (length app-alert-done-ids) APP-ALERT-DONE-MAX)
+      (set! app-alert-done-ids (take app-alert-done-ids APP-ALERT-DONE-MAX)))
+  (app-alert-changed!))
+
+;; The app ends its alert (every dose taken, the message read elsewhere)
+(define (app-alert-done! key)
+  (let ((a (app-alert-find (app-alert-key-id (app-alert-owner) key))))
+    (if a (app-alert-end! a))
+    (and a #t)))
+
+(define (app-alert-active? key) (and (app-alert-find (app-alert-key-id (app-alert-owner) key)) #t))
+
+;; Short press on an alert: its ack; it closes unless only time ends it, or the app does
+(define (app-alert-press! a)
+  (let ((ack (app-al-ack a)) (exit (app-al-exit a)))
+    (if (not (eq? exit 'time))
+        (begin
+          (if ack (app-alert-run (app-al-owner a) ack))
+          (if (and (not (eq? exit 'app)) (app-alert-find (app-al-id a))) (app-alert-end! a))
+          (app-invalidate-all)))))
+
+;; Long press: put off for its snooze minutes; it comes back with its full seconds
+(define (app-alert-snooze! a)
+  (vector-set! a 12 (+ app-alert-clock (* 60 (app-al-snooze a))))
+  (app-alert-changed!))
+
+;; Every second: alerts put off come back; the one on screen counts down when time ends it
+(define (app-alert-tick!)
+  (set! app-alert-clock (+ app-alert-clock 1))
+  (for-each (lambda (a)
+              (if (and (app-al-wake a) (>= app-alert-clock (app-al-wake a)))
+                  (begin (vector-set! a 12 #f) (vector-set! a 11 (app-al-seconds a)) (app-alert-changed!))))
+            app-alerts)
+  (let ((a (app-alert-current)))
+    (if (and a (memq (app-al-exit a) '(time both)))
+        (begin
+          (vector-set! a 11 (- (app-al-left a) 1))
+          (if (<= (app-al-left a) 0)
+              (app-alert-end! a)
+              (begin (gui-invalidate 0 0 (scr-w) HDR-H)
+                     (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H)))))))
+
+;; The presses go to the alert on screen, else to the app (app-define! wraps them once)
+(define (app-alert-wrap-buttons!)
+  (if (not app-alert-user-button)
+      (begin
+        (set! app-alert-user-button app-button)
+        (set! app-alert-user-long app-long-press)
+        (set! app-button
+              (lambda () (let ((a (app-alert-current))) (if a (app-alert-press! a) (app-alert-user-button)))))
+        (set! app-long-press
+              (lambda ()
+                (let ((a (app-alert-current)))
+                  (cond (a (app-alert-snooze! a))
+                        (app-alert-user-long (app-alert-user-long)))))))))
+
+;; Screen: a title bar in the priority's color with the app's name and the alert's title,
+;; the alerts waiting and the countdown; the alert's own body; a footer saying what the
+;; presses do
+(define (app-alert-color a)
+  (let ((p (app-al-priority a))) (cond ((>= p 8) theme-danger) ((>= p 5) theme-warning) (else theme-accent))))
+
+(define (app-alert-render-header a)
+  (let* ((w (scr-w)) (tw (txt-w app-time))
+         (n (app-alert-waiting))
+         (ind (if (> n 1) (string-append "提醒 1/" (int->str n)) #f))
+         (iw (if ind (+ (txt-w ind) 12) 0))
+         (badge (- w 8 tw 8 iw))
+         (timed (memq (app-al-exit a) '(time both)))
+         (secs (app-al-seconds a))
+         (bar-r (- badge (if ind 6 0)))
+         (right (if timed (- bar-r (carousel-bar-w secs) 6) badge))
+         (name (app-al-app a)) (nw (txt-w name)))
+    (gui-rect 0 0 w HDR-H (app-alert-color a) #t)
+    (if timed
+        (let* ((full (carousel-bar-w secs)) (left (min full (* (max 0 (app-al-left a)) (carousel-px secs))))
+               (y (quotient (- HDR-H CAROUSEL-BAR-H) 2)))
+          (gui-rect (- bar-r full) y full CAROUSEL-BAR-H theme-card-hdr #t)
+          (if (> left 0) (gui-rect (- bar-r left) y left CAROUSEL-BAR-H theme-bg #t))))
+    (txt-right (- w 8) 8 app-time theme-bg)
+    (if ind
+        (begin (gui-round-rect badge 5 iw 22 6 theme-bg #t)
+               (txt (+ badge 6) 8 ind (app-alert-color a))))
+    (txt-fit 8 8 (- right 14) name theme-bg)
+    (if (< (+ 8 nw 10) (- right 20))
+        (txt-fit (+ 8 nw 10) 8 (- right 14 nw 10) (app-al-title a) theme-bg))))
+
+(define (app-alert-hint a)
+  (let ((exit (app-al-exit a)) (secs (int->str (max 0 (app-al-left a)))))
+    (cond ((eq? exit 'time) (string-append secs " 秒后关闭  长按稍后提醒"))
+          ((eq? exit 'both) (string-append "短按确认  " secs " 秒后关闭  长按稍后"))
+          (else (string-append "短按确认  长按 " (int->str (app-al-snooze a)) " 分钟后再提醒")))))
+
+(define (app-alert-render-footer a)
+  (let ((y (- (gui-height) FTR-H)))
+    (gui-rect 0 y (scr-w) FTR-H theme-card-hdr #t)
+    (txt-fit 8 (+ y 3) (- (scr-w) 16) (app-alert-hint a) theme-text-sub)))
+
+(define (app-alert-render a)
+  (if (app-al-full a)
+      (app-alert-run (app-al-owner a) (lambda () ((app-al-render a))))
+      (app-alert-render-framed a)))
+
+(define (app-alert-render-framed a)
+  (if (gui-visible? 0 HDR-H) (app-alert-render-header a))
+  (if (gui-visible? HDR-H (- (gui-height) HDR-H FTR-H))
+      (app-alert-run (app-al-owner a) (lambda () ((app-al-render a)))))
+  (if (gui-visible? (- (gui-height) FTR-H) FTR-H) (app-alert-render-footer a)))
+
+;; Watched feeds: #(url-proc interval owner proc due), due on app-alert-clock
+(define app-watches '())
+
+(define (app-watch! url-proc interval proc)
+  (set! app-watches (append app-watches (list (vector url-proc interval (app-alert-owner) proc 0)))))
+
+(define (app-watch-url w) (app-alert-run (vector-ref w 2) (vector-ref w 0)))
+
+(define (app-page-url? url)
+  (let loop ((i 0))
+    (cond ((>= i (vector-length app-urls)) #f)
+          ((equal? (vector-ref app-urls i) url) #t)
+          (else (loop (+ i 1))))))
+
+;; A document of a watched feed no page shows: to its proc, as its app's code
+(define (app-watch-deliver! url items)
+  (for-each (lambda (w)
+              (if (equal? (app-watch-url w) url)
+                  (begin
+                    (vector-set! w 4 (+ app-alert-clock (quotient (vector-ref w 1) 1000)))
+                    (app-alert-run (vector-ref w 2) (lambda () ((vector-ref w 3) items))))))
+            app-watches))
+
+;; Every second: a due watched feed takes the stream while no fetch is in flight; the page on
+;; screen takes it back right after when its data is due (app-take-document!, app-follow-page!),
+;; also when its fetch keeps failing
+(define (app-watch-step!)
+  (if (and (pair? app-watches) (not app-loading) (> (app-npages) 0) (not (string=? (app-proxy) "")))
+      (let loop ((l app-watches))
+        (if (pair? l)
+            (let* ((w (car l)) (url (app-watch-url w)))
+              (if (and (>= app-alert-clock (vector-ref w 4)) (not (string=? url ""))
+                       (not (equal? url (vector-ref app-urls app-page-index))))
+                  (begin
+                    (vector-set! w 4 (+ app-alert-clock (quotient (vector-ref w 1) 1000)))
+                    (set! app-feed-url url)
+                    (set! app-loading #t)
+                    (json-feed-start url (vector-ref w 1) APP-KEYS APP-SELECTORS APP-POOL APP-VALUE-LEN 2))
+                  (loop (cdr l))))))))
 
 
 ;;; =========================================================================
@@ -1714,7 +2030,8 @@
 ;;;
 ;;; The WebREPL's 合并应用 (or tools/build_apps.py for apps/<id>/meta.ini with
 ;;; [combo] members) puts applib, this file, then each member app's code
-;;; followed by (combo-member! "weather" '("front" ...) '(("location" . "auto") ...))
+;;; after (combo-loading! "weather") and followed by
+;;; (combo-member! "weather" '("front" ...) '(("location" . "auto") ...))
 ;;; (its English page names and its meta.ini defaults), and (combo-start!) at
 ;;; the end, into one app.
 ;;;
@@ -1732,11 +2049,33 @@
 ;;;   app-config reads the member's own config.ini ((config-get key id),
 ;;;   firmware with combined apps; never run alone: its meta.ini defaults).
 ;;; - Short press: next entry. Long press: the entry app's own long press.
+;;; - Its own web page (apps/lib/combo_web.html) edits entries (a page may
+;;;   come several times), the carousel and the members' alerts, taking effect
+;;;   at once; a member's page (/app?member=<id>, from the member's installed
+;;;   image) calls (app-web name body id): that member's app-web, as its code.
+;;; - A member that cycles through its own screens (app-hold-proc: the
+;;;   Bilibili app turning its screens) keeps the carousel on its entry until
+;;;   its cycle went round; app-show-proc tells it its entry came on screen.
+;;; - A member's files are its own app's (apps/<id>/, firmware API 1.13:
+;;;   app-member-folder): while its code runs, also while it loads, relative
+;;;   paths and the storage quota are that folder's, so it shares its data
+;;;   with the app running alone (the medicine records). Its schedule.ini
+;;;   times reach it here (the firmware calls (app-schedule at id)), and its
+;;;   app-step-proc runs on every pass, as its code.
+;;; - Alerts (applib section 9): a member's alerts take the screen whatever
+;;;   entry shows, run as its code and carry its name; its watched feeds are
+;;;   fetched in the background. The setting alerts overrides the members'
+;;;   own alert settings: "id:priority[:exit[:seconds]]", comma separated
+;;;   (wxpusher:7:both:60,notifier:4); priority 0: none of that member's.
 
 (define combo-members '())       ; #(id title pages subtitle tick data long views empty ids defaults has-ini)
 (define combo-pending #f)        ; (title . pages) of the member being loaded
 (define combo-entries (vector))  ; per page of this app: #(member local-page view-proc view-index)
 (define combo-ctx #f)            ; the member whose code runs now, #f this app's own
+(define combo-loading #f)        ; the id of the member whose code loads now (combo-loading!)
+(define combo-name "合集")        ; this app's title (combo-start!)
+(define app-web #f)              ; a member may define its own: kept per member
+(define combo-has-folders (defined? 'app-member-folder))   ; firmware API 1.13
 (define combo-index #f)          ; this app's page index while a member's code runs
 
 (define combo-applib-define! app-define!)
@@ -1760,13 +2099,24 @@
 (define (combo-nonempty v) (and (string? v) (> (string-length v) 0) v))
 
 (define (app-config key default)
-  (if (not combo-ctx)
-      (combo-applib-config key default)
+  (cond
+    ((and (not combo-ctx) combo-loading)   ; a member's code loading: its own config.ini
+     (or (combo-nonempty (config-get key combo-loading)) default))
+    ((not combo-ctx) (combo-applib-config key default))
+    (else
       (let* ((m combo-ctx)
              (d (and (not (vector-ref m 11)) (assoc key (vector-ref m 10))))
              (v (or (and d (combo-nonempty (cdr d)))
                     (combo-nonempty (config-get key (combo-id m))))))
-        (or v default))))
+        (or v default)))))
+
+;; The member's folder for the paths of the code that runs now (#f: this app's own)
+(define (combo-folder! m) (if combo-has-folders (app-member-folder (if m (combo-id m) #f))))
+
+;; Before a member's code: its folder and settings while it loads
+(define (combo-loading! id)
+  (set! combo-loading id)
+  (if combo-has-folders (app-member-folder id)))
 
 ;; Runs thunk as the member's code: its page number, its settings
 (define (combo-in m local thunk)
@@ -1774,7 +2124,9 @@
     (set! combo-index (if combo-index combo-index app-page-index))
     (set! combo-ctx m)
     (set! app-page-index local)
+    (if (not (eq? m saved-ctx)) (combo-folder! m))
     (let ((r (thunk)))
+      (if (not (eq? m saved-ctx)) (combo-folder! saved-ctx))
       (set! app-page-index saved-index)
       (set! combo-ctx saved-ctx)
       (set! combo-index saved-combo)
@@ -1807,12 +2159,27 @@
 (define (combo-member! id ids defaults)
   (let ((title (if combo-pending (car combo-pending) id))
         (pages (if combo-pending (list->vector (cdr combo-pending)) (vector))))
-    (set! combo-members
-          (append combo-members
-                  (list (vector id title pages app-subtitle-proc app-tick-proc app-data-proc
-                                app-long-press app-views app-render-empty-pages ids defaults
-                                (and (defined? 'app-has-config?) (app-has-config? id))))))
+    (let ((m (vector id title pages app-subtitle-proc app-tick-proc app-data-proc
+                     app-long-press app-views app-render-empty-pages ids defaults
+                     (and (defined? 'app-has-config?) (app-has-config? id))
+                     app-schedule app-step-proc app-web app-hold-proc app-show-proc)))
+      (set! combo-members (append combo-members (list m)))
+      ;; the feeds it asked to watch and the alerts it raised while its code loaded are its own
+      (for-each (lambda (w) (if (not (vector-ref w 2)) (vector-set! w 2 (cons m 0)))) app-watches)
+      (for-each (lambda (a)
+                  (if (not (app-al-owner a))
+                      (begin (vector-set! a 1 (cons m 0))
+                             (vector-set! a 0 (string-append id (app-al-id a)))
+                             (vector-set! a 2 title))))
+                app-alerts))
     (set! combo-pending #f)
+    (set! combo-loading #f)
+    (combo-folder! #f)
+    (set! app-schedule #f)
+    (set! app-step-proc #f)
+    (set! app-web #f)
+    (set! app-hold-proc #f)
+    (set! app-show-proc #f)
     (set! app-subtitle-proc #f)
     (set! app-header-proc #f)
     (set! app-page-title-only #f)       ; the combined app titles every page itself
@@ -1927,19 +2294,120 @@
                        (loop (+ k 1) (cons m seen)))
                 (loop (+ k 1) seen)))))))
 
-;; Every second: the shown entry's app
+;; Every second: the shown entry's app, and the app whose alert is on screen (a reminder's
+;; time limit runs on its clock)
 (define (combo-tick tick)
   (if (> (vector-length combo-entries) 0)
       (let* ((e (combo-cur)) (m (vector-ref e 0)) (proc (vector-ref m 4)))
-        (if proc (combo-in m (vector-ref e 1) (lambda () (proc tick)))))))
+        (if proc (combo-in m (vector-ref e 1) (lambda () (proc tick))))
+        (let* ((a (app-alert-current)) (o (and a (app-al-owner a))))
+          (if (and o (not (eq? (car o) m)) (vector-ref (car o) 4))
+              (combo-in (car o) (cdr o) (lambda () ((vector-ref (car o) 4) tick))))))))
+
+;; Every main-loop pass: each member's app-step-proc, as its code; #t when one used the
+;; feed stream itself (the framework's step waits)
+(define (combo-step)
+  (let loop ((ms combo-members) (busy #f))
+    (if (null? ms)
+        busy
+        (let ((p (vector-ref (car ms) 13)))
+          (loop (cdr ms) (or (and p (combo-in (car ms) 0 p)) busy))))))
+
+;; The entry on screen's app: whether it keeps the carousel waiting; its entry came on screen
+(define (combo-member-hook k)
+  (if (> (vector-length combo-entries) 0)
+      (let* ((e (combo-cur)) (m (vector-ref e 0)) (p (vector-ref m k)))
+        (and p (combo-in m (vector-ref e 1) p)))
+      #f))
+(define (combo-hold) (combo-member-hook 15))
+(define (combo-show) (combo-member-hook 16))
+
+;; The web page's calls: a member's page names the member (firmware API 1.13), else this app's own
+(define (combo-web name body . rest)
+  (let ((m (and (pair? rest) (string? (car rest)) (combo-find-member (car rest)))))
+    (cond ((not m) (combo-own-web name body))
+          ((vector-ref m 14) (combo-in m 0 (lambda () ((vector-ref m 14) name body))))
+          (else (web-error "这个应用没有网页调用")))))
+
+;; This app's own page (apps/lib/combo_web.html): the members, their pages and views, the settings
+(define (combo-member-json m)
+  (let ((ids (vector-ref m 9)) (pages (combo-pages m)))
+    (list (cons 'id (combo-id m)) (cons 'title (combo-title m))
+          (cons 'pages (list->vector
+                         (let loop ((k 0) (acc '()))
+                           (if (< k (vector-length pages))
+                               (loop (+ k 1)
+                                     (cons (list (cons 'id (if (< k (length ids)) (list-ref ids k) (number->string (+ k 1))))
+                                                 (cons 'name (vector-ref (vector-ref pages k) 0)))
+                                           acc))
+                               (reverse acc)))))
+          (cons 'views (list->vector (map (lambda (v) (list (cons 'id (string-append (car v) "[0]"))
+                                                            (cons 'name (string-append (car v) "（视图）"))))
+                                          (vector-ref m 7)))))))
+
+(define (combo-own-state)
+  (web-ok (cons 'members (list->vector (map combo-member-json combo-members)))
+          (cons 'entries (combo-applib-config "entries" ""))
+          (cons 'carousel (combo-applib-config "carousel" ""))
+          (cons 'carousel_seconds (combo-applib-config "carousel_seconds" ""))
+          (cons 'alerts (combo-applib-config "alerts" ""))))
+
+(define (combo-own-web name body)
+  (cond ((string=? name "state") (combo-own-state))
+        ((string=? name "set")
+         (for-each (lambda (k) (let ((v (web-field body k))) (if v (app-config-set! k v))))
+                   '("entries" "carousel" "carousel_seconds" "alerts"))
+         (combo-build!)
+         (combo-own-state))
+        (else (web-error (string-append "unknown call: " name)))))
+
+;; A time of a member's schedule.ini came (firmware API 1.13 passes its id): that member's hook
+(define (combo-schedule at . rest)
+  (let ((id (and (pair? rest) (car rest))))
+    (for-each (lambda (m)
+                (let ((p (vector-ref m 12)))
+                  (if (and p (or (not id) (string=? id (combo-id m))))
+                      (combo-in m 0 (lambda () (p at))))))
+              combo-members)))
 
 (define (combo-long-press)
   (let* ((e (combo-cur)) (m (vector-ref e 0)) (proc (vector-ref m 6)))
     (if proc (combo-in m (vector-ref e 1) proc))))
 
+;; Alerts and watched feeds (applib section 9): the member whose code raises one is its
+;; owner (with the page its code runs as); its code runs as that member again
+(define (app-alert-owner) (and combo-ctx (cons combo-ctx app-page-index)))
+(define (app-alert-owner-id owner) (if owner (combo-id (car owner)) ""))
+(define (app-alert-run owner thunk) (if owner (combo-in (car owner) (cdr owner) thunk) (thunk)))
+(define (app-alert-app-name owner) (if owner (combo-title (car owner)) app-title))
+(define (app-alert-setting owner name)
+  (or (and owner (combo-alert-override (combo-id (car owner)) name)) (app-config name #f)))
+
+;; This app's setting alerts for member id: "id:priority[:exit[:seconds]]", comma
+;; separated; #f where it says nothing
+(define (combo-alert-override id name)
+  (let loop ((specs (str-split (combo-applib-config "alerts" "") #\,)))
+    (if (null? specs)
+        #f
+        (let ((f (str-split (combo-trim (car specs)) #\:)))
+          (if (and (pair? f) (string=? (car f) id))
+              (let ((field (lambda (k) (and (> (length f) k) (combo-nonempty (combo-trim (list-ref f k)))))))
+                (cond ((string=? name "alert") (if (equal? (field 1) "0") "0" #f))
+                      ((string=? name "alert_priority") (and (not (equal? (field 1) "0")) (field 1)))
+                      ((string=? name "alert_exit") (field 2))
+                      ((string=? name "alert_seconds") (field 3))
+                      (else #f)))
+              (loop (cdr specs)))))))
+
 ;; The pages entries lists (unknown ones left out; empty: all of them)
 (define (combo-start! title)
-  (let* ((specs (filter (lambda (s) (> (string-length (combo-trim s)) 0))
+  (set! combo-name title)
+  (combo-build!))
+
+;; The entries (again after the web page changed them): this app's pages
+(define (combo-build!)
+  (let* ((title combo-name)
+         (specs (filter (lambda (s) (> (string-length (combo-trim s)) 0))
                         (str-split (app-config "entries" "") #\,)))
          (entries (if (null? specs)
                       (combo-all-entries)
@@ -1949,6 +2417,12 @@
     (set! app-data-proc combo-data)
     (set! app-tick-proc combo-tick)
     (set! app-long-press combo-long-press)   ; after the members: wxpusher defines its own
+    (set! app-schedule combo-schedule)
+    (set! app-step-proc combo-step)
+    (set! app-web combo-web)
+    (set! app-hold-proc combo-hold)
+    (set! app-show-proc combo-show)
+    (set! gui-render-proc app-render)        ; a member may have drawn the screen itself (medicine)
     ;; entries drawn before their data: their app's local or empty-drawn pages
     (set! app-render-empty-pages
           (let loop ((k 0) (acc '()))
@@ -1964,6 +2438,13 @@
                                                                 "没有可显示的页面：本应用设置里的 entries 写的应用或页面不存在，例如 weather.front, calendar.today, wxpusher.news[0]"
                                                                 theme-warning)))))
         (combo-applib-define! title (map combo-entry-page entries)))))
+
+
+;;; =========================================================================
+;;; Section: build/combo/combo/loading_weather.scm
+;;; =========================================================================
+;; generated by tools/build_apps.py: weather loads next
+(combo-loading! "weather")
 
 
 ;;; =========================================================================
@@ -2374,6 +2855,13 @@
 ;; generated by tools/build_apps.py: weather is loaded
 (combo-member! "weather" (list "front" "sevendays" "hourly" "rain" "life")
                (list (cons "location" "auto") (cons "update_interval" "120") (cons "refresh_times" "") (cons "qweather_token" "") (cons "qweather_host" "") (cons "carousel" "") (cons "carousel_seconds" "") (cons "proxy_url" "") (cons "converter_url" "")))
+
+
+;;; =========================================================================
+;;; Section: build/combo/combo/loading_calendar.scm
+;;; =========================================================================
+;; generated by tools/build_apps.py: calendar loads next
+(combo-loading! "calendar")
 
 
 ;;; =========================================================================
@@ -2880,6 +3368,13 @@
 
 
 ;;; =========================================================================
+;;; Section: build/combo/combo/loading_wxpusher.scm
+;;; =========================================================================
+;; generated by tools/build_apps.py: wxpusher loads next
+(combo-loading! "wxpusher")
+
+
+;;; =========================================================================
 ;;; Section: apps/wxpusher/wxpusher.scm
 ;;; =========================================================================
 ;;; =========================================================================
@@ -2896,6 +3391,9 @@
 ;;;   short press: the full messages, newest to oldest, then home again
 ;;;   long press at home: everything read
 ;;;   long press on a message: unread -> read; already read -> home
+;;;   a new message: an alert (applib section 9) shows it over any page, in a
+;;;   combined app too (the feed is watched while another app shows); a short
+;;;   press marks it read
 ;;; Messages deleted here (the web page) are deleted at the proxy too: the
 ;;; feed URL carries ?del=<ids> until a document from it arrives; the proxy
 ;;; drops them and deletes them on the WxPusher service. 退出登录 on the web
@@ -3022,8 +3520,11 @@
 
 (define (wx-unread) (length (filter (lambda (m) (not (wx-read? m))) wx-list)))
 
+(define (wx-alert-key m) (string-append "m" (wx-id m)))
+
 (define (wx-mark-read! m)
   (vector-set! m 1 #t)
+  (app-alert-done! (wx-alert-key m))
   (if (= (wx-unread) 0) (begin (set! wx-alert 0) (ws2812-clear))))
 
 ;; 2. The proxy's document ----------------------------------------------------------------------
@@ -3081,8 +3582,7 @@
 
 ;; New messages: ids past the newest taken, oldest first. "m" is unread,
 ;; "h" was read on the service before (history); new unread ones blink the LED.
-(set! app-data-proc
-      (lambda (items)
+(define (wx-data! items)
         ;; a document fetched with del= or logout=1: the proxy has them
         (if (and (or (pair? wx-del) wx-logout) (equal? (json-feed-url) (wx-url)))
             (begin
@@ -3103,17 +3603,22 @@
                                     (or (string=? wx-last "") (wx-id>? (it-a it) wx-last))))
                              (reverse items))))
           (if (pair? fresh)
-              (begin
+              (let ((news '()))                ; the new unread ones, oldest first
                 (for-each (lambda (it)
-                            (set! wx-list (cons (vector (it-a it) (eq? (it-t it) 'h) (wx-safe (wx-item-time it) #f)
-                                                        (wx-safe (it-b it) #f)
-                                                        (wx-safe (string-append (it-d it) (it-e it)) #t))
-                                                wx-list))
+                            (let ((m (vector (it-a it) (eq? (it-t it) 'h) (wx-safe (wx-item-time it) #f)
+                                             (wx-safe (it-b it) #f)
+                                             (wx-safe (string-append (it-d it) (it-e it)) #t))))
+                              (set! wx-list (cons m wx-list))
+                              (if (eq? (it-t it) 'm) (set! news (append news (list m)))))
                             (set! wx-last (it-a it)))
                           fresh)
                 (if (> (length wx-list) WX-MAX) (set! wx-list (take wx-list WX-MAX)))
-                (if (pair? (filter (lambda (it) (eq? (it-t it) 'm)) fresh)) (set! wx-alert 20))
-                (wx-save!))))))
+                (if (pair? news) (set! wx-alert 20))
+                (wx-save!)
+                ;; the newest three as alerts (a burst of messages does not bury the screen)
+                (for-each wx-raise-alert! (if (> (length news) 3) (list-tail news (- (length news) 3)) news))))))
+
+(set! app-data-proc wx-data!)
 
 ;; 3. The screen ------------------------------------------------------------------------------
 
@@ -3200,6 +3705,21 @@
           ((string=? wx-state "login") (wx-render-login-waiting))
           (else (wx-render-list)))))
 
+;; The alert of a new message: its subject, topic and time, its text; a short press reads it
+(define (wx-render-alert m)
+  (let* ((w (scr-w)) (y (+ (body-top) 4)) (clock (wx-clock m)) (cw (+ (txt-w clock) 10)))
+    (txt-wrap 10 y (- w 20) 44 (wx-title m) theme-text-main)
+    (txt-fit 10 (+ y 48) (- w 20 cw) (wx-topic m) theme-accent)
+    (txt-right (- w 10) (+ y 48) clock theme-text-muted)
+    (gui-line 10 (+ y 72) (- w 10) (+ y 72) theme-divider)
+    (txt-wrap 10 (+ y 80) (- w 20) (- (body-bottom) y 84)
+              (if (str-empty? (wx-text m)) (wx-title m) (wx-text m)) theme-text-main)))
+
+(define (wx-raise-alert! m)
+  (app-alert! (wx-alert-key m) "新消息" (lambda () (wx-render-alert m))
+              (list (cons 'ack (lambda () (wx-mark-read! m) (wx-save!)))
+                    (cons 'priority 6) (cons 'exit 'both) (cons 'seconds 60))))
+
 ;; 4. Buttons, alert ---------------------------------------------------------------------------
 
 ;; Short press: the newest message, then each older one, then the list again
@@ -3282,6 +3802,8 @@
              (let ((m (and (< i (length wx-list)) (list-ref wx-list i))))
                (if m (wx-render-message m) (wx-render-list)))))
 
+(app-watch! wx-url 15000 wx-data!)   ; new messages also while another app's page shows (a combined app)
+
 (app-define! "WxPusher"
   (list (app-page "消息" wx-url WX-INTERVAL wx-render)))
 
@@ -3291,7 +3813,14 @@
 ;;; =========================================================================
 ;; generated by tools/build_apps.py: wxpusher is loaded
 (combo-member! "wxpusher" (list "messages")
-               (list (cons "proxy_url" "") (cons "converter_url" "")))
+               (list (cons "proxy_url" "") (cons "converter_url" "") (cons "alert" "1") (cons "alert_priority" "") (cons "alert_exit" "") (cons "alert_seconds" "") (cons "alert_snooze" "")))
+
+
+;;; =========================================================================
+;;; Section: build/combo/combo/loading_stocks.scm
+;;; =========================================================================
+;; generated by tools/build_apps.py: stocks loads next
+(combo-loading! "stocks")
 
 
 ;;; =========================================================================

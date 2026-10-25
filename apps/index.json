@@ -13,9 +13,9 @@
   ],
   "web": true,
   "file": "album.msbc",
-  "size": 56726,
+  "size": 63768,
   "scm": "album.allinone.scm",
-  "hash": "a8ce3e23"
+  "hash": "e1f00c51"
  },
  {
   "id": "bilibili",
@@ -31,9 +31,9 @@
   ],
   "web": true,
   "file": "bilibili.msbc",
-  "size": 60583,
+  "size": 70429,
   "scm": "bilibili.allinone.scm",
-  "hash": "c24d04e9"
+  "hash": "7d2c2132"
  },
  {
   "id": "calendar",
@@ -51,25 +51,25 @@
   ],
   "web": false,
   "file": "calendar.msbc",
-  "size": 53095,
+  "size": 60082,
   "scm": "calendar.allinone.scm",
-  "hash": "a240d82c"
+  "hash": "f891a5d9"
  },
  {
   "id": "combo",
   "name": "合集",
   "description": "把几个应用的页面合成一个轮播：天气、万年历、最新消息、股票等，每页标出所属应用和序号；各应用的设置仍在它自己的配置里",
   "version": "3",
-  "api": "1.9",
+  "api": "1.13",
   "extensions": "",
   "kind": "app",
   "pages": 5,
   "page_ids": [],
-  "web": false,
+  "web": true,
   "file": "combo.msbc",
-  "size": 86258,
+  "size": 103897,
   "scm": "combo.allinone.scm",
-  "hash": "c2b91bdd"
+  "hash": "8e5ca6f2"
  },
  {
   "id": "crypto",
@@ -87,9 +87,9 @@
   ],
   "web": false,
   "file": "crypto.msbc",
-  "size": 42250,
+  "size": 49247,
   "scm": "crypto.allinone.scm",
-  "hash": "d752562b"
+  "hash": "ceed42a7"
  },
  {
   "id": "futures",
@@ -107,9 +107,9 @@
   ],
   "web": false,
   "file": "futures.msbc",
-  "size": 42295,
+  "size": 49292,
   "scm": "futures.allinone.scm",
-  "hash": "1cb6bcac"
+  "hash": "d8f52bb8"
  },
  {
   "id": "medicine",
@@ -125,9 +125,9 @@
   ],
   "web": true,
   "file": "medicine.msbc",
-  "size": 97833,
+  "size": 105531,
   "scm": "medicine.allinone.scm",
-  "hash": "697cb19f"
+  "hash": "3b9901b7"
  },
  {
   "id": "memo",
@@ -144,9 +144,9 @@
   ],
   "web": true,
   "file": "memo.msbc",
-  "size": 51025,
+  "size": 58083,
   "scm": "memo.allinone.scm",
-  "hash": "fdb36a9c"
+  "hash": "f93d7592"
  },
  {
   "id": "news",
@@ -165,14 +165,14 @@
   ],
   "web": false,
   "file": "news.msbc",
-  "size": 40553,
+  "size": 47545,
   "scm": "news.allinone.scm",
-  "hash": "bddff31a"
+  "hash": "7e4abba7"
  },
  {
   "id": "notifier",
   "name": "消息提示",
-  "description": "显示电脑、手机或脚本推送来的消息，新消息时 LED 闪烁；从设备网页或应用代理的 /notify 推送",
+  "description": "显示电脑、手机或脚本推送来的消息，新消息时强提醒并闪烁 LED；从设备网页，或用设备 MAC 和应用服务密码向应用代理的 /notify 推送，服务器保留全部消息，设备保留最新几条",
   "version": "8",
   "api": "1.9",
   "extensions": "",
@@ -184,9 +184,9 @@
   ],
   "web": true,
   "file": "notifier.msbc",
-  "size": 52811,
+  "size": 62045,
   "scm": "notifier.allinone.scm",
-  "hash": "a272a487"
+  "hash": "baf5e215"
  },
  {
   "id": "pcmonitor",
@@ -237,9 +237,9 @@
   ],
   "web": false,
   "file": "stocks.msbc",
-  "size": 44036,
+  "size": 51033,
   "scm": "stocks.allinone.scm",
-  "hash": "49d89018"
+  "hash": "91f450ea"
  },
  {
   "id": "tide",
@@ -257,9 +257,9 @@
   ],
   "web": false,
   "file": "tide.msbc",
-  "size": 53367,
+  "size": 60360,
   "scm": "tide.allinone.scm",
-  "hash": "b8e50a23"
+  "hash": "215313d4"
  },
  {
   "id": "usage",
@@ -278,9 +278,9 @@
   ],
   "web": false,
   "file": "usage.msbc",
-  "size": 44748,
+  "size": 51742,
   "scm": "usage.allinone.scm",
-  "hash": "a9397875"
+  "hash": "dab9ceb2"
  },
  {
   "id": "weather",
@@ -300,9 +300,9 @@
   ],
   "web": false,
   "file": "weather.msbc",
-  "size": 52095,
+  "size": 59084,
   "scm": "weather.allinone.scm",
-  "hash": "04d001de"
+  "hash": "5edd7db2"
  },
  {
   "id": "wxpusher",
@@ -318,8 +318,8 @@
   ],
   "web": true,
   "file": "wxpusher.msbc",
-  "size": 55504,
+  "size": 64155,
   "scm": "wxpusher.allinone.scm",
-  "hash": "add355a1"
+  "hash": "13bf6ccd"
  }
 ]

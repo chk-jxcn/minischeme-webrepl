@@ -987,6 +987,23 @@ static Value prim_mock_app_has_config(MiniVM *vm, int argc, Value *argv) {
     return mock_member_ini_path(mini_string_data(argv[0]), path, sizeof(path)) ? mini_true() : mini_false();
 }
 
+/* (app-member-folder app-id): as the firmware, the relative paths of the
+ * combined app's code are member app-id's folder; #f: its own again */
+static Value prim_mock_app_member_folder(MiniVM *vm, int argc, Value *argv) {
+    if (argc < 1 || mini_is_false(argv[0])) {
+        mini_app_sandbox_set(g_app_dir);
+        return mini_true();
+    }
+    if (!mini_is_string(argv[0]) || !mock_member_ok(mini_string_data(argv[0]))) {
+        vm_error(vm, "app-member-folder: expected a member of this combined app or #f");
+        return mini_void();
+    }
+    char dir[64];
+    snprintf(dir, sizeof(dir), "/spiffs/apps/%s", mini_string_data(argv[0]));
+    mini_app_sandbox_set(dir);
+    return mini_true();
+}
+
 /* (config-get key [app-id]): as the firmware; app-id, a member of the
  * running combined app, reads that app's own config.ini */
 static Value prim_mock_config_get(MiniVM *vm, int argc, Value *argv) {
@@ -1040,7 +1057,8 @@ static Value prim_mock_app_info(MiniVM *vm, int argc, Value *argv) {
     Value list = mini_nil(), tmp = mini_nil();
     mini_push_root(vm, &list);
     mini_push_root(vm, &tmp);
-    const char *fields[4] = { g_app_dir, g_app_ini, g_app_id, g_app_path };
+    const char *box = mini_app_sandbox_dir();   /* a combined app's member: its own folder */
+    const char *fields[4] = { box[0] ? box : g_app_dir, g_app_ini, g_app_id, g_app_path };
     for (int i = 0; i < 4; i++) {
         tmp = mini_make_string(vm, fields[i]);
         list = mini_make_cons(vm, tmp, list);
@@ -1573,6 +1591,7 @@ static void register_device_prims(MiniVM *vm) {
         { "deep-sleep",         prim_mock_noop },
         { "chip-model",         prim_mock_chip_model },
         { "config-get",         prim_mock_config_get },
+        { "app-member-folder",  prim_mock_app_member_folder },
         { "app-has-config?",    prim_mock_app_has_config },
         { "app-config-set!",    prim_mock_app_config_set },
         { "app-info",           prim_mock_app_info },
@@ -2344,6 +2363,8 @@ static void sched_fire(int t) {
     char at[6];
     snprintf(at, sizeof(at), "%02d:%02d", (t / 60) % 24, t % 60);
     bool hook = false;
+    char member_id[4][32];   /* members of the running combined app that are due */
+    int members_due = 0;
     for (int i = 0; i < n; i++) {
         const char *path = g_mock_fs[slots[i]].path;
         char dir[72], ini[96], times[160] = "";
@@ -2368,19 +2389,64 @@ static void sched_fire(int t) {
             hit = h <= 23 && m >= 0 && m <= 59 && h * 60 + m == t;
         }
         if (!hit) continue;
+        const char *base = strrchr(dir, '/');
         if (strcmp(path, g_app_path) == 0) {
             hook = true;
+        } else if (base && g_app_members[0] && mock_member_ok(base + 1)) {
+            if (members_due < 4) snprintf(member_id[members_due++], 32, "%s", base + 1);
         } else if (due.n < SCHED_MAX) {
             snprintf(due.path[due.n], 64, "%s", path);
             memcpy(due.at[due.n], at, 6);
             due.n++;
         }
     }
+    /* members of the running combined app not installed alone: their folders too */
+    for (const char *p = g_app_members; *p && members_due < 4;) {
+        while (*p == ' ' || *p == ',') p++;
+        const char *e = p;
+        while (*e && *e != ',' && *e != ' ') e++;
+        if (e > p && (size_t)(e - p) < 32) {
+            char id[32], path[96], times[160] = "";
+            memcpy(id, p, (size_t)(e - p));
+            id[e - p] = '\0';
+            snprintf(path, sizeof(path), "/spiffs/apps/%s/app.msbc", id);
+            if (mock_fs_find(path) < 0) {
+                snprintf(path, sizeof(path), "/spiffs/apps/%s/schedule.ini", id);
+                if (mock_ini_value(path, "times", times, sizeof(times))) {
+                    bool hit = false;
+                    for (const char *q = times; *q && !hit;) {
+                        while (*q && !isdigit((unsigned char)*q)) q++;
+                        if (!*q) break;
+                        int h = 0, m = -1;
+                        while (isdigit((unsigned char)*q)) h = h < 100 ? h * 10 + (*q - '0') : h, q++;
+                        if (*q == ':' && isdigit((unsigned char)q[1])) {
+                            q++;
+                            m = 0;
+                            while (isdigit((unsigned char)*q)) m = m < 100 ? m * 10 + (*q - '0') : m, q++;
+                        }
+                        hit = h <= 23 && m >= 0 && m <= 59 && h * 60 + m == t;
+                    }
+                    if (hit) snprintf(member_id[members_due++], 32, "%s", id);
+                }
+            }
+        }
+        p = e;
+    }
     if (hook && mini_device_has_hook(g_dev, "app-schedule")) {
         snprintf(g_sched_at, sizeof(g_sched_at), "%s", at);
         mini_clear_error(g_dev);
         Value arg = mini_make_string(g_dev, at);
         mini_device_call_hook(g_dev, "app-schedule", NULL, 1, &arg);
+        wasm_check_app_error("app-schedule");
+    }
+    for (int k = 0; k < members_due && mini_device_has_hook(g_dev, "app-schedule"); k++) {
+        snprintf(g_sched_at, sizeof(g_sched_at), "%s", at);
+        mini_clear_error(g_dev);
+        Value args[2] = { mini_make_string(g_dev, at), mini_nil() };
+        mini_push_root(g_dev, &args[0]);
+        args[1] = mini_make_string(g_dev, member_id[k]);
+        mini_pop_root(g_dev);
+        mini_device_call_hook(g_dev, "app-schedule", NULL, 2, args);
         wasm_check_app_error("app-schedule");
     }
     if (due.n == 0) return;
@@ -2670,14 +2736,71 @@ static const MiniMarketHost MK_HOST = {
 static void mk_attach(void) { mini_market_set_host(&MK_HOST); }
 
 /* The running app's own web page (minischeme_device.h), as the board's /app:
- * the gzip'd bytes inside its image; the WebREPL's app page panel unpacks it */
+ * the gzip'd bytes inside its image; the WebREPL's app page panel unpacks it.
+ * A combined app's member page (the board's /app?member=<id>): the panel
+ * picks the member (wasm_app_web_member), and the page, its calls and its
+ * files are that member's until it picks another ("" the app's own). */
 static uint32_t g_app_web_len = 0;
+static char g_web_member[32] = "";
+
+__attribute__((visibility("default")))
+int wasm_app_web_member(const char *id) {
+    if (!id || !id[0] || !mock_member_ok(id)) {
+        g_web_member[0] = '\0';
+        return id && id[0] ? 0 : 1;
+    }
+    snprintf(g_web_member, sizeof(g_web_member), "%s", id);
+    return 1;
+}
+
+/* The members of the running combined app that have a page of their own:
+ * {"pages":[{"id":..,"name":..}]}, as the board's settings (app_pages) */
+__attribute__((visibility("default")))
+const char *wasm_app_pages(void) {
+    static char out[1024];
+    size_t n = (size_t)snprintf(out, sizeof(out), "{\"pages\":[");
+    bool first = true;
+    for (const char *p = g_settings_mode ? "" : g_app_members; *p && n < sizeof(out) - 120;) {
+        while (*p == ' ' || *p == ',') p++;
+        const char *e = p;
+        while (*e && *e != ',' && *e != ' ') e++;
+        char id[32], image[80], name[48] = "";
+        if (e > p && (size_t)(e - p) < sizeof(id)) {
+            memcpy(id, p, (size_t)(e - p));
+            id[e - p] = '\0';
+            snprintf(image, sizeof(image), "/spiffs/apps/%s/app.msbc", id);
+            int slot = mock_fs_find(image);
+            size_t len = 0, mlen = 0;
+            if (slot >= 0 && mini_app_web_find(g_mock_fs[slot].data, g_mock_fs[slot].len, &len) && len) {
+                const char *meta = mini_app_meta_find(g_mock_fs[slot].data, g_mock_fs[slot].len, &mlen);
+                if (meta) {
+                    char *copy = (char *)malloc(mlen + 1);
+                    if (copy) {
+                        memcpy(copy, meta, mlen);
+                        copy[mlen] = '\0';
+                        mini_device_config_value(copy, "name", name, sizeof(name));
+                        free(copy);
+                    }
+                }
+                for (char *q = name; *q; q++) if (*q == '"' || *q == '\\') *q = ' ';
+                n += (size_t)snprintf(out + n, sizeof(out) - n, "%s{\"id\":\"%s\",\"name\":\"%s\"}",
+                                      first ? "" : ",", id, name[0] ? name : id);
+                first = false;
+            }
+        }
+        p = e;
+    }
+    snprintf(out + n, sizeof(out) - n, "]}");
+    return out;
+}
 
 __attribute__((visibility("default")))
 const uint8_t *wasm_app_web_page(void) {
     g_app_web_len = 0;
     if (g_settings_mode) return NULL;
-    int slot = mock_fs_find(g_app_path);
+    char image[80];
+    if (g_web_member[0]) snprintf(image, sizeof(image), "/spiffs/apps/%s/app.msbc", g_web_member);
+    int slot = mock_fs_find(g_web_member[0] ? image : g_app_path);
     size_t n = 0;
     const uint8_t *page = slot >= 0 ? mini_app_web_find(g_mock_fs[slot].data, g_mock_fs[slot].len, &n) : NULL;
     g_app_web_len = page ? (uint32_t)n : 0;
@@ -2719,6 +2842,7 @@ static bool app_file_name_ok(const char *n) {
 
 static bool app_file_path(const char *name, char *out, size_t cap) {
     if (!g_dev || g_settings_mode || !g_app_dir[0] || !name || !app_file_name_ok(name)) return false;
+    if (g_web_member[0]) return snprintf(out, cap, "/spiffs/apps/%s/%s", g_web_member, name) < (int)cap;
     return snprintf(out, cap, "%s/%s", g_app_dir, name) < (int)cap;
 }
 
@@ -2778,12 +2902,15 @@ const char *wasm_app_web_call(const char *name, const char *body, uint32_t len) 
         snprintf(out, sizeof(out), "{\"success\":false,\"error\":\"this app has no (app-web name body)\"}");
         return out;
     }
-    Value args[2] = { mini_void(), mini_void() };
+    Value args[3] = { mini_void(), mini_void(), mini_void() };   /* a member's page: (app-web name body id) */
     mini_push_root(g_dev, &args[0]);
     mini_push_root(g_dev, &args[1]);
+    mini_push_root(g_dev, &args[2]);
     args[0] = mini_make_string(g_dev, name ? name : "");
     args[1] = mini_make_string_len(g_dev, body ? body : "", body ? len : 0);
-    Value res = mini_call(g_dev, fn, 2, args);
+    if (g_web_member[0]) args[2] = mini_make_string(g_dev, g_web_member);
+    Value res = mini_call(g_dev, fn, g_web_member[0] ? 3 : 2, args);
+    mini_pop_root(g_dev);
     mini_pop_root(g_dev);
     mini_pop_root(g_dev);
     if (mini_get_error(g_dev)) {

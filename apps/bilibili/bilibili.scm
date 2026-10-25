@@ -350,7 +350,7 @@
                 (set! bilibili-dl-queue '())
                 (begin
                   (set! bilibili-dl-queue (cdr bilibili-dl-queue))
-                  (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h) bilibili-dl-done)
+                  (if (fs-download (bilibili-pic-url aid w h) (bilibili-pic-path aid w h) (app-callback bilibili-dl-done))
                       (set! bilibili-dl-current job)
                       (set! bilibili-dl-queue (append bilibili-dl-queue (list job)))))))))) ; busy: retry later
 
@@ -393,7 +393,8 @@
         (app-invalidate-all)))
 
 (define (bilibili-on-data! items)
-  (if (equal? (json-feed-url) (bilibili-list-url bilibili-current)) (bilibili-take-items! items)))
+  (if (equal? (json-feed-url) (bilibili-list-url bilibili-current)) (bilibili-take-items! items))
+  (bilibili-up-doc! items))
 
 (set! app-data-proc bilibili-on-data!)
 
@@ -452,6 +453,28 @@
         (begin (vector-set! bilibili-screen i (- scr 1)) (bilibili-after-nav!))
         (bilibili-switch-list! (- i 1) 9999))))   ; land on the previous list's last remembered screen
 
+;; In a combined app (合集) whose carousel runs, this app's entry keeps it waiting while the
+;; screens turn by themselves (app-hold-proc), and lets it go on, instead of starting over, once
+;; the cycle went round; without the carousel the cycle just goes on (app-show-proc: the entry
+;; came on screen again)
+(define bilibili-held #f)            ; a combined app's carousel waits for this app's cycle
+(define bilibili-cycle-done #f)
+
+(set! app-hold-proc
+      (lambda () (set! bilibili-held #t) (and bilibili-auto-running (not bilibili-cycle-done))))
+;; The entry came on screen: the cycle starts from its beginning (the first list's first screen when
+;; it goes through every list, else the list's first screen)
+(set! app-show-proc
+      (lambda ()
+        (set! bilibili-held #f)
+        (set! bilibili-cycle-done #f)
+        (cond ((and (bilibili-cycle-all?) (> bilibili-current 0)) (bilibili-switch-list! 0 0))
+              (else (vector-set! bilibili-screen bilibili-current 0) (bilibili-after-nav!)))))
+
+;; The cycle went round: the combined app goes on, or (alone, or no carousel) it starts over
+(define (bilibili-wrap! again)
+  (if bilibili-held (set! bilibili-cycle-done #t) (again)))
+
 ;; One turn by itself: the list's next screen if it turns its screens; after its last one the next
 ;; list (every list) or its first screen again (the list on screen)
 (define (bilibili-auto-step!)
@@ -459,9 +482,12 @@
     (cond ((and (bilibili-paginate? i) (< (+ scr 1) (bilibili-screen-count i)))
            (vector-set! bilibili-screen i (+ scr 1))
            (bilibili-after-nav!))
-          ((bilibili-cycle-all?) (bilibili-switch-list! (+ i 1) 0))
-          ((> scr 0) (vector-set! bilibili-screen i 0) (bilibili-after-nav!))
-          (else (bilibili-auto-reset!) (gui-invalidate 0 0 (scr-w) HDR-H)))))   ; one screen: it stays
+          ((bilibili-cycle-all?)
+           (if (< (+ i 1) (vector-length bilibili-lists))
+               (bilibili-switch-list! (+ i 1) 0)
+               (bilibili-wrap! (lambda () (bilibili-switch-list! 0 0)))))
+          ((> scr 0) (bilibili-wrap! (lambda () (vector-set! bilibili-screen i 0) (bilibili-after-nav!))))
+          (else (bilibili-wrap! (lambda () (bilibili-auto-reset!) (gui-invalidate 0 0 (scr-w) HDR-H)))))))   ; one screen
 
 ;; Running: a long press switches between the list on screen and every list
 (define (bilibili-toggle-cycle!)
@@ -635,7 +661,63 @@
          (bilibili-web-state))
         (else (web-error (string-append "unknown call: " name)))))
 
-;; 12. Start ---------------------------------------------------------------------------------------
+;; 12. An UP主's new video: an alert (applib section 9) ------------------------------------------
+;; Each UP主 list is watched in the background (every 10 minutes); when its newest video
+;; changed and is from today (the proxy marks the title 【新】), an alert shows it. The
+;; newest one seen per UP主 is kept in up_seen.txt ("param|aid" lines), so a restart does
+;; not show it again; the first look at a list only records it.
+
+(define BILIBILI-UP-SEEN "up_seen.txt")
+(define BILIBILI-UP-WATCH 600000)
+(define bilibili-up-seen
+  (filter (lambda (p) (> (string-length (car p)) 0))
+          (map (lambda (line) (cons (str-part line #\| 0) (str-part line #\| 1)))
+               (if (fs-exists? BILIBILI-UP-SEEN) (str-split (fs-read BILIBILI-UP-SEEN) #\newline) '()))))
+
+(define (bilibili-up-seen-save!)
+  (fs-write BILIBILI-UP-SEEN (web-join (map (lambda (p) (string-append (car p) "|" (cdr p))) bilibili-up-seen)
+                                       (list->string (list #\newline)))))
+
+(define (bilibili-render-up-alert it)
+  (let ((y (+ (body-top) 6)) (w (- (scr-w) 20)))
+    (txt-fit 10 y w (string-append "@" (or (it-d it) "")) theme-accent)
+    (txt-wrap 10 (+ y 30) w 120 (or (it-a it) "") theme-text-main)
+    (txt 10 (+ y 160) (string-append "播放 " (or (it-c it) "")) theme-text-muted)))
+
+;; A document of UP主 list param: its newest video against the one seen last
+(define (bilibili-up-check! param items)
+  (let* ((vs (items-all items "v")) (it (and (pair? vs) (car vs))) (aid (and it (it-b it)))
+         (seen (assoc param bilibili-up-seen)))
+    (if (and aid (not (and seen (string=? (cdr seen) aid))))
+        (begin
+          (set! bilibili-up-seen (cons (cons param aid) (filter (lambda (p) (not (string=? (car p) param))) bilibili-up-seen)))
+          (bilibili-up-seen-save!)
+          (if (and seen (str-starts? (or (it-a it) "") "【新】"))
+              (app-alert! (string-append "up" aid) "UP主新视频" (lambda () (bilibili-render-up-alert it))
+                          (list (cons 'priority 3) (cons 'exit 'time) (cons 'seconds 30))))))))
+
+;; List i's URL when it is an UP主 list, else "" (the watch rests)
+(define (bilibili-up-url i)
+  (if (and (< i (vector-length bilibili-lists)) (string=? (vector-ref (vector-ref bilibili-lists i) 0) "up"))
+      (bilibili-list-url i)
+      ""))
+
+;; The UP主 list whose URL a document came from (the lists may change on the web page)
+(define (bilibili-up-doc! items)
+  (let ((url (json-feed-url)))
+    (let loop ((i 0))
+      (if (< i (vector-length bilibili-lists))
+          (if (equal? (bilibili-up-url i) url)
+              (bilibili-up-check! (vector-ref (vector-ref bilibili-lists i) 1) items)
+              (loop (+ i 1)))))))
+
+(let loop ((i 0))                    ; one watch per possible list
+  (if (< i BILIBILI-MAX-LISTS)
+      (let ((k i))
+        (app-watch! (lambda () (bilibili-up-url k)) BILIBILI-UP-WATCH bilibili-up-doc!)
+        (loop (+ i 1)))))
+
+;; 13. Start ---------------------------------------------------------------------------------------
 
 (set! app-render-empty-pages '(0))   ; no document yet: bilibili-render draws a blank body, not applib's waiting text
 (app-define! "B站热门" (list (app-page "热门" (lambda () (bilibili-list-url 0)) BILIBILI-INTERVAL bilibili-render)))

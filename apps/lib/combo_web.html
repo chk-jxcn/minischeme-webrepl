@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>合集</title>
+<!-- appweb -->
+<style>
+.entry{align-items:center}
+.entry .grow .row{margin:0}
+.entry .btns{flex:none;display:flex;gap:4px}
+.entry .btns button{margin:0}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2>合集：显示的页面</h2>
+<div class="desc">按顺序轮播这里列出的页面。同一个应用的页面可以出现多次（例如在两个天气页之间插入一个新闻页）。
+一个页面也可以直接输入为“应用.页面”：英文页名（weather.sevendays），front（应用的第一页），序号（1 起），
+或应用提供的视图（wxpusher.news[0]：最新一条消息）。一个也不列：显示全部成员的全部页面。</div>
+<div id="entries"></div>
+<div class="row" style="margin-top:10px">
+  <div><label>应用</label><select id="addApp" onchange="fillPages()"></select></div>
+  <div><label>页面</label><select id="addPage"></select></div>
+  <button class="fit" onclick="addEntry($('addApp').value + '.' + $('addPage').value)">加入</button>
+</div>
+<div class="row" style="margin-top:6px">
+  <div><label>或直接输入 应用.页面</label><input id="addText" placeholder="weather.front"></div>
+  <button class="fit" onclick="addEntry($('addText').value.trim())">加入</button>
+</div>
+</section>
+
+<section>
+<h2>轮播</h2>
+<div class="row">
+  <div><label>自动轮播</label>
+    <select id="carousel"><option value="">跟随系统设置</option><option value="1">自动轮播</option><option value="0">手动翻页</option></select></div>
+  <div><label>每页秒数（一个数，或每页一个：15,10,10）</label><input id="carousel_seconds"></div>
+</div>
+<div class="desc" style="margin-top:8px">成员自己会自动翻页的页面（如 B站热门打开自动翻页时），先在应用内翻完一圈，再轮到下一个页面；
+合集不轮播时，在这个页面上就一直按应用自己的方式翻页。</div>
+</section>
+
+<section>
+<h2>成员的强提醒</h2>
+<div class="desc">新消息、吃药等提醒会抢占合集的屏幕。这里可以覆盖成员自己的提醒设置：优先级 1-9（越大越优先），0 为关闭该应用的提醒；留空用应用自己的设置。</div>
+<div id="alerts"></div>
+</section>
+
+<div class="actions"><button onclick="attempt(apply)">应用全部设置</button></div>
+<div class="desc" style="margin-top:8px">各成员应用自己的设置在“应用配置”里；有网页的成员，在设备网页上方的下拉框里选择它就能打开它的网页。</div>
+</main>
+<script>
+let members = [];
+let entries = [];
+
+function member(id) { return members.find(m => m.id === id); }
+
+function pageName(spec) {
+  const dot = spec.indexOf('.');
+  const m = dot > 0 ? member(spec.slice(0, dot)) : null;
+  if (!m) return spec + '（未知应用）';
+  const rest = spec.slice(dot + 1);
+  const p = (rest === 'front' ? m.pages[0] : null) || m.pages.find(x => x.id === rest) ||
+            m.views.find(x => x.id === rest) || (/^\d+$/.test(rest) ? m.pages[Number(rest) - 1] : null);
+  return `${m.title} · ${p ? p.name : rest}`;
+}
+
+function renderEntries() {
+  $('entries').innerHTML = entries.length ? entries.map((s, i) => `
+    <div class="item entry">
+      <div class="grow">${esc(pageName(s))} <span class="tag">${esc(s)}</span></div>
+      <div class="btns">
+        <button class="small plain" onclick="move(${i},-1)"${i === 0 ? ' disabled' : ''}>上移</button>
+        <button class="small plain" onclick="move(${i},1)"${i === entries.length - 1 ? ' disabled' : ''}>下移</button>
+        <button class="small danger" onclick="removeEntry(${i})">删除</button>
+      </div>
+    </div>`).join('') : '<div class="desc">（空：显示全部成员的全部页面）</div>';
+}
+
+function fillPages() {
+  const m = member($('addApp').value);
+  $('addPage').innerHTML = m ? [...m.pages, ...m.views].map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') : '';
+}
+
+function addEntry(spec) {
+  if (!spec || spec.indexOf('.') <= 0) { say('格式：应用.页面，例如 weather.front', 'bad'); return; }
+  entries.push(spec);
+  renderEntries();
+}
+function removeEntry(i) { entries.splice(i, 1); renderEntries(); }
+function move(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= entries.length) return;
+  [entries[i], entries[j]] = [entries[j], entries[i]];
+  renderEntries();
+}
+
+function renderAlerts(spec) {
+  const over = {};
+  (spec || '').split(',').map(s => s.trim()).filter(Boolean).forEach(s => {
+    const f = s.split(':');
+    over[f[0]] = {priority: f[1] || '', exit: f[2] || '', seconds: f[3] || ''};
+  });
+  $('alerts').innerHTML = members.map(m => {
+    const o = over[m.id] || {priority: '', exit: '', seconds: ''};
+    return `<div class="row" style="margin-top:6px" data-id="${esc(m.id)}">
+      <div><label>${esc(m.title)}：优先级</label><input class="a-prio" value="${esc(o.priority)}" placeholder="应用默认"></div>
+      <div><label>结束方式</label><select class="a-exit">
+        ${[['', '应用默认'], ['button', '按键确认'], ['time', '到时自动关闭'], ['both', '按键或到时']]
+          .map(([v, n]) => `<option value="${v}"${v === o.exit ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div><label>秒数</label><input class="a-secs" value="${esc(o.seconds)}" placeholder="应用默认"></div>
+    </div>`;
+  }).join('');
+}
+
+function encodeAlerts() {
+  return [...$('alerts').querySelectorAll('[data-id]')].map(row => {
+    const p = row.querySelector('.a-prio').value.trim(), e = row.querySelector('.a-exit').value,
+          s = row.querySelector('.a-secs').value.trim();
+    if (!p && !e && !s) return '';
+    return [row.dataset.id, p, e, s].join(':').replace(/:+$/, '');
+  }).filter(Boolean).join(',');
+}
+
+function take(r) {
+  members = Array.from(r.members).map(m => ({id: m.id, title: m.title, pages: Array.from(m.pages), views: Array.from(m.views)}));
+  entries = (r.entries || '').split(',').map(s => s.trim()).filter(Boolean);
+  $('addApp').innerHTML = members.map(m => `<option value="${esc(m.id)}">${esc(m.title)}</option>`).join('');
+  fillPages();
+  renderEntries();
+  $('carousel').value = r.carousel || '';
+  $('carousel_seconds').value = r.carousel_seconds || '';
+  renderAlerts(r.alerts);
+}
+
+async function load() { await attempt(async () => take(await appCall('state', {}))); }
+
+async function apply() {
+  const r = await appCall('set', {entries: entries.join(','), carousel: $('carousel').value,
+                                  carousel_seconds: $('carousel_seconds').value.trim(), alerts: encodeAlerts()});
+  take(r);
+  say('已应用，设备屏幕已更新', 'ok');
+}
+
+attempt(load);
+</script>
+</body>
+</html>

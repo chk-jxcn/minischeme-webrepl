@@ -175,6 +175,7 @@ class AppWebPanel {
                             <span class="aw-note" id="aw-app-note">设备网页的第一个选项卡：运行中应用自带的页面，调用由模拟设备上的 (app-web name body) 回答</span>
                             <button class="pill-btn compact" data-act="reload">⟳ 重新载入</button>
                         </div>
+                        <select id="aw-app-pick" hidden title="合集里的应用网页" style="margin-bottom: 6px;"></select>
                         <iframe class="aw-frame" title="应用网页" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"></iframe>
                     </div>
 
@@ -482,6 +483,10 @@ class AppWebPanel {
         };
 
         this._bindThemeTab();
+
+        // a combined app: which page (its own or a member's) the frame shows; loaded when picked
+        this.appPick = root.querySelector('#aw-app-pick');
+        this.appPick.addEventListener('change', () => this.loadAppTab());
 
         // Tab switching events
         this.el.navTabs.forEach(btn => {
@@ -834,6 +839,22 @@ class AppWebPanel {
         const name = ex.wasm_app_web_name ? this._str(ex.wasm_app_web_name()) : '应用';
         this.el.title.textContent = `🌐 ${name || 'MiniScheme'} 设备网页 (WASM 仿真)`;
         this.el.target.textContent = 'WASM 设备仿真';
+        // a combined app: its own page and its members' pages, one at a time (the one picked)
+        let pages = [];
+        try { pages = ex.wasm_app_pages ? JSON.parse(this._str(ex.wasm_app_pages())).pages || [] : []; } catch (e) { pages = []; }
+        const keep = this.appPick.value;
+        this.appPick.innerHTML = [`<option value="">${this._esc(name || '应用')}（设置）</option>`]
+            .concat(pages.map(p => `<option value="${this._esc(p.id)}">${this._esc(p.name)}</option>`)).join('');
+        this.appPick.hidden = pages.length === 0;
+        this.appPick.value = pages.some(p => p.id === keep) ? keep : '';
+        if (ex.wasm_app_web_member) {
+            const id = this.appPick.value;
+            const bytes = new TextEncoder().encode(id + '\0');
+            const p = ex.wasm_alloc_buffer(bytes.length);
+            new Uint8Array(this.target.memory().buffer, p, bytes.length).set(bytes);
+            ex.wasm_app_web_member(p);
+            if (ex.wasm_free_buffer) ex.wasm_free_buffer(p);
+        }
         const ptr = ex.wasm_app_web_page();
         const len = ex.wasm_app_web_len();
         if (!ptr || !len) {

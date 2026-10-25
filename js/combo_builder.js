@@ -16,6 +16,7 @@
 const CB_LIBS = ['apps/lib/gui.scm', 'apps/lib/infopages.scm', 'apps/lib/applib.scm'];
 const CB_WEB_LIB = 'apps/lib/appweb.scm';
 const CB_COMBO_LIB = 'apps/lib/combo.scm';
+const CB_COMBO_PAGE = 'apps/lib/combo_web.html';   // its own web page: pages, carousel, alerts
 const CB_EXCLUDE = new Set(['settings', 'pcmonitor', 'combo']);   // not built on applib's app-define!
 const CB_ID = 'combo';
 const CB_PATH = `/spiffs/apps/${CB_ID}/app.msbc`;
@@ -264,10 +265,11 @@ class ComboBuilder {
     }
 
     _source(members, name) {
-        return Promise.all([...CB_LIBS, ...(members.some(m => m.web) ? [CB_WEB_LIB] : []), CB_COMBO_LIB]
+        return Promise.all([...CB_LIBS, CB_WEB_LIB, CB_COMBO_LIB]
             .map(p => this._fetchText(p))).then(libs => {
             const parts = libs.slice();
             for (const m of members) {
+                parts.push(`(combo-loading! ${cbSchemeString(m.id)})`);   // its folder and settings while it loads
                 parts.push(m.source);
                 parts.push(`(combo-member! ${cbSchemeString(m.id)} (list ${m.ids.map(cbSchemeString).join(' ')})\n` +
                            `               (list ${m.defaults.map(([k, v]) => `(cons ${cbSchemeString(k)} ${cbSchemeString(v)})`).join(' ')}))`);
@@ -295,12 +297,31 @@ members = ${members.map(m => m.id).join(', ')}
 entries = text | 显示的页面 | 逗号分开，按顺序轮播。应用.英文页名（如 weather.sevendays、calendar.today，front 为第一页），或应用提供的视图，如 wxpusher.news[0]（最新一条）。留空：全部页面
 carousel = select:=跟随系统,1=自动轮播,0=手动翻页 | 自动轮播 | 留空跟随 config.ini
 carousel_seconds = text | 每页秒数 | 一个数，或每页一个：15,10,10
+alerts = text | 成员的强提醒 | 覆盖成员自己的提醒设置，逗号分开：应用:优先级[:结束方式[:秒数]]，如 wxpusher:7:both:60；优先级 0 关闭该应用的提醒
 
 [config]
 entries = ${entries}
 carousel = 1
 carousel_seconds = ${seconds}
+alerts =
 `;
+    }
+
+    /* The page section of the image (as tools/build_apps.py web_section): the
+     * combined app's page with appweb.css and appweb.js inlined, gzip'd */
+    async _pageSection() {
+        const [html, css, js] = await Promise.all([CB_COMBO_PAGE, 'apps/lib/appweb.css', 'apps/lib/appweb.js']
+            .map(p => this._fetchText(p)));
+        const page = html.replace('<!-- appweb -->', `<style>\n${css}</style>\n<script>\n${js}</script>`);
+        const gz = new Uint8Array(await new Response(new Blob([new TextEncoder().encode(page)])
+            .stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+        const out = new Uint8Array(gz.length + 12);
+        out.set(gz, 0);
+        const dv = new DataView(out.buffer, gz.length);
+        dv.setUint32(0, gz.length, true);
+        dv.setUint32(4, fnv1a32(gz), true);
+        out.set([0x4D, 0x53, 0x57, 0x50], gz.length + 8);   // "MSWP"
+        return out;
     }
 
     /* {bytes, entries, seconds, members, name} of the combined app */
@@ -314,7 +335,11 @@ carousel_seconds = ${seconds}
         const source = await this._source(members, name);
         const comp = compileWithWasm(source);
         if (!comp.success) throw new Error(`编译失败: ${comp.error}`);
-        const code = comp.bytes;
+        const code0 = comp.bytes;
+        const pageBytes = await this._pageSection();
+        const code = new Uint8Array(code0.length + pageBytes.length);   // code, its page, the meta trailer
+        code.set(code0, 0);
+        code.set(pageBytes, code0.length);
         const metaBytes = new TextEncoder().encode(this._meta(members, name, entries, seconds));
         const out = new Uint8Array(code.length + metaBytes.length + 12);
         out.set(code, 0);

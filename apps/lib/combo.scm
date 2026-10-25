@@ -2,7 +2,8 @@
 ;;;
 ;;; The WebREPL's 合并应用 (or tools/build_apps.py for apps/<id>/meta.ini with
 ;;; [combo] members) puts applib, this file, then each member app's code
-;;; followed by (combo-member! "weather" '("front" ...) '(("location" . "auto") ...))
+;;; after (combo-loading! "weather") and followed by
+;;; (combo-member! "weather" '("front" ...) '(("location" . "auto") ...))
 ;;; (its English page names and its meta.ini defaults), and (combo-start!) at
 ;;; the end, into one app.
 ;;;
@@ -20,11 +21,33 @@
 ;;;   app-config reads the member's own config.ini ((config-get key id),
 ;;;   firmware with combined apps; never run alone: its meta.ini defaults).
 ;;; - Short press: next entry. Long press: the entry app's own long press.
+;;; - Its own web page (apps/lib/combo_web.html) edits entries (a page may
+;;;   come several times), the carousel and the members' alerts, taking effect
+;;;   at once; a member's page (/app?member=<id>, from the member's installed
+;;;   image) calls (app-web name body id): that member's app-web, as its code.
+;;; - A member that cycles through its own screens (app-hold-proc: the
+;;;   Bilibili app turning its screens) keeps the carousel on its entry until
+;;;   its cycle went round; app-show-proc tells it its entry came on screen.
+;;; - A member's files are its own app's (apps/<id>/, firmware API 1.13:
+;;;   app-member-folder): while its code runs, also while it loads, relative
+;;;   paths and the storage quota are that folder's, so it shares its data
+;;;   with the app running alone (the medicine records). Its schedule.ini
+;;;   times reach it here (the firmware calls (app-schedule at id)), and its
+;;;   app-step-proc runs on every pass, as its code.
+;;; - Alerts (applib section 9): a member's alerts take the screen whatever
+;;;   entry shows, run as its code and carry its name; its watched feeds are
+;;;   fetched in the background. The setting alerts overrides the members'
+;;;   own alert settings: "id:priority[:exit[:seconds]]", comma separated
+;;;   (wxpusher:7:both:60,notifier:4); priority 0: none of that member's.
 
 (define combo-members '())       ; #(id title pages subtitle tick data long views empty ids defaults has-ini)
 (define combo-pending #f)        ; (title . pages) of the member being loaded
 (define combo-entries (vector))  ; per page of this app: #(member local-page view-proc view-index)
 (define combo-ctx #f)            ; the member whose code runs now, #f this app's own
+(define combo-loading #f)        ; the id of the member whose code loads now (combo-loading!)
+(define combo-name "合集")        ; this app's title (combo-start!)
+(define app-web #f)              ; a member may define its own: kept per member
+(define combo-has-folders (defined? 'app-member-folder))   ; firmware API 1.13
 (define combo-index #f)          ; this app's page index while a member's code runs
 
 (define combo-applib-define! app-define!)
@@ -48,13 +71,24 @@
 (define (combo-nonempty v) (and (string? v) (> (string-length v) 0) v))
 
 (define (app-config key default)
-  (if (not combo-ctx)
-      (combo-applib-config key default)
+  (cond
+    ((and (not combo-ctx) combo-loading)   ; a member's code loading: its own config.ini
+     (or (combo-nonempty (config-get key combo-loading)) default))
+    ((not combo-ctx) (combo-applib-config key default))
+    (else
       (let* ((m combo-ctx)
              (d (and (not (vector-ref m 11)) (assoc key (vector-ref m 10))))
              (v (or (and d (combo-nonempty (cdr d)))
                     (combo-nonempty (config-get key (combo-id m))))))
-        (or v default))))
+        (or v default)))))
+
+;; The member's folder for the paths of the code that runs now (#f: this app's own)
+(define (combo-folder! m) (if combo-has-folders (app-member-folder (if m (combo-id m) #f))))
+
+;; Before a member's code: its folder and settings while it loads
+(define (combo-loading! id)
+  (set! combo-loading id)
+  (if combo-has-folders (app-member-folder id)))
 
 ;; Runs thunk as the member's code: its page number, its settings
 (define (combo-in m local thunk)
@@ -62,7 +96,9 @@
     (set! combo-index (if combo-index combo-index app-page-index))
     (set! combo-ctx m)
     (set! app-page-index local)
+    (if (not (eq? m saved-ctx)) (combo-folder! m))
     (let ((r (thunk)))
+      (if (not (eq? m saved-ctx)) (combo-folder! saved-ctx))
       (set! app-page-index saved-index)
       (set! combo-ctx saved-ctx)
       (set! combo-index saved-combo)
@@ -95,12 +131,27 @@
 (define (combo-member! id ids defaults)
   (let ((title (if combo-pending (car combo-pending) id))
         (pages (if combo-pending (list->vector (cdr combo-pending)) (vector))))
-    (set! combo-members
-          (append combo-members
-                  (list (vector id title pages app-subtitle-proc app-tick-proc app-data-proc
-                                app-long-press app-views app-render-empty-pages ids defaults
-                                (and (defined? 'app-has-config?) (app-has-config? id))))))
+    (let ((m (vector id title pages app-subtitle-proc app-tick-proc app-data-proc
+                     app-long-press app-views app-render-empty-pages ids defaults
+                     (and (defined? 'app-has-config?) (app-has-config? id))
+                     app-schedule app-step-proc app-web app-hold-proc app-show-proc)))
+      (set! combo-members (append combo-members (list m)))
+      ;; the feeds it asked to watch and the alerts it raised while its code loaded are its own
+      (for-each (lambda (w) (if (not (vector-ref w 2)) (vector-set! w 2 (cons m 0)))) app-watches)
+      (for-each (lambda (a)
+                  (if (not (app-al-owner a))
+                      (begin (vector-set! a 1 (cons m 0))
+                             (vector-set! a 0 (string-append id (app-al-id a)))
+                             (vector-set! a 2 title))))
+                app-alerts))
     (set! combo-pending #f)
+    (set! combo-loading #f)
+    (combo-folder! #f)
+    (set! app-schedule #f)
+    (set! app-step-proc #f)
+    (set! app-web #f)
+    (set! app-hold-proc #f)
+    (set! app-show-proc #f)
     (set! app-subtitle-proc #f)
     (set! app-header-proc #f)
     (set! app-page-title-only #f)       ; the combined app titles every page itself
@@ -215,19 +266,120 @@
                        (loop (+ k 1) (cons m seen)))
                 (loop (+ k 1) seen)))))))
 
-;; Every second: the shown entry's app
+;; Every second: the shown entry's app, and the app whose alert is on screen (a reminder's
+;; time limit runs on its clock)
 (define (combo-tick tick)
   (if (> (vector-length combo-entries) 0)
       (let* ((e (combo-cur)) (m (vector-ref e 0)) (proc (vector-ref m 4)))
-        (if proc (combo-in m (vector-ref e 1) (lambda () (proc tick)))))))
+        (if proc (combo-in m (vector-ref e 1) (lambda () (proc tick))))
+        (let* ((a (app-alert-current)) (o (and a (app-al-owner a))))
+          (if (and o (not (eq? (car o) m)) (vector-ref (car o) 4))
+              (combo-in (car o) (cdr o) (lambda () ((vector-ref (car o) 4) tick))))))))
+
+;; Every main-loop pass: each member's app-step-proc, as its code; #t when one used the
+;; feed stream itself (the framework's step waits)
+(define (combo-step)
+  (let loop ((ms combo-members) (busy #f))
+    (if (null? ms)
+        busy
+        (let ((p (vector-ref (car ms) 13)))
+          (loop (cdr ms) (or (and p (combo-in (car ms) 0 p)) busy))))))
+
+;; The entry on screen's app: whether it keeps the carousel waiting; its entry came on screen
+(define (combo-member-hook k)
+  (if (> (vector-length combo-entries) 0)
+      (let* ((e (combo-cur)) (m (vector-ref e 0)) (p (vector-ref m k)))
+        (and p (combo-in m (vector-ref e 1) p)))
+      #f))
+(define (combo-hold) (combo-member-hook 15))
+(define (combo-show) (combo-member-hook 16))
+
+;; The web page's calls: a member's page names the member (firmware API 1.13), else this app's own
+(define (combo-web name body . rest)
+  (let ((m (and (pair? rest) (string? (car rest)) (combo-find-member (car rest)))))
+    (cond ((not m) (combo-own-web name body))
+          ((vector-ref m 14) (combo-in m 0 (lambda () ((vector-ref m 14) name body))))
+          (else (web-error "这个应用没有网页调用")))))
+
+;; This app's own page (apps/lib/combo_web.html): the members, their pages and views, the settings
+(define (combo-member-json m)
+  (let ((ids (vector-ref m 9)) (pages (combo-pages m)))
+    (list (cons 'id (combo-id m)) (cons 'title (combo-title m))
+          (cons 'pages (list->vector
+                         (let loop ((k 0) (acc '()))
+                           (if (< k (vector-length pages))
+                               (loop (+ k 1)
+                                     (cons (list (cons 'id (if (< k (length ids)) (list-ref ids k) (number->string (+ k 1))))
+                                                 (cons 'name (vector-ref (vector-ref pages k) 0)))
+                                           acc))
+                               (reverse acc)))))
+          (cons 'views (list->vector (map (lambda (v) (list (cons 'id (string-append (car v) "[0]"))
+                                                            (cons 'name (string-append (car v) "（视图）"))))
+                                          (vector-ref m 7)))))))
+
+(define (combo-own-state)
+  (web-ok (cons 'members (list->vector (map combo-member-json combo-members)))
+          (cons 'entries (combo-applib-config "entries" ""))
+          (cons 'carousel (combo-applib-config "carousel" ""))
+          (cons 'carousel_seconds (combo-applib-config "carousel_seconds" ""))
+          (cons 'alerts (combo-applib-config "alerts" ""))))
+
+(define (combo-own-web name body)
+  (cond ((string=? name "state") (combo-own-state))
+        ((string=? name "set")
+         (for-each (lambda (k) (let ((v (web-field body k))) (if v (app-config-set! k v))))
+                   '("entries" "carousel" "carousel_seconds" "alerts"))
+         (combo-build!)
+         (combo-own-state))
+        (else (web-error (string-append "unknown call: " name)))))
+
+;; A time of a member's schedule.ini came (firmware API 1.13 passes its id): that member's hook
+(define (combo-schedule at . rest)
+  (let ((id (and (pair? rest) (car rest))))
+    (for-each (lambda (m)
+                (let ((p (vector-ref m 12)))
+                  (if (and p (or (not id) (string=? id (combo-id m))))
+                      (combo-in m 0 (lambda () (p at))))))
+              combo-members)))
 
 (define (combo-long-press)
   (let* ((e (combo-cur)) (m (vector-ref e 0)) (proc (vector-ref m 6)))
     (if proc (combo-in m (vector-ref e 1) proc))))
 
+;; Alerts and watched feeds (applib section 9): the member whose code raises one is its
+;; owner (with the page its code runs as); its code runs as that member again
+(define (app-alert-owner) (and combo-ctx (cons combo-ctx app-page-index)))
+(define (app-alert-owner-id owner) (if owner (combo-id (car owner)) ""))
+(define (app-alert-run owner thunk) (if owner (combo-in (car owner) (cdr owner) thunk) (thunk)))
+(define (app-alert-app-name owner) (if owner (combo-title (car owner)) app-title))
+(define (app-alert-setting owner name)
+  (or (and owner (combo-alert-override (combo-id (car owner)) name)) (app-config name #f)))
+
+;; This app's setting alerts for member id: "id:priority[:exit[:seconds]]", comma
+;; separated; #f where it says nothing
+(define (combo-alert-override id name)
+  (let loop ((specs (str-split (combo-applib-config "alerts" "") #\,)))
+    (if (null? specs)
+        #f
+        (let ((f (str-split (combo-trim (car specs)) #\:)))
+          (if (and (pair? f) (string=? (car f) id))
+              (let ((field (lambda (k) (and (> (length f) k) (combo-nonempty (combo-trim (list-ref f k)))))))
+                (cond ((string=? name "alert") (if (equal? (field 1) "0") "0" #f))
+                      ((string=? name "alert_priority") (and (not (equal? (field 1) "0")) (field 1)))
+                      ((string=? name "alert_exit") (field 2))
+                      ((string=? name "alert_seconds") (field 3))
+                      (else #f)))
+              (loop (cdr specs)))))))
+
 ;; The pages entries lists (unknown ones left out; empty: all of them)
 (define (combo-start! title)
-  (let* ((specs (filter (lambda (s) (> (string-length (combo-trim s)) 0))
+  (set! combo-name title)
+  (combo-build!))
+
+;; The entries (again after the web page changed them): this app's pages
+(define (combo-build!)
+  (let* ((title combo-name)
+         (specs (filter (lambda (s) (> (string-length (combo-trim s)) 0))
                         (str-split (app-config "entries" "") #\,)))
          (entries (if (null? specs)
                       (combo-all-entries)
@@ -237,6 +389,12 @@
     (set! app-data-proc combo-data)
     (set! app-tick-proc combo-tick)
     (set! app-long-press combo-long-press)   ; after the members: wxpusher defines its own
+    (set! app-schedule combo-schedule)
+    (set! app-step-proc combo-step)
+    (set! app-web combo-web)
+    (set! app-hold-proc combo-hold)
+    (set! app-show-proc combo-show)
+    (set! gui-render-proc app-render)        ; a member may have drawn the screen itself (medicine)
     ;; entries drawn before their data: their app's local or empty-drawn pages
     (set! app-render-empty-pages
           (let loop ((k 0) (acc '()))

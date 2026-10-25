@@ -1160,6 +1160,13 @@
 (define app-views '())                       ; (name . (lambda (items i) ...)): views a combined app can show
 (define app-index-always #f)                 ; #t: the page number also on page 1 (a combined app)
 (define app-footer-text "")                  ; the footer of a local page (no proxy data)
+(define app-long-press #f)                   ; () -> the app's long press, if it has one
+(define app-schedule #f)                     ; (at) -> a time of the app's schedule.ini came while it runs
+(define app-hold-proc #f)                    ; () -> #t: the carousel waits on this page (the app's own cycle
+                                             ; runs); once it says #f again the carousel goes on at once
+(define app-show-proc #f)                    ; () -> a page of the app came on screen (app-goto!)
+(define app-step-proc #f)                    ; () -> every main-loop pass; #t: it used the feed stream itself
+                                             ; (a sync), the framework's step waits
 (define app-pages (vector))
 (define app-urls (vector))
 (define app-page-index 0)
@@ -1301,14 +1308,18 @@
     (set! app-loading #f)
     (if (and (pair? items) (eq? (it-t (car items)) 'error))
         (begin (set! app-error (it-a (car items))) (set! app-error-url (json-feed-url)))
+        (if (app-page-url? (json-feed-url))
+            (begin
+              (set! app-error #f)
+              (app-cache-put! (json-feed-url) items)
+              (if app-data-proc (app-data-proc items)))
+            (app-watch-deliver! (json-feed-url) items)))
+    (if (not (and (pair? items) (eq? (it-t (car items)) 'error)))
         (begin
-          (set! app-error #f)
-          (app-cache-put! (json-feed-url) items)
-          (if app-data-proc (app-data-proc items))
           ;; every page cached: the firmware's one stream goes back to the
           ;; page on screen when its data is due (app-tick checks again)
           (if (not (app-prefetch-next!)) (app-follow-page!))))
-    (app-invalidate-all)))
+    (if (app-page-url? (json-feed-url)) (app-invalidate-all))))   ; a watched feed's: its alert draws itself
 
 ;; 7. Drawing --------------------------------------------------------------------------------
 
@@ -1397,10 +1408,13 @@
 ;; every scrolling title would pay for)
 (define app-footer-shown #f)
 (define (app-footer-key)
-  (if (app-local? app-page-index)
-      app-footer-text
+  (cond
+    ((app-alert-current) (string-append "alert|" (app-al-id (app-alert-current))))
+    ((app-local? app-page-index)
+     app-footer-text)
+    (else
       (let ((parts (app-feed-footer-parts)))
-        (string-append (vector-ref parts 0) "|" (vector-ref parts 1) (if (vector-ref parts 2) "!" "")))))
+        (string-append (vector-ref parts 0) "|" (vector-ref parts 1) (if (vector-ref parts 2) "!" ""))))))
 
 ;; "http://host:port" shown as "host:port"
 (define (app-server-name s)
@@ -1471,6 +1485,10 @@
   (gui-flush))
 
 (define (app-render-page)
+  (let ((a (app-alert-current)))
+    (if a (app-alert-render a) (app-render-pages))))
+
+(define (app-render-pages)
   (let ((items (if (app-local? app-page-index) '() (app-items))))   ; a local page: no document
     (if (gui-visible? 0 HDR-H) (app-render-header items))
     (if (gui-visible? HDR-H (- (gui-height) HDR-H FTR-H))
@@ -1509,11 +1527,14 @@
   (app-carousel-reset!)
   (app-init-fonts!)
   (app-start-feed!)
+  (app-alert-wrap-buttons!)
   (app-invalidate-all))
 
 (define (app-goto! i)
   (set! app-page-index i)
+  (set! app-carousel-held #f)
   (app-carousel-reset!)
+  (if app-show-proc (app-show-proc))
   (app-follow-page!)                 ; its data still fresh: shown from the cache
   (app-invalidate-all))
 
@@ -1544,19 +1565,31 @@
   (gui-invalidate 0 0 (scr-w) HDR-H)
   (app-carousel-state))
 
-;; One second of the carousel: the next page when this one's time is up
+;; One second of the carousel: the next page when this one's time is up. A page whose app
+;; cycles through its own screens (app-hold-proc) keeps it waiting, and is left as soon as
+;; its cycle went round.
+(define app-carousel-held #f)
 (define (app-carousel-tick!)
-  (set! app-carousel-left (- app-carousel-left 1))
-  (if (<= app-carousel-left 0)
-      (app-next-page!)
-      (gui-invalidate 0 0 (scr-w) HDR-H)))
+  (cond ((and app-hold-proc (app-hold-proc))
+         (if (not app-carousel-held) (gui-invalidate 0 0 (scr-w) HDR-H))
+         (set! app-carousel-held #t)
+         (app-carousel-reset!))
+        (app-carousel-held
+         (set! app-carousel-held #f)
+         (app-next-page!))
+        (else
+         (set! app-carousel-left (- app-carousel-left 1))
+         (if (<= app-carousel-left 0)
+             (app-next-page!)
+             (gui-invalidate 0 0 (scr-w) HDR-H)))))
 
 (define (app-step)
-  (let ((seq (json-feed-seq)))
-    (if (and (> seq 0) (not (= seq app-last-seq)))
-        (begin
-          (set! app-last-seq seq)
-          (app-take-document!)))))
+  (if (not (and app-step-proc (app-step-proc)))
+      (let ((seq (json-feed-seq)))
+        (if (and (> seq 0) (not (= seq app-last-seq)))
+            (begin
+              (set! app-last-seq seq)
+              (app-take-document!))))))
 
 (define (app-tick hm sec week date lux bl . rest)
   (let ((tick (if (pair? rest) (car rest) 0)))
@@ -1575,9 +1608,12 @@
               (begin
                 (set! app-footer-shown key)
                 (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H)))))
-    (if (and app-carousel (not (info-active?)) (not app-carousel-paused)) ; also stops on the hardware pages
+    (app-alert-tick!)
+    ;; also stops on the hardware pages and while an alert shows
+    (if (and app-carousel (not (info-active?)) (not app-carousel-paused) (not (app-alert-current)))
         (app-carousel-tick!))
     (if (> (app-npages) 0) (app-follow-page!))   ; the shown page's cached data became due
+    (app-watch-step!)                            ; else a watched feed that is due
     (if (theme-tick! tick) (app-invalidate-all))   ; the day / night scheme or a theme.css changed
     (if app-tick-proc (app-tick-proc tick))))
 
@@ -1595,6 +1631,284 @@
   (app-init-fonts!)
   (app-start-feed!)
   (app-invalidate-all))
+
+;; 9. Alerts (强提醒) ---------------------------------------------------------------------------
+;; Something that needs the user now (a dose due, a new message) takes the screen over the
+;; pages: (app-alert! key title render [opts]). The alert with the highest priority shows
+;; (1..9, 9 the highest; equal ones in the order they came); a higher one raised meanwhile
+;; goes in front, and the one it covered comes back after it with the seconds it had left.
+;; While one shows the carousel stops, a short press confirms it (its ack runs, then it
+;; closes) and a long press puts it off for a few minutes. How it ends: button (a short
+;; press), time (after its seconds), both, or app (only the app's own (app-alert-done! key),
+;; e.g. once every dose is taken; a short press still runs its ack). The user's settings
+;; come first: a combined app's alerts setting for the member (combo.scm), then the app's
+;; own alert (0: none of its alerts), alert_priority, alert_exit (button, time, both),
+;; alert_seconds, alert_snooze (minutes); then the options the app passes; then 5 / both /
+;; 30 s / 5 min. opts: an alist of (ack . thunk), (priority . n), (exit . symbol),
+;; (seconds . n), (snooze . minutes), (full . #t) (render draws the whole screen, its own
+;; title bar and hints: the medicine reminder). key: a string the app picks (one per message, per
+;; dose time); raising it again updates the alert; an alert that ended is not raised again
+;; under the same key until the app restarts.
+;; (app-watch! url-proc interval-ms proc): a feed fetched in the background at its
+;; interval while the page on screen does not need the stream (a combined app's member
+;; that is not on screen still sees its new messages); proc gets its documents.
+
+(define APP-ALERT-PRIORITY 5)
+(define APP-ALERT-EXIT 'both)
+(define APP-ALERT-SECONDS 30)
+(define APP-ALERT-SNOOZE 5)
+(define APP-ALERT-DONE-MAX 40)
+
+;; #(id owner app title render ack priority exit seconds snooze seq left wake full)
+(define app-alerts '())                      ; in queue order: priority, then arrival
+(define app-alert-seq 0)
+(define app-alert-clock 0)                   ; seconds since the start (snoozes wake on it)
+(define app-alert-done-ids '())              ; alerts that ended: raising one again does nothing
+(define app-alert-user-button #f)            ; the app's own presses (app-define! wraps them)
+(define app-alert-user-long #f)
+
+(define (app-al-id a) (vector-ref a 0))
+(define (app-al-owner a) (vector-ref a 1))
+(define (app-al-app a) (vector-ref a 2))
+(define (app-al-title a) (vector-ref a 3))
+(define (app-al-render a) (vector-ref a 4))
+(define (app-al-ack a) (vector-ref a 5))
+(define (app-al-priority a) (vector-ref a 6))
+(define (app-al-exit a) (vector-ref a 7))
+(define (app-al-seconds a) (vector-ref a 8))
+(define (app-al-snooze a) (vector-ref a 9))
+(define (app-al-seq a) (vector-ref a 10))
+(define (app-al-left a) (vector-ref a 11))
+(define (app-al-wake a) (vector-ref a 12))
+(define (app-al-full a) (vector-ref a 13))
+
+;; A combined app's hooks (combo.scm): which member raises an alert, running code as that
+;; member, its name and its settings. Alone, the app itself.
+(define (app-alert-owner) #f)
+(define (app-alert-owner-id owner) "")
+(define (app-alert-run owner thunk) (thunk))
+(define (app-alert-app-name owner) app-title)
+(define (app-alert-setting owner name) (app-config name #f))   ; runs inside app-alert-run
+
+;; A callback the firmware calls later (fs-download's on-done): it runs as the code that made it
+;; (in a combined app, as that member: its folder, its settings)
+(define (app-callback proc)
+  (let ((owner (app-alert-owner)))
+    (lambda args (app-alert-run owner (lambda () (apply proc args))))))
+
+(define (app-alert-opt opts key) (let ((p (assq key opts))) (and p (cdr p))))
+
+;; One setting: the user's (as text), else the app's option, else the default
+(define (app-alert-value owner opts key name default)
+  (let* ((s (app-alert-run owner (lambda () (app-alert-setting owner name))))
+         (v (and (string? s) (> (string-length s) 0) s))
+         (given (app-alert-opt opts key)))
+    (cond ((and v (eq? key 'exit) (not (eq? given 'app)))      ; app: the app ends it, always
+           (let ((sym (string->symbol v))) (if (memq sym '(button time both)) sym (or given default))))
+          ((and v (not (eq? key 'exit)) (string->number v)) (string->number v))
+          (else (or given default)))))
+
+(define (app-alert-find id)
+  (let loop ((l app-alerts))
+    (cond ((null? l) #f) ((string=? (app-al-id (car l)) id) (car l)) (else (loop (cdr l))))))
+
+;; The queue with a in its place: a higher priority first, then the one that came first
+(define (app-alert-insert a l)
+  (cond ((null? l) (list a))
+        ((> (app-al-priority a) (app-al-priority (car l))) (cons a l))
+        (else (cons (car l) (app-alert-insert a (cdr l))))))
+
+;; The alert on screen: the first one not put off, or #f
+(define (app-alert-current)
+  (let loop ((l app-alerts))
+    (cond ((null? l) #f) ((app-al-wake (car l)) (loop (cdr l))) (else (car l)))))
+
+(define (app-alert-waiting) (length (filter (lambda (a) (not (app-al-wake a))) app-alerts)))
+
+(define (app-alert-changed!)
+  (if (not (app-alert-current)) (app-carousel-reset!))   ; the pages again: a full count
+  (app-invalidate-all))
+
+(define (app-alert-key-id owner key) (string-append (app-alert-owner-id owner) "/" key))
+
+(define (app-alert! key title render . rest)
+  (let* ((opts (if (pair? rest) (car rest) '()))
+         (owner (app-alert-owner))
+         (id (app-alert-key-id owner key))
+         (old (app-alert-find id)))
+    (cond
+      ((member id app-alert-done-ids) #f)
+      ((equal? (app-alert-run owner (lambda () (app-alert-setting owner "alert"))) "0") #f)
+      (old (vector-set! old 3 title)
+           (vector-set! old 4 render)
+           (vector-set! old 5 (app-alert-opt opts 'ack))
+           (if (eq? old (app-alert-current)) (app-invalidate-all))
+           #t)
+      (else
+        (let* ((secs (clamp (app-alert-value owner opts 'seconds "alert_seconds" APP-ALERT-SECONDS) 3 3600))
+               (a (vector id owner (app-alert-app-name owner) title render (app-alert-opt opts 'ack)
+                          (clamp (app-alert-value owner opts 'priority "alert_priority" APP-ALERT-PRIORITY) 1 9)
+                          (app-alert-value owner opts 'exit "alert_exit" APP-ALERT-EXIT)
+                          secs
+                          (clamp (app-alert-value owner opts 'snooze "alert_snooze" APP-ALERT-SNOOZE) 1 120)
+                          app-alert-seq secs #f (and (app-alert-opt opts 'full) #t))))
+          (set! app-alert-seq (+ app-alert-seq 1))
+          (set! app-alerts (app-alert-insert a app-alerts))
+          (app-alert-changed!)
+          #t)))))
+
+;; The alert leaves the queue for good (its ack first when confirmed)
+(define (app-alert-end! a)
+  (set! app-alerts (filter (lambda (x) (not (eq? x a))) app-alerts))
+  (set! app-alert-done-ids (cons (app-al-id a) app-alert-done-ids))
+  (if (> (length app-alert-done-ids) APP-ALERT-DONE-MAX)
+      (set! app-alert-done-ids (take app-alert-done-ids APP-ALERT-DONE-MAX)))
+  (app-alert-changed!))
+
+;; The app ends its alert (every dose taken, the message read elsewhere)
+(define (app-alert-done! key)
+  (let ((a (app-alert-find (app-alert-key-id (app-alert-owner) key))))
+    (if a (app-alert-end! a))
+    (and a #t)))
+
+(define (app-alert-active? key) (and (app-alert-find (app-alert-key-id (app-alert-owner) key)) #t))
+
+;; Short press on an alert: its ack; it closes unless only time ends it, or the app does
+(define (app-alert-press! a)
+  (let ((ack (app-al-ack a)) (exit (app-al-exit a)))
+    (if (not (eq? exit 'time))
+        (begin
+          (if ack (app-alert-run (app-al-owner a) ack))
+          (if (and (not (eq? exit 'app)) (app-alert-find (app-al-id a))) (app-alert-end! a))
+          (app-invalidate-all)))))
+
+;; Long press: put off for its snooze minutes; it comes back with its full seconds
+(define (app-alert-snooze! a)
+  (vector-set! a 12 (+ app-alert-clock (* 60 (app-al-snooze a))))
+  (app-alert-changed!))
+
+;; Every second: alerts put off come back; the one on screen counts down when time ends it
+(define (app-alert-tick!)
+  (set! app-alert-clock (+ app-alert-clock 1))
+  (for-each (lambda (a)
+              (if (and (app-al-wake a) (>= app-alert-clock (app-al-wake a)))
+                  (begin (vector-set! a 12 #f) (vector-set! a 11 (app-al-seconds a)) (app-alert-changed!))))
+            app-alerts)
+  (let ((a (app-alert-current)))
+    (if (and a (memq (app-al-exit a) '(time both)))
+        (begin
+          (vector-set! a 11 (- (app-al-left a) 1))
+          (if (<= (app-al-left a) 0)
+              (app-alert-end! a)
+              (begin (gui-invalidate 0 0 (scr-w) HDR-H)
+                     (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H)))))))
+
+;; The presses go to the alert on screen, else to the app (app-define! wraps them once)
+(define (app-alert-wrap-buttons!)
+  (if (not app-alert-user-button)
+      (begin
+        (set! app-alert-user-button app-button)
+        (set! app-alert-user-long app-long-press)
+        (set! app-button
+              (lambda () (let ((a (app-alert-current))) (if a (app-alert-press! a) (app-alert-user-button)))))
+        (set! app-long-press
+              (lambda ()
+                (let ((a (app-alert-current)))
+                  (cond (a (app-alert-snooze! a))
+                        (app-alert-user-long (app-alert-user-long)))))))))
+
+;; Screen: a title bar in the priority's color with the app's name and the alert's title,
+;; the alerts waiting and the countdown; the alert's own body; a footer saying what the
+;; presses do
+(define (app-alert-color a)
+  (let ((p (app-al-priority a))) (cond ((>= p 8) theme-danger) ((>= p 5) theme-warning) (else theme-accent))))
+
+(define (app-alert-render-header a)
+  (let* ((w (scr-w)) (tw (txt-w app-time))
+         (n (app-alert-waiting))
+         (ind (if (> n 1) (string-append "提醒 1/" (int->str n)) #f))
+         (iw (if ind (+ (txt-w ind) 12) 0))
+         (badge (- w 8 tw 8 iw))
+         (timed (memq (app-al-exit a) '(time both)))
+         (secs (app-al-seconds a))
+         (bar-r (- badge (if ind 6 0)))
+         (right (if timed (- bar-r (carousel-bar-w secs) 6) badge))
+         (name (app-al-app a)) (nw (txt-w name)))
+    (gui-rect 0 0 w HDR-H (app-alert-color a) #t)
+    (if timed
+        (let* ((full (carousel-bar-w secs)) (left (min full (* (max 0 (app-al-left a)) (carousel-px secs))))
+               (y (quotient (- HDR-H CAROUSEL-BAR-H) 2)))
+          (gui-rect (- bar-r full) y full CAROUSEL-BAR-H theme-card-hdr #t)
+          (if (> left 0) (gui-rect (- bar-r left) y left CAROUSEL-BAR-H theme-bg #t))))
+    (txt-right (- w 8) 8 app-time theme-bg)
+    (if ind
+        (begin (gui-round-rect badge 5 iw 22 6 theme-bg #t)
+               (txt (+ badge 6) 8 ind (app-alert-color a))))
+    (txt-fit 8 8 (- right 14) name theme-bg)
+    (if (< (+ 8 nw 10) (- right 20))
+        (txt-fit (+ 8 nw 10) 8 (- right 14 nw 10) (app-al-title a) theme-bg))))
+
+(define (app-alert-hint a)
+  (let ((exit (app-al-exit a)) (secs (int->str (max 0 (app-al-left a)))))
+    (cond ((eq? exit 'time) (string-append secs " 秒后关闭  长按稍后提醒"))
+          ((eq? exit 'both) (string-append "短按确认  " secs " 秒后关闭  长按稍后"))
+          (else (string-append "短按确认  长按 " (int->str (app-al-snooze a)) " 分钟后再提醒")))))
+
+(define (app-alert-render-footer a)
+  (let ((y (- (gui-height) FTR-H)))
+    (gui-rect 0 y (scr-w) FTR-H theme-card-hdr #t)
+    (txt-fit 8 (+ y 3) (- (scr-w) 16) (app-alert-hint a) theme-text-sub)))
+
+(define (app-alert-render a)
+  (if (app-al-full a)
+      (app-alert-run (app-al-owner a) (lambda () ((app-al-render a))))
+      (app-alert-render-framed a)))
+
+(define (app-alert-render-framed a)
+  (if (gui-visible? 0 HDR-H) (app-alert-render-header a))
+  (if (gui-visible? HDR-H (- (gui-height) HDR-H FTR-H))
+      (app-alert-run (app-al-owner a) (lambda () ((app-al-render a)))))
+  (if (gui-visible? (- (gui-height) FTR-H) FTR-H) (app-alert-render-footer a)))
+
+;; Watched feeds: #(url-proc interval owner proc due), due on app-alert-clock
+(define app-watches '())
+
+(define (app-watch! url-proc interval proc)
+  (set! app-watches (append app-watches (list (vector url-proc interval (app-alert-owner) proc 0)))))
+
+(define (app-watch-url w) (app-alert-run (vector-ref w 2) (vector-ref w 0)))
+
+(define (app-page-url? url)
+  (let loop ((i 0))
+    (cond ((>= i (vector-length app-urls)) #f)
+          ((equal? (vector-ref app-urls i) url) #t)
+          (else (loop (+ i 1))))))
+
+;; A document of a watched feed no page shows: to its proc, as its app's code
+(define (app-watch-deliver! url items)
+  (for-each (lambda (w)
+              (if (equal? (app-watch-url w) url)
+                  (begin
+                    (vector-set! w 4 (+ app-alert-clock (quotient (vector-ref w 1) 1000)))
+                    (app-alert-run (vector-ref w 2) (lambda () ((vector-ref w 3) items))))))
+            app-watches))
+
+;; Every second: a due watched feed takes the stream while no fetch is in flight; the page on
+;; screen takes it back right after when its data is due (app-take-document!, app-follow-page!),
+;; also when its fetch keeps failing
+(define (app-watch-step!)
+  (if (and (pair? app-watches) (not app-loading) (> (app-npages) 0) (not (string=? (app-proxy) "")))
+      (let loop ((l app-watches))
+        (if (pair? l)
+            (let* ((w (car l)) (url (app-watch-url w)))
+              (if (and (>= app-alert-clock (vector-ref w 4)) (not (string=? url ""))
+                       (not (equal? url (vector-ref app-urls app-page-index))))
+                  (begin
+                    (vector-set! w 4 (+ app-alert-clock (quotient (vector-ref w 1) 1000)))
+                    (set! app-feed-url url)
+                    (set! app-loading #t)
+                    (json-feed-start url (vector-ref w 1) APP-KEYS APP-SELECTORS APP-POOL APP-VALUE-LEN 2))
+                  (loop (cdr l))))))))
 
 
 ;;; =========================================================================

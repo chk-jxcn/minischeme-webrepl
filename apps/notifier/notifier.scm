@@ -1,19 +1,25 @@
 ;;; =========================================================================
 ;;; Notifier (消息提示器), 320x480 portrait, on the app framework (applib.scm).
-;;; Messages come two ways and are kept on the board (notifier.txt in its folder):
-;;;   - pushed to the app proxy (GET/POST /notify?text=..&title=..&level=..),
-;;;     which this app polls at /app/notifier every 5 s;
+;;; Messages come two ways and are kept on the board (notifier.txt in its folder,
+;;; the newest "keep" of them, 30 by default):
+;;;   - pushed to the app proxy (GET/POST /notify?text=..&title=..&level=..; a
+;;;     public server: mac=<device id>&password=<its app service password>),
+;;;     which keeps all of them (its user portal lists and deletes them) and
+;;;     which this app polls at /app/notifier?n=<keep> every 5 s;
 ;;;   - straight to the board: its web page's app tab, or
 ;;;     POST /api/app/call?fn=notify (title, text, level, from).
 ;;; A new message turns to page 1 and blinks the LED (urgent: until read);
-;;; a short press marks everything read, then turns pages.
+;;; a short press marks everything read, then turns pages. Each new message is
+;;; also an alert (applib section 9) over any page, in a combined app too:
+;;; urgent priority 8 until a press, warn 6 and info 4 also closing by
+;;; themselves (60 s, 30 s); a short press on it reads that message.
 ;;;   1 the newest message   2 all messages
 ;;; File: first line "P|<last proxy id>", then "id|pid|level|read|time|from|title|text".
 ;;; An app may touch only its own folder: relative paths are in it.
 ;;; =========================================================================
 
 (define NOTE-PATH "notifier.txt")        ; in the app's own folder
-(define NOTE-MAX 30)
+(define (note-keep) (clamp (or (string->number (app-config "keep" "30")) 30) 5 200))   ; messages kept here
 (define NOTE-INTERVAL 5000)
 
 (define note-list '())                  ; #(id pid level read time from title text), newest first
@@ -88,15 +94,39 @@
          (m (vector (note-next-id) pid (note-level-ok level) quiet (note-safe time) (note-safe (cut from 30))
                     (note-safe (cut title 60)) (note-safe (cut text 400)))))
     (set! note-list (cons m note-list))
-    (if (> (length note-list) NOTE-MAX) (set! note-list (take note-list NOTE-MAX)))
+    (if (> (length note-list) (note-keep)) (set! note-list (take note-list (note-keep))))
     (if (not quiet)
         (begin
           (set! note-alert (if (string=? (note-level m) "urgent") -1 20))
-          (if (not (= app-page-index 0)) (app-goto! 0))))
+          (if (not (= app-page-index 0)) (app-goto! 0))
+          (note-raise-alert! m)))
     m))
 
+(define (note-alert-key m) (string-append "n" (number->string (note-id m))))
+
+;; One message read (its alert's short press); the LED stops with the last one
+(define (note-read-one! m)
+  (vector-set! m 3 #t)
+  (if (= (note-unread) 0) (begin (set! note-alert 0) (ws2812-clear)))
+  (note-save!))
+
+(define (note-render-alert m)
+  (let ((y (+ (body-top) 6)))
+    (note-badge 10 y m)
+    (txt-right 310 (+ y 3) (note-meta-text m) theme-text-muted)
+    (txt-wrap 10 (+ y 32) 300 44 (if (str-empty? (note-title m)) "（无标题）" (note-title m)) theme-accent)
+    (txt-wrap 10 (+ y 82) 300 (- (body-bottom) y 86) (note-text m) theme-text-main)))
+
+(define (note-raise-alert! m)
+  (let ((l (note-level m)))
+    (app-alert! (note-alert-key m) (car (note-level-badge m)) (lambda () (note-render-alert m))
+                (list (cons 'ack (lambda () (note-read-one! m)))
+                      (cons 'priority (cond ((string=? l "urgent") 8) ((string=? l "warn") 6) (else 4)))
+                      (cons 'exit (if (string=? l "urgent") 'button 'both))
+                      (cons 'seconds (if (string=? l "warn") 60 30))))))
+
 (define (note-mark-read!)
-  (for-each (lambda (m) (vector-set! m 3 #t)) note-list)
+  (for-each (lambda (m) (vector-set! m 3 #t) (app-alert-done! (note-alert-key m))) note-list)
   (set! note-alert 0)
   (ws2812-clear)
   (note-save!))
@@ -107,8 +137,7 @@
 
 ;; Each new document: messages with ids past the last taken one, oldest first.
 ;; The proxy's ids start again at 1 when it restarts (its counter fell back).
-(set! app-data-proc
-      (lambda (items)
+(define (note-data! items)
         (let* ((meta (items-find items "meta")) (seq (if meta (or (it-int meta 1) 0) 0))
                (first-sync (and (not note-synced) (= note-last-pid 0) (null? note-list))))
           (set! note-synced #t)
@@ -122,7 +151,9 @@
                                          (it-b it) (it-c it) first-sync))   ; on a first start: no alarm for old ones
                             fresh)
                   (set! note-last-pid (list-max (map (lambda (it) (it-int it 1)) fresh)))
-                  (note-save!)))))))
+                  (note-save!))))))
+
+(set! app-data-proc note-data!)
 
 ;; 3. The screen ------------------------------------------------------------------------------
 
@@ -242,7 +273,9 @@
 (note-load!)
 (set! app-render-empty-pages '(0 1))    ; drawn from the board's own list, also without the proxy
 
-(define (note-url) (app-url "/app/notifier?n=8"))
+(define (note-url) (app-url (string-append "/app/notifier?n=" (number->string (min 50 (note-keep))))))
+
+(app-watch! note-url 15000 note-data!)   ; new messages also while another app's page shows
 
 (app-define! "消息提示"
   (list (app-page "最新" note-url NOTE-INTERVAL note-render-latest)

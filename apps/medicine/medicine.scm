@@ -20,6 +20,12 @@
 ;;;             time limit, back too: the rest logged as missed (only a
 ;;;             confirmed dose counts as taken). The page's test shows a
 ;;;             time point's medicines the same way and logs nothing.
+;;;             The reminder is an alert (applib section 9) of priority 9
+;;;             that only this app ends: in a combined app (合集) it takes
+;;;             the screen over every page at the time (firmware API 1.13
+;;;             hands this app's schedule.ini times to it there, and this
+;;;             app's files stay in its own folder); a long press puts it
+;;;             off for a few minutes.
 ;;; Records can be changed on the page (missed -> taken). With sync on they
 ;;; go to the app server too (proxy/medicine.py: kept there, the board's
 ;;; copy wins); a failed upload is tried again later, a server out of reach
@@ -812,6 +818,7 @@
                (set! med-done-left 0)
                (set! med-blink #t)
                (med-led #t)
+               (med-raise-alert!)
                (app-invalidate-all)
                #t))))
 
@@ -837,7 +844,7 @@
     (set! med-blink #t)
     (if (null? med-due)
         (med-finish!)                                  ; nothing to take now
-        (begin (pending-save!) (med-led #t) (app-invalidate-all)))))
+        (begin (pending-save!) (med-led #t) (if (not med-alert-key-now) (med-raise-alert!)) (app-invalidate-all)))))
 
 ;; One dose (med . amount) logged as how; a confirmed one ("ok") off a count
 ;; plan. The page's test logs nothing.
@@ -860,6 +867,7 @@
   (set! med-done-left 0)
   (pending-clear!)
   (med-led #f)
+  (med-alert-end!)
   (if (not (app-return))
       (begin (set! med-left MED-SHOW-SECONDS) (app-invalidate-all))))
 
@@ -1160,10 +1168,19 @@
     (if (wifi-connected?) (txt-center cx 272 (string-append "http://" (wifi-ip) "/") theme-accent))))
 
 (define (med-render-normal)
-  (let* ((shown (med-shown)) (n (length shown)) (d (med-today)))
+  (let ((n (length (med-shown))))
     (if (>= med-index (max 1 n)) (set! med-index 0))
     (med-header (if (> n 1) (string-append "吃药提醒  " (number->string (+ med-index 1)) "/" (number->string n)) "吃药提醒")
                 app-time theme-card-hdr theme-text-main)
+    (med-render-normal-body)
+    (let ((next (med-next-time)))
+      (med-footer (cond ((null? slot-list) "未设置服药时间") (next (string-append "下次提醒 " next)) (else ""))
+                  (if (wifi-connected?) (string-append "网页 " (wifi-ip)) "")))))
+
+;; The medicine on show: photo, name, next amount, the plan (between the title bar and the footer)
+(define (med-render-normal-body)
+  (let* ((shown (med-shown)) (n (length shown)) (d (med-today)))
+    (if (>= med-index (max 1 n)) (set! med-index 0))
     (if (= n 0)
         (med-render-empty)
         (let* ((m (list-ref shown med-index))
@@ -1179,10 +1196,7 @@
           (med-render-photo m (car place))
           (med-bold name-y (med-name m) theme-text-main kn)
           (if nd (med-amount-line amount-y m (caddr nd) theme-accent ka))
-          (med-info-line m (- (gui-height) FTR-H))))
-    (let ((next (med-next-time)))
-      (med-footer (cond ((null? slot-list) "未设置服药时间") (next (string-append "下次提醒 " next)) (else ""))
-                  (if (wifi-connected?) (string-append "网页 " (wifi-ip)) "")))))
+          (med-info-line m (- (gui-height) FTR-H))))))
 
 (define (med-render-reminder)
   (let* ((cx (quotient (scr-w) 2))
@@ -1220,19 +1234,43 @@
     (med-header "吃药时间" med-pending-at theme-warning theme-bg)
     (txt-center cx 220 "正在读取日期..." theme-text-muted)))
 
-(define (med-render)
-  (gui-clear theme-bg)
+(define (med-render-screen)
   (cond ((pair? med-due) (med-render-reminder))
         ((med-reminding?) (med-render-done))
         (med-pending-at (med-render-waiting))
-        (else (med-render-normal)))
+        (else (med-render-normal))))
+
+(define (med-render)
+  (gui-clear theme-bg)
+  (med-render-screen)
   (gui-flush))
+
+;; The reminder on screen as an alert (applib section 9): it draws the whole screen as before,
+;; a short press confirms (as the app's own press), only this app ends it (med-finish!)
+(define med-alert-key-now #f)
+(define med-test-count 0)
+
+(define (med-press!)
+  (cond ((pair? med-due) (med-confirm!))
+        ((med-reminding?) (med-finish!))))
+
+(define (med-raise-alert!)
+  (if med-alert-key-now (app-alert-done! med-alert-key-now))   ; a test shown again: one alert
+  (set! med-alert-key-now
+        (if med-test
+            (begin (set! med-test-count (+ med-test-count 1)) (string-append "test-" (number->string med-test-count)))
+            (string-append "dose-" (number->string med-due-day) "-" med-due-at)))
+  (app-alert! med-alert-key-now "吃药提醒" med-render-screen
+              (list (cons 'ack med-press!) (cons 'priority 9) (cons 'exit 'app) (cons 'full #t))))
+
+(define (med-alert-end!)
+  (if med-alert-key-now (app-alert-done! med-alert-key-now))
+  (set! med-alert-key-now #f))
 
 ;; 8. Button, time, the scheduled start --------------------------------------------------
 
 (define (app-button)
-  (cond ((pair? med-due) (med-confirm!))
-        ((med-reminding?) (med-finish!))
+  (cond ((or (pair? med-due) (med-reminding?)) (med-press!))
         (med-pending-at #t)
         (else (med-next! 1))))
 
@@ -1278,18 +1316,19 @@
                           (if (<= med-left 0) (med-next! 1))))
                (if (= (remainder tick 30) 0) (gui-invalidate 0 (- (gui-height) FTR-H) (scr-w) FTR-H))))))
 
-;; The reminder's title bar blinks twice a second (the LED with it), from the app loop
-(define med-applib-step app-step)
+;; The reminder's title bar blinks twice a second (the LED with it), from the app loop; a
+;; sync uses the feed stream itself, the app framework's step waits meanwhile
 (define med-blink-at 0)
-(define (app-step)
-  (if sync-job (sync-step!) (med-applib-step))
-  (if (pair? med-due)
-      (let ((now (time-ms)))
-        (if (>= (- now med-blink-at) 500)
-            (begin (set! med-blink-at now)
-                   (set! med-blink (not med-blink))
-                   (med-led med-blink)
-                   (gui-invalidate 0 0 (scr-w) HDR-H))))))
+(set! app-step-proc
+      (lambda ()
+        (if (pair? med-due)
+            (let ((now (time-ms)))
+              (if (>= (- now med-blink-at) 500)
+                  (begin (set! med-blink-at now)
+                         (set! med-blink (not med-blink))
+                         (med-led med-blink)
+                         (gui-invalidate 0 0 (scr-w) HDR-H)))))
+        (if sync-job (begin (sync-step!) #t) #f)))
 
 ;; 9. The web page's calls (app-web name body) -------------------------------------------
 
@@ -1496,7 +1535,7 @@
 (log-migrate!)
 (names-sync!)
 (med-prune!)
-(app-define! "吃药提醒" (list (app-local-page "药品" (lambda (items) #t))))
+(app-define! "吃药提醒" (list (app-local-page "药品" (lambda (items) (med-render-normal-body)))))
 (set! gui-render-proc med-render)
 (let ((at (app-scheduled))) (if at (med-start! at) (med-resume!)))
 (app-invalidate-all)

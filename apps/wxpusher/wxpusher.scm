@@ -12,6 +12,9 @@
 ;;;   short press: the full messages, newest to oldest, then home again
 ;;;   long press at home: everything read
 ;;;   long press on a message: unread -> read; already read -> home
+;;;   a new message: an alert (applib section 9) shows it over any page, in a
+;;;   combined app too (the feed is watched while another app shows); a short
+;;;   press marks it read
 ;;; Messages deleted here (the web page) are deleted at the proxy too: the
 ;;; feed URL carries ?del=<ids> until a document from it arrives; the proxy
 ;;; drops them and deletes them on the WxPusher service. 退出登录 on the web
@@ -138,8 +141,11 @@
 
 (define (wx-unread) (length (filter (lambda (m) (not (wx-read? m))) wx-list)))
 
+(define (wx-alert-key m) (string-append "m" (wx-id m)))
+
 (define (wx-mark-read! m)
   (vector-set! m 1 #t)
+  (app-alert-done! (wx-alert-key m))
   (if (= (wx-unread) 0) (begin (set! wx-alert 0) (ws2812-clear))))
 
 ;; 2. The proxy's document ----------------------------------------------------------------------
@@ -197,8 +203,7 @@
 
 ;; New messages: ids past the newest taken, oldest first. "m" is unread,
 ;; "h" was read on the service before (history); new unread ones blink the LED.
-(set! app-data-proc
-      (lambda (items)
+(define (wx-data! items)
         ;; a document fetched with del= or logout=1: the proxy has them
         (if (and (or (pair? wx-del) wx-logout) (equal? (json-feed-url) (wx-url)))
             (begin
@@ -219,17 +224,22 @@
                                     (or (string=? wx-last "") (wx-id>? (it-a it) wx-last))))
                              (reverse items))))
           (if (pair? fresh)
-              (begin
+              (let ((news '()))                ; the new unread ones, oldest first
                 (for-each (lambda (it)
-                            (set! wx-list (cons (vector (it-a it) (eq? (it-t it) 'h) (wx-safe (wx-item-time it) #f)
-                                                        (wx-safe (it-b it) #f)
-                                                        (wx-safe (string-append (it-d it) (it-e it)) #t))
-                                                wx-list))
+                            (let ((m (vector (it-a it) (eq? (it-t it) 'h) (wx-safe (wx-item-time it) #f)
+                                             (wx-safe (it-b it) #f)
+                                             (wx-safe (string-append (it-d it) (it-e it)) #t))))
+                              (set! wx-list (cons m wx-list))
+                              (if (eq? (it-t it) 'm) (set! news (append news (list m)))))
                             (set! wx-last (it-a it)))
                           fresh)
                 (if (> (length wx-list) WX-MAX) (set! wx-list (take wx-list WX-MAX)))
-                (if (pair? (filter (lambda (it) (eq? (it-t it) 'm)) fresh)) (set! wx-alert 20))
-                (wx-save!))))))
+                (if (pair? news) (set! wx-alert 20))
+                (wx-save!)
+                ;; the newest three as alerts (a burst of messages does not bury the screen)
+                (for-each wx-raise-alert! (if (> (length news) 3) (list-tail news (- (length news) 3)) news))))))
+
+(set! app-data-proc wx-data!)
 
 ;; 3. The screen ------------------------------------------------------------------------------
 
@@ -316,6 +326,21 @@
           ((string=? wx-state "login") (wx-render-login-waiting))
           (else (wx-render-list)))))
 
+;; The alert of a new message: its subject, topic and time, its text; a short press reads it
+(define (wx-render-alert m)
+  (let* ((w (scr-w)) (y (+ (body-top) 4)) (clock (wx-clock m)) (cw (+ (txt-w clock) 10)))
+    (txt-wrap 10 y (- w 20) 44 (wx-title m) theme-text-main)
+    (txt-fit 10 (+ y 48) (- w 20 cw) (wx-topic m) theme-accent)
+    (txt-right (- w 10) (+ y 48) clock theme-text-muted)
+    (gui-line 10 (+ y 72) (- w 10) (+ y 72) theme-divider)
+    (txt-wrap 10 (+ y 80) (- w 20) (- (body-bottom) y 84)
+              (if (str-empty? (wx-text m)) (wx-title m) (wx-text m)) theme-text-main)))
+
+(define (wx-raise-alert! m)
+  (app-alert! (wx-alert-key m) "新消息" (lambda () (wx-render-alert m))
+              (list (cons 'ack (lambda () (wx-mark-read! m) (wx-save!)))
+                    (cons 'priority 6) (cons 'exit 'both) (cons 'seconds 60))))
+
 ;; 4. Buttons, alert ---------------------------------------------------------------------------
 
 ;; Short press: the newest message, then each older one, then the list again
@@ -397,6 +422,8 @@
            (lambda (items i)
              (let ((m (and (< i (length wx-list)) (list-ref wx-list i))))
                (if m (wx-render-message m) (wx-render-list)))))
+
+(app-watch! wx-url 15000 wx-data!)   ; new messages also while another app's page shows (a combined app)
 
 (app-define! "WxPusher"
   (list (app-page "消息" wx-url WX-INTERVAL wx-render)))
