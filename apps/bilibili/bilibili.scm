@@ -583,9 +583,35 @@
 ;; "pixel" by default): since firmware v1.0.79 a moving box replays one recording of the screen
 ;; instead of re-running render every step, so this costs about what static text does (section
 ;; 9). Never gui-text-wrap here: a wrapped title stops at "…" and never shows the rest.
-;; Beside the cover, as the row's height allows: title, @UP主, plays on three lines (rows of 60
-;; px and more: 3..6 videos a screen); title, then @UP主 and the plays on the right (41..59 px:
-;; 7..10 a screen); the title alone.
+;; A video's age: the proxy sends its upload day (field e: days since 1970-01-01, Beijing
+;; date), counted here against the board's own date, so a kept document stays right.
+;; One digit or 10: 今天, 1..6天前, 1..4周前, 1..10月前, 1..10年前, 多年前; "" when unknown.
+(define (bilibili-civil-days y m d)
+  (let* ((y (if (<= m 2) (- y 1) y))
+         (era (quotient (if (>= y 0) y (- y 399)) 400))
+         (yoe (- y (* era 400)))
+         (doy (+ (quotient (+ (* 153 (+ m (if (> m 2) -3 9))) 2) 5) (- d 1)))
+         (doe (+ (* yoe 365) (quotient yoe 4) (- (quotient yoe 100)) doy)))
+    (+ (* era 146097) doe -719468)))
+
+(define (bilibili-ago n unit) (string-append (number->string n) unit "前"))
+
+(define (bilibili-age-text it)
+  (let ((pub (and (not (str-empty? (it-e it))) (string->number (it-e it)))) (t (time-local)))
+    (if (not (and pub t))
+        ""
+        (let ((d (- (bilibili-civil-days (car t) (cadr t) (caddr t)) pub)))
+          (cond ((<= d 0) "今天")
+                ((< d 7) (bilibili-ago d "天"))
+                ((< d 30) (bilibili-ago (quotient d 7) "周"))
+                ((< d 330) (bilibili-ago (quotient d 30) "月"))
+                ((<= (quotient d 365) 10) (bilibili-ago (max 1 (quotient d 365)) "年"))
+                (else "多年前"))))))
+
+;; Beside the cover, as the row's height allows: title, @UP主, plays and age on three lines
+;; (rows of 60 px and more: 3..6 videos a screen; the plays on the left, the age on the
+;; right); title, then @UP主 and "plays  age" on the right (41..59 px: 7..10 a screen); the
+;; title alone.
 (define (bilibili-render-row items idx y)
   (let* ((it (vector-ref items idx)) (aid (it-b it))
          (cov-y (+ y (quotient (- bilibili-row-h bilibili-cover-h) 2)))
@@ -594,7 +620,8 @@
          (lines (cond ((>= bilibili-row-h 60) 3) ((>= bilibili-row-h 40) 2) (else 1)))
          (y0 (+ y (max 0 (quotient (- bilibili-row-h (* lines LINE-H)) 2))))
          (up (if (str-empty? (it-d it)) "" (string-append "@" (it-d it))))
-         (views (if (str-empty? (it-c it)) "" (string-append "播放 " (it-c it)))))
+         (views (or (it-c it) ""))
+         (age (bilibili-age-text it)))
     (bilibili-draw-rank BILIBILI-RANK-X y (+ idx 1))
     (if (bilibili-cover-ready? (bilibili-pic-path aid bilibili-cover-w bilibili-cover-h))
         (gui-image BILIBILI-COVER-X cov-y (bilibili-pic-path aid bilibili-cover-w bilibili-cover-h))
@@ -602,10 +629,13 @@
     (txt-fit x y0 w (it-a it) theme-text-main)
     (cond ((= lines 3)
            (txt-fit x (+ y0 LINE-H) w up theme-text-sub)
-           (txt x (+ y0 (* 2 LINE-H)) views theme-text-muted))
-          ((= lines 2)   ; the plays stay put on the right, a long name scrolls in what is left
-           (let ((vw (txt-w views)))
-             (txt-right (+ x w) (+ y0 LINE-H) views theme-text-muted)
+           (txt x (+ y0 (* 2 LINE-H)) views theme-text-muted)
+           (txt-right (+ x w) (+ y0 (* 2 LINE-H)) age theme-text-muted))
+          ((= lines 2)   ; plays and age stay put on the right, a long name scrolls in what is left
+           (let* ((right (cond ((str-empty? age) views) ((str-empty? views) age)
+                               (else (string-append views "  " age))))
+                  (vw (txt-w right)))
+             (txt-right (+ x w) (+ y0 LINE-H) right theme-text-muted)
              (txt-fit x (+ y0 LINE-H) (- w vw 10) up theme-text-sub))))
     (gui-line BILIBILI-RANK-X (+ y bilibili-row-h -1) (- (scr-w) 10) (+ y bilibili-row-h -1) theme-divider)))
 
@@ -682,7 +712,8 @@
   (let ((y (+ (body-top) 6)) (w (- (scr-w) 20)))
     (txt-fit 10 y w (string-append "@" (or (it-d it) "")) theme-accent)
     (txt-wrap 10 (+ y 30) w 120 (or (it-a it) "") theme-text-main)
-    (txt 10 (+ y 160) (string-append "播放 " (or (it-c it) "")) theme-text-muted)))
+    (txt 10 (+ y 160) (or (it-c it) "") theme-text-muted)
+    (txt-right (- (scr-w) 10) (+ y 160) (bilibili-age-text it) theme-text-muted)))
 
 ;; A document of UP主 list param: its newest video against the one seen last
 (define (bilibili-up-check! param items)
