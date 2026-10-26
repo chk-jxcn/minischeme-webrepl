@@ -68,6 +68,7 @@ class AppSource {
     /* Looks the newest tag up again (the user's 刷新); keeps the old one when offline.
      * A new release: the files of releases before the previous one are dropped */
     async refresh() {
+        this.offline = false;
         try {
             const tag = await this.latestTag();
             if (tag !== this.tag) {
@@ -77,6 +78,7 @@ class AppSource {
             }
         } catch (e) {
             if (!this.tag) throw e;
+            this.offline = true;            // the release last seen, its files from the browser
         }
         return this.tag;
     }

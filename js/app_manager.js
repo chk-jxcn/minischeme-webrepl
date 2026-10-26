@@ -244,7 +244,7 @@ class AppManager {
             try {
                 await src.refresh();
                 this.bundled = (await src.index({ remoteOnly: true })).filter((b) => (b.kind || 'app') === 'app');
-                this.marketSource = `GitHub 应用仓库 ${src.tag}${src.lastSource === 'cache' ? '（离线：缓存）' : ''}`;
+                this.marketSource = `GitHub 应用仓库 ${src.tag}${src.offline ? '（离线：上次下载的版本）' : ''}`;
                 await this._mergeLocal();
             } catch (e) {
                 this.bundled = [];
