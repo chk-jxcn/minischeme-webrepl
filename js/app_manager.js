@@ -3,7 +3,8 @@
  * @brief App manager for the WebREPL: the apps installed on the target (the
  *        board over HTTP or serial, or the WASM device), with their metadata,
  *        a settings form built from each app's [fields], the raw ini, the
- *        boot app, and installing the apps of the market and of apps/.
+ *        boot app, installing the apps of the market and of apps/, and
+ *        uploading an app image of the user's own (to /spiffs/user/<id>/).
  *
  * A backend provides label, kind ('wasm' | 'device'), apps() -> the JSON of
  * the firmware's GET /api/apps (serial: "@APPS"; simulator: wasm_apps_json) ({boot, apps: [{path, id, name, description,
@@ -19,6 +20,20 @@ const AM_LOCAL_INDEX = 'apps/index.json';
 
 function amEsc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* An app image's metadata (meta.ini text of the MSMD trailer tools/build_apps.py appends:
+ * [image][meta][u32 length][u32 FNV-1a]["MSMD"]), or '' when it has none or it is damaged */
+function amImageMeta(bytes) {
+    const n = bytes.length;
+    if (n < 20 || String.fromCharCode(...bytes.subarray(n - 4)) !== 'MSMD') return '';
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, n);
+    const len = dv.getUint32(n - 12, true);
+    if (len === 0 || len > n - 20) return '';
+    const meta = bytes.subarray(n - 12 - len, n - 12);
+    let h = 0x811c9dc5;
+    for (const b of meta) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+    return h === dv.getUint32(n - 8, true) ? new TextDecoder('utf-8').decode(meta) : '';
 }
 
 function amRel(p) { return p.startsWith('/spiffs/') ? p.slice(8) : p; }
@@ -147,6 +162,8 @@ class AppManager {
                     <span class="am-boot"></span>
                     <span class="fm-spacer"></span>
                     <button class="pill-btn" data-act="refresh">⟳ 刷新</button>
+                    <button class="pill-btn" data-act="upload" title="安装自己编译的应用镜像（.msbc，含应用元数据）">⬆ 上传应用</button>
+                    <input type="file" class="am-upload" accept=".msbc" hidden>
                     <button class="pill-btn" data-act="update-all" disabled title="没有可更新的应用">⇪ 更新全部</button>
                 </div>
                 <div class="am-body">
@@ -162,8 +179,13 @@ class AppManager {
         this.el = {
             root, target: q('.fm-target'), boot: q('.am-boot'), installed: q('.am-installed'),
             bundled: q('.am-bundled'), status: q('.fm-status'), updateAllBtn: q('[data-act="update-all"]'),
-            marketNote: q('.am-market-note'),
+            marketNote: q('.am-market-note'), upload: q('.am-upload'),
         };
+        this.el.upload.addEventListener('change', () => {
+            const file = this.el.upload.files && this.el.upload.files[0];
+            this.el.upload.value = '';          /* the same file can be picked again */
+            if (file) this._upload(file);
+        });
         root.addEventListener('click', (e) => {
             if (e.target === root) { this.close(); return; }
             const btn = e.target.closest('[data-act]');
@@ -315,6 +337,7 @@ class AppManager {
         switch (act) {
             case 'close': this.close(); break;
             case 'refresh': await this.refresh(); break;
+            case 'upload': this.el.upload.click(); break;
             case 'update-all': await this._updateAll(); break;
             case 'boot': await this._setBoot(n, false); break;
             case 'run': await this._setBoot(n, true); break;
@@ -585,6 +608,40 @@ class AppManager {
         await this.refresh();
         if (failed.length) this._status(`已更新 ${done} 个应用；失败：${failed.join('、')}`, 'error');
         else this._status(`已更新 ${done} 个应用；正在运行的应用重启后用新版本`, 'ok');
+    }
+
+    /* An app image of the user's own (an .msbc built by build_apps.py or the editor's
+     * compiler, with its [app] metadata): to /spiffs/user/<id>/ like the firmware's
+     * /api/apps/upload, where the market's updates never replace it; an app of that
+     * id already installed is replaced where it is */
+    async _upload(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (bytes.length < 16 || String.fromCharCode(...bytes.subarray(0, 4)) !== 'MSBC') {
+            this._status(`${file.name} 不是 MiniScheme 应用镜像（.msbc）`, 'error');
+            return;
+        }
+        const meta = amIniValues(amImageMeta(bytes));
+        const id = meta.id || '';
+        if (!/^[A-Za-z0-9_-]{1,31}$/.test(id)) {
+            this._status(`${file.name} 没有有效的应用元数据（[app] id）：用 tools/build_apps.py 编译的镜像才能安装为应用`, 'error');
+            return;
+        }
+        if (id === 'settings') { this._status('系统设置应用不能这样替换', 'error'); return; }
+        const name = meta.name || id;
+        const have = this.apps.find((a) => a.id === id && a.source !== 'builtin');
+        const path = have ? have.path.replace(/\.fasl$/, '.msbc') : `/spiffs/user/${id}/app.msbc`;
+        const what = `${name}（${id}${meta.version ? ' v' + meta.version : ''}${meta.api ? '，API ' + meta.api : ''}，${amSize(bytes.length)}）`;
+        if (have && !confirm(`设备上已有 ${have.name}（v${have.version}）。用 ${file.name} 替换它？\n${what}\n→ ${amRel(path)}`)) return;
+        const ok = await this._run(`上传 ${name}…`, async () => {
+            if (have && have.path !== path) await this.backend.fsRemove(have.path);   /* a FASL image of the same app */
+            await this.backend.fsWrite(path, bytes);
+            return true;
+        });
+        if (!ok) return;
+        this.log('info', `📦 已上传 ${what} 到 ${path}`);
+        await this.refresh();
+        this._status(`已安装 ${name} 到 ${amRel(path)}${path.startsWith('/spiffs/user/') ? '（市场的更新不会覆盖它）' : ''}` +
+                     `；${have ? '正在运行的话重启后用新版本' : '可以“设为启动并重启”运行它'}`, 'ok');
     }
 
     /* batch: part of "更新全部" (no list refresh, no status of its own);
