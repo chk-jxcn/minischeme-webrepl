@@ -27,7 +27,8 @@ The script downloads the latest release (on Windows the single-file tray program
 3. Fill in:
    - **WiFi**: SSID and password (the router's own password; no strength rule).
    - **App proxy / protocol converter**: `http://<host>:8087` (the service IP comes from the backend settings).
-   - **Hardware password**: at least 6 characters, no simple sequences (12345678, 88888888, ...). Once set it is shown and locked. It becomes the device's web page / API password (`[http] http_password`) and registers the board with the converter (`[channel] channel_key`).
+   - **Hardware password**: at least 6 characters, no simple sequences (12345678, 88888888, ...). Once set it is shown and locked. It becomes the device's web page / API password (`[http] http_password`) only.
+   - **App service password** (optional, per server): sent with every request to that server (`[app] proxy_password`, `https_proxy_password`); the server registers the device with it the first time and refuses other passwords afterwards. It is also the device's login to that server's user portal.
 4. Click **保存配置并重启设备**. The WebREPL writes `/spiffs/config.ini` (keeping `config_version = 3` and every other key), remembers the password for its next requests and restarts the board, which boots into the built-in settings until an app is installed.
 
 The simulated device needs no password and uses the local proxy.

@@ -1560,3 +1560,19 @@ dialog:not([open]) {
     .editor-code-pane { min-height: 300px; }
 }
 
+
+/* Folded inspector sections (bytecode, disassembly): open on demand */
+.inspector-fold > summary { cursor: pointer; list-style: none; }
+.inspector-fold > summary::-webkit-details-marker { display: none; }
+.inspector-fold > summary h3 { display: inline; }
+.inspector-fold > summary::before { content: '▸ '; color: var(--text-secondary); }
+.inspector-fold[open] > summary::before { content: '▾ '; }
+.inspector-fold[open] > summary { margin-bottom: 8px; }
+
+/* File manager: a folder's header row */
+.fm-table tr.fm-dir-row td { cursor: pointer; color: var(--text-secondary); font-weight: 600; padding-top: 8px; background: rgba(127, 127, 127, 0.06); }
+.fm-table tr.fm-dir-row:hover td { color: var(--text-primary); }
+
+/* A checkbox and its text on one line (the section's labels stack field under text) */
+.aw-section label:has(> input[type="checkbox"]) { flex-direction: row; align-items: center; gap: 6px; }
+.aw-section label > input[type="checkbox"] { width: 16px; height: 16px; flex: none; margin: 0; }

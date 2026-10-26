@@ -49,6 +49,7 @@
     <script src="js/device_setup.js"></script>
     <script src="js/local_server.js"></script>
     <script src="js/proxy_admin.js"></script>
+    <script src="js/app_source.js"></script>
     <script src="js/editor_flasher.js"></script>
 
     <script>
@@ -208,14 +209,19 @@
     });
 
     addTest("2.3 API Version Auto-Detection from Tokens", () => {
-        const v15Code = `(gui-frame "Banner" (gui-marquee 'pixel 20 1 1))`;
-        assertEqual(detectApiRequirement(v15Code), "1.5", "Expected API 1.5 for marquee");
-
-        const v12Code = `(gui-frame "HTTP" (http-get "http://api.local/data"))`;
-        assertEqual(detectApiRequirement(v12Code), "1.2", "Expected API 1.2 for http-get");
-
-        const v10Code = `(define (add a b) (+ a b))`;
-        assertEqual(detectApiRequirement(v10Code), "1.0", "Expected API 1.0 for basic scheme");
+        // from the firmware API reference (each procedure's "since"), at least 1.9 (MSBC 2)
+        const saved = EDITOR_API_SINCE;
+        EDITOR_API_SINCE = new Map([["gui-marquee", "1.5"], ["fs-download", "1.10"], ["app-member-folder", "1.13"]]);
+        try {
+            assertEqual(detectApiRequirement(`(gui-marquee 'pixel 20 1 1)`), "1.9", "An old API still needs the MSBC 2 format: 1.9");
+            assertEqual(detectApiRequirement(`(fs-download "http://x/y" "a.jpg")`), "1.10", "fs-download needs 1.10");
+            assertEqual(detectApiRequirement(`(fs-download "u" "p") (app-member-folder "w")`), "1.13", "the newest one counts");
+            assertEqual(detectApiRequirement(`(define (fs-download a) a) (fs-download 1)`), "1.9", "an app's own definition is no API");
+            assertEqual(detectApiRequirement(`; (app-member-folder "w")
+(display "app-member-folder")`), "1.9", "comments and strings are no calls");
+        } finally {
+            EDITOR_API_SINCE = saved;
+        }
     });
 
     addTest("2.4 FNV-1a 32-bit Checksum Verification", () => {

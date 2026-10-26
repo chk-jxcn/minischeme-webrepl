@@ -103,7 +103,7 @@ class ComboBuilder {
         root.className = 'fm-overlay';
         root.hidden = true;
         root.innerHTML = `
-            <div class="fm-dialog" role="dialog" aria-modal="true" aria-labelledby="cb-title" style="max-width: 760px;">
+            <div class="fm-dialog" role="dialog" aria-modal="true" aria-labelledby="cb-title" style="max-width: 920px;">
                 <div class="fm-head">
                     <span class="fm-title" id="cb-title">🧩 合并应用</span>
                     <span class="fm-target cb-target"></span>
@@ -112,19 +112,20 @@ class ComboBuilder {
                 <div style="padding: 14px 20px; overflow-y: auto; overflow-x: hidden; max-height: 70vh; font-size: 13px;">
                     <div style="color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5;">
                         勾选要合并的应用，生成一个“${CB_ID}”应用装到当前目标：自动轮播时依次显示各应用的页面，标题显示所属应用和序号。
-                        默认显示勾选应用的全部页面；也可以只勾选部分页面，或直接编辑下面的“显示的页面”（之后也能在设备的应用配置 entries 里改）。
+                        默认显示勾选应用的全部页面；也可以只勾选部分页面，或直接编辑下面的“显示的页面”。
+                        装好以后，合集的设备网页（🌐 设备网页 → 应用网页）可以随时改显示哪些页面、顺序、轮播和各成员的强提醒；
                         各应用的设置仍在它自己的配置里。
                     </div>
-                    <div style="display: grid; grid-template-columns: 110px 1fr 110px 90px; gap: 8px; align-items: center; margin-bottom: 10px;">
+                    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr) auto 140px; gap: 8px 12px; align-items: center; margin-bottom: 10px;">
                         <label for="cb-name">合集名称:</label>
-                        <input id="cb-name" class="device-host-input" value="合集" maxlength="20">
+                        <input id="cb-name" class="device-host-input" value="合集" maxlength="20" style="width: 100%; box-sizing: border-box;">
                         <label for="cb-seconds">每页秒数:</label>
-                        <input id="cb-seconds" class="device-host-input" value="10" maxlength="40" title="一个数，或每页一个：15,10,10">
+                        <input id="cb-seconds" class="device-host-input" value="10" maxlength="40" title="一个数，或每页一个：15,10,10" style="width: 100%; box-sizing: border-box;">
                     </div>
-                    <div class="cb-apps" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px;"></div>
-                    <div style="display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; margin-top: 10px;">
+                    <div class="cb-apps" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 12px; column-width: 380px; column-gap: 24px;"></div>
+                    <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; align-items: center; margin-top: 10px;">
                         <label for="cb-entries">显示的页面:</label>
-                        <input id="cb-entries" class="device-host-input" spellcheck="false" placeholder="留空：勾选应用的全部页面" title="应用.英文页名，逗号分开，按顺序轮播；如 weather.front, calendar.today, wxpusher.news[0]">
+                        <input id="cb-entries" class="device-host-input" spellcheck="false" style="width: 100%; box-sizing: border-box;" placeholder="留空：勾选应用的全部页面" title="应用.英文页名，逗号分开，按顺序轮播；如 weather.front, calendar.today, wxpusher.news[0]">
                     </div>
                 </div>
                 <div class="fm-toolbar" style="padding: 12px 20px; border-top: 1px solid var(--border-color); display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
@@ -245,7 +246,7 @@ class ComboBuilder {
                 const sel = this._preset ? this._preset.entries.includes(v) : viewsOn.has(v);
                 return `<label style="margin-right: 12px; white-space: nowrap;" title="视图：${cbEsc(vw.name)}[0] 为最新一条，[1] 为第二条…"><input type="checkbox" class="cb-page-check cb-view" value="${cbEsc(v)}" ${sel ? 'checked' : ''}> ${cbEsc(vw.name)}[0] <span style="color: var(--text-secondary);">最新一条</span></label>`;
             }).join('');
-            return `<div style="padding: 6px 0; border-bottom: 1px solid var(--border-color);">
+            return `<div style="padding: 6px 0; border-bottom: 1px solid var(--border-color); break-inside: avoid;">
                 <label style="font-weight: 600;"><input type="checkbox" class="cb-app-check" value="${cbEsc(app.id)}" ${on ? 'checked' : ''}> ${cbEsc(app.name)} <span style="color: var(--text-secondary); font-weight: 400;">(${cbEsc(app.id)}，${app.pages.length} 页)</span></label>
                 ${on ? `<div style="margin: 4px 0 0 22px; line-height: 1.9;">${pages}${views}</div>` : ''}
             </div>`;

@@ -1,7 +1,7 @@
 /**
  * @file sim_storage.js
  * @brief Keeps the WASM device's simulated flash in IndexedDB: the file system
- *        files (config.ini, installed apps, fonts) and the 768 KB font ROM
+ *        files (config.ini, installed apps, fonts) and the 320 KB font ROM (as the board's since firmware 1.0.74)
  *        partition survive a page reload, as the board's flash survives a
  *        power cycle.
  *

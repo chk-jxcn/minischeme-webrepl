@@ -97,9 +97,10 @@ Each app image ends with a trailer that the firmware, the WebREPL and the market
 [app]
 id = weather
 name = 天气
-version = 1.2
+version = 4        ; an integer, raised with every change of the app
 pages = 5
-api = 1.0
+api = 1.9          ; the firmware API it needs (1.9: the MSBC 2 image format)
+applib = 1.0       ; the app library version it needs (MAJOR.MINOR)
 
 [config]
 ; empty values: the system config.ini's value is used

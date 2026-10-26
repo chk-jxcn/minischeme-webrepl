@@ -64,9 +64,9 @@
             <div id="repl-workspace-view" class="ws-view">
                 <div id="terminal" class="terminal-body">
                     <div class="term-line banner">============================================================</div>
-                    <div class="term-line banner">  MiniScheme 1.0 (WASM Native VM + Pure Scheme Compiler)   </div>
-                    <div class="term-line banner">  核心架构: 原生 C VM 运行于 WASM，载入 Scheme 优化编译器 (compiler.scm) </div>
-                    <div class="term-line banner">  编译输出: 纯二进制 MSBC 字节码，无缝下发给 ESP32 执行   </div>
+                    <div class="term-line banner" id="repl-banner-title">  MiniScheme WebREPL   </div>
+                    <div class="term-line banner">  模拟器：与固件相同的 C 运行时（编译为 WASM），在浏览器里运行   </div>
+                    <div class="term-line banner">  编译：浏览器内的编译器把 Scheme 编成 MSBC 字节码，模拟器或板子直接运行   </div>
                     <div class="term-line banner">============================================================</div>
                     <div class="term-line info">输入任意 Scheme 表达式，例如 (+ 10 (* 3 5)) 或点击下方示例。</div>
                 </div>
@@ -102,7 +102,7 @@
                     <button class="pill-btn" data-code="(list (font-info 0) (font-config) (fontrom-list))" title="填入字体信息：默认字体、字体来源与替换配置、系统字库中的字体">🔤 字体信息</button>
                     <button class="pill-btn" data-code="(vm-stats)" title="填入 (vm-stats)：GC 次数、累计分配、存活 / 峰值堆、栈峰值">📊 VM 统计</button>
                     <button class="pill-btn" data-code="(app-list)" title="填入 (app-list)：设备上安装的应用 (/spiffs/apps)">📦 应用列表</button>
-                    <button class="pill-btn" data-code="(config-set! &quot;system&quot; &quot;boot_app&quot; &quot;apps/weather.msbc&quot;)\n(restart)" title="填入：设置开机启动的应用并重启 (把 weather 换成要启动的应用 id)">🚀 设置启动应用</button>
+                    <button class="pill-btn" data-code="(config-set! &quot;system&quot; &quot;boot_app&quot; &quot;apps/weather/app.msbc&quot;)\n(restart)" title="填入：设置开机启动的应用并重启 (把 weather 换成要启动的应用 id)">🚀 设置启动应用</button>
                     <button class="pill-btn" data-code="(app-carousel-pause)" title="填入 (app-carousel-pause)：暂停自动翻页">⏸ 暂停翻页</button>
                     <button class="pill-btn" data-code="(app-carousel-resume)" title="填入 (app-carousel-resume)：恢复自动翻页">▶ 恢复翻页</button>
                     <button class="pill-btn" data-code="(json-feed-status)" title="填入 (json-feed-status)：应用数据源的连接状态、抓取次数、失败次数、耗时">🌐 数据源状态</button>
@@ -156,7 +156,7 @@
                 <!-- 可折叠的应用元数据配置面板 (无固定页数限制，页数由应用运行时自主决定) -->
                 <div class="editor-meta-drawer" id="editor-meta-drawer">
                     <div class="editor-meta-header">
-                        <span class="editor-card-title">📋 应用元数据 (MSMD Header · 页数由应用动态决定)</span>
+                        <span class="editor-card-title" title="与代码开头 ;;; 注释里的 meta.ini 对应；编译时写进镜像末尾的元数据">📋 应用元数据（meta.ini 的 [app] 主要项和默认服务器）</span>
                         <div class="editor-sync-btns">
                             <button class="pill-btn compact" id="editor-sync-from-code-btn" title="从代码注释提取元数据">🔄 从代码提取</button>
                             <button class="pill-btn compact" id="editor-sync-to-code-btn" title="将填写的元数据写回代码顶层注释">✍️ 写回代码</button>
@@ -165,8 +165,8 @@
                     <div class="editor-meta-grid">
                         <label>应用 ID <input type="text" id="editor-meta-id" placeholder="my_app"></label>
                         <label>应用名称 <input type="text" id="editor-meta-name" placeholder="我的应用"></label>
-                        <label>版本号 <input type="text" id="editor-meta-version" value="1.0.0"></label>
-                        <label>最低 API <input type="text" id="editor-meta-api" value="1.5" title="自动检测代码所需的最低固件 API 版本"></label>
+                        <label>版本号 <input type="text" id="editor-meta-version" value="1" title="整数；应用每次改动都要加 1，设备和市场按它显示版本"></label>
+                        <label>最低 API <input type="text" id="editor-meta-api" value="1.9" title="代码需要的最低固件 API：按代码用到的函数自动判断，至少 1.9（MSBC 2 镜像格式）；用了应用库时取应用库要求的和它中较高的"></label>
                         <label class="span-2">应用描述 <input type="text" id="editor-meta-desc" placeholder="轻量桌面应用描述"></label>
                         <label>应用代理地址 <input type="text" id="editor-meta-proxy" value="" placeholder="留空默认使用系统配置"></label>
                         <label>协议转换器地址 <input type="text" id="editor-meta-converter" value="" placeholder="留空默认使用系统配置"></label>
@@ -343,26 +343,22 @@
                         <span class="m-val" id="metric-bytecode-len">0 字节</span>
                         <span class="m-lbl">二进制字节码尺寸</span>
                     </div>
-                    <div class="metric-card">
-                        <span class="m-val highlight" id="metric-ram-saving">&gt; 90%</span>
-                        <span class="m-lbl">设备端节省内存</span>
-                    </div>
                 </div>
             </div>
 
-            <div class="inspector-section">
-                <h3>🔍 传输的二进制字节码 (Hex Stream)</h3>
+            <details class="inspector-section inspector-fold">
+                <summary><h3>🔍 字节码 (十六进制)</h3></summary>
                 <div class="hex-viewer" id="hex-viewer">等待编译中...</div>
-            </div>
+            </details>
 
-            <div class="inspector-section">
-                <h3>📜 反汇编指令 (Disassembly)</h3>
+            <details class="inspector-section inspector-fold">
+                <summary><h3>📜 反汇编</h3></summary>
                 <pre class="disasm-viewer" id="disasm-viewer">等待编译中...</pre>
-            </div>
+            </details>
 
             <div class="inspector-section">
                 <div class="inspector-header-row">
-                    <h3 id="dev-panel-title">📟 运行内存与 ESP32 负荷估算</h3>
+                    <h3 id="dev-panel-title">📟 运行内存（模拟器）</h3>
                     <button id="btn-refresh-hw-stats" class="btn-refresh-stats" style="display: none;" title="手动刷新硬件状态与负荷">🔄 刷新</button>
                 </div>
                 <div class="device-status-card">
@@ -390,8 +386,8 @@
                         <span class="dev-k">应用堆负荷评估:</span>
                         <span class="dev-v" id="dev-esp32-estimate">估算中...</span>
                     </div>
-                    <div class="dev-row">
-                        <span class="dev-k">SRAM 综合承载:</span>
+                    <div class="dev-row" id="dev-sram-row" style="display: none">
+                        <span class="dev-k">板上内存:</span>
                         <span class="dev-v" id="dev-sram-total-estimate">估算中...</span>
                     </div>
                     <div class="dev-row" id="dev-iram-row" style="display: none">
@@ -404,11 +400,11 @@
                         </div>
                         <div class="heap-progress-labels">
                             <span id="heap-progress-text">-- / -- KB</span>
-                            <span class="heap-limit-badge">板上 VM 堆约 102 KB</span>
+                            <span class="heap-limit-badge">板上 VM 堆约 112 KB</span>
                         </div>
                     </div>
                     <div class="dev-row">
-                        <span class="dev-k" id="dev-exec-label">拟合执行/刷新延迟:</span>
+                        <span class="dev-k" id="dev-exec-label">执行/刷新耗时:</span>
                         <span class="dev-v highlight" id="dev-exec-time">-- μs</span>
                     </div>
                 </div>
@@ -566,7 +562,7 @@
                     <span>⚙️</span> WebREPL 服务 IP 与端口设置
                 </div>
                 <div class="flasher-desc" style="margin-bottom:10px;">
-                    设置 WebREPL（应用下载、模拟器访问外部数据时的跨域转发 /api/fetch 与管理后台）连接的后端服务地址：
+                    设置 WebREPL 连接的后端服务地址（模拟器访问外部数据时的跨域转发 /api/fetch、应用代理与管理后台；应用由网页直接从 GitHub 下载，不经过后端）：
                 </div>
                 <div style="display:grid; grid-template-columns: 1fr 120px; gap:10px; align-items:center; margin-bottom:10px;">
                     <div>
@@ -606,7 +602,7 @@
             <div class="flasher-card">
                 <div class="flasher-item-title" style="font-size:14px; margin-bottom:8px;">⚡ 方式一：下载独立桌面版可执行程序 (Windows 免安装 Python)</div>
                 <div class="flasher-desc" style="margin-bottom:12px;">
-                    将 <code>server.py</code> 完整打包为单文件 <b>MiniScheme-WebREPL.exe</b>（内置 WebREPL 界面、本地应用代理、协议转换器与字库引擎）：
+                    将 <code>server.py</code> 完整打包为单文件 <b>MiniScheme-WebREPL.exe</b>（内置 WebREPL 界面、本地应用代理、协议转换器和字库生成；本地应用代理会为局域网里的设备缓存应用市场）：
                     <ul style="margin:6px 0 0 18px; line-height:1.6;">
                         <li><b>自动端口绑定</b>：默认监听本机 <code>8087</code> 端口；若 <code>8087</code> 被占用则自动顺延绑定可用端口（如 <code>8088</code>）。</li>
                         <li><b>Windows 系统托盘 (Tray)</b>：启动后在右下角托盘显示 <b>本机局域网 IP</b> 与 <b>监听端口</b>，<b>左键点击托盘图标即可打开页面</b>，右键可复制局域网代理地址或退出。</li>

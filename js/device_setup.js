@@ -279,7 +279,7 @@ class DeviceSetupWizard {
 
                     <!-- WiFi Section -->
                     <div id="ds-wifi-section" class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
-                        <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-cyan);">📶 1. WiFi 无线网络设置 [wifi]</h4>
+                        <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-cyan);">📶 WiFi 无线网络 ([wifi])</h4>
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
                             <label style="font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
                                 <input type="checkbox" id="ds-wifi-enable" checked style="width: 16px; height: 16px; accent-color: var(--accent-cyan); cursor: pointer;">
@@ -298,7 +298,7 @@ class DeviceSetupWizard {
 
                     <!-- Server & Security Section -->
                     <div class="ds-section" style="margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 18px; background: rgba(255,255,255,0.02);">
-                        <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-blue);">🛡️ 2. 应用代理与安全密码 [server]</h4>
+                        <h4 style="margin-bottom: 12px; font-size: 14px; color: var(--accent-blue);">🛡️ 应用代理与密码 ([app] 服务器、[http] 硬件密码)</h4>
                         <div id="ds-interface-select-row" style="display: grid; grid-template-columns: 120px 1fr; gap: 10px; align-items: center; margin-bottom: 8px;">
                             <label for="ds-interface-select" style="font-size: 13px;">选择代理接口:</label>
                             <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
@@ -345,7 +345,7 @@ class DeviceSetupWizard {
                                 <option value="tft">TFT（不反色）</option>
                             </select>
                         </div>
-                        <div style="font-size: 11px; color: var(--text-secondary); margin-left: 130px; margin-top: 4px;">颜色像底片一样反了就选另一种；之后也可以在设备网页的"常用设置"里改，立即生效。</div>
+                        <div style="font-size: 11px; color: var(--text-secondary); margin-left: 130px; margin-top: 4px;">颜色像底片一样反了就选另一种；之后也可以在设备网页“系统配置”的屏幕显示一节里改，立即生效。</div>
                     </div>
                 </div>
                 <div class="fm-toolbar" style="padding: 12px 24px; border-top: 1px solid var(--border-color); display: flex; gap: 10px; justify-content: flex-end;">

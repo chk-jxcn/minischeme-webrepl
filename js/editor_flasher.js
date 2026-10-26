@@ -38,23 +38,29 @@ function fnv1a32(bytes) {
     return h >>> 0;
 }
 
+/* The firmware API a source needs: the newest "since" of the API procedures it names
+ * (the firmware API reference, minischeme-apps dist/api.json, loaded by the editor),
+ * and at least 1.9, the MSBC 2 image format every image of this compiler is in */
+let EDITOR_API_SINCE = null;   // name -> "major.minor"
+function editorLoadApiSince() {
+    if (EDITOR_API_SINCE || !window.appSource) return;
+    window.appSource.apiReference().then((ref) => {
+        const m = new Map();
+        for (const e of ref.entries || []) if (e.name && e.since && !e.ext) m.set(e.name, e.since.split('.').slice(0, 2).join('.'));
+        EDITOR_API_SINCE = m;
+    }).catch(() => { /* without it: 1.9 */ });
+}
+
 function detectApiRequirement(sourceCode) {
-    const tokens = new Set(sourceCode.match(/[a-zA-Z0-9_\-+*/<=>!?:%]+/g) || []);
-    let maxVer = "1.0";
-    
-    // v1.6 APIs (combined apps)
-    if (tokens.has('app-has-config?')) return "1.6";
-    // v1.5 APIs
-    const v15Apis = ['gui-marquee', 'backlight-auto', 'json-feed-status', 'app-carousel-pause', 'app-carousel-resume'];
-    for (const api of v15Apis) {
-        if (tokens.has(api)) return "1.5";
+    let need = '1.9';
+    if (!EDITOR_API_SINCE) return need;
+    const code = String(sourceCode || '').replace(/;[^\n]*/g, ' ').replace(/"(?:[^"\\]|\\.)*"/g, ' ');
+    const defined = new Set([...code.matchAll(/\(define\s+\(?\s*([^\s()]+)/g)].map((m) => m[1]));
+    for (const t of new Set(code.match(/[^\s()'`,"]+/g) || [])) {
+        const v = EDITOR_API_SINCE.get(t);
+        if (v && !defined.has(t) && AppSource.compare(v, need) > 0) need = v;
     }
-    // v1.2 APIs
-    const v12Apis = ['http-get', 'json-ref', 'font-load', 'use-font', 'gui-polygon', 'gui-round-rect'];
-    for (const api of v12Apis) {
-        if (tokens.has(api)) maxVer = "1.2";
-    }
-    return maxVer;
+    return need;
 }
 
 function extractSchemeMetadata(code) {
@@ -62,7 +68,7 @@ function extractSchemeMetadata(code) {
         id: "custom_app",
         name: "自定义应用",
         description: "在 MiniScheme Web IDE 中创建",
-        version: "1.0.0",
+        version: "1",
         api_version: detectApiRequirement(code),
         proxy_url: "",
         converter_url: ""
@@ -1186,8 +1192,8 @@ const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
 ;;; id = my_app
 ;;; name = 我的自定义应用
 ;;; description = 使用 MiniScheme Web IDE 开发的轻量桌面应用
-;;; version = 1.0.0
-;;; api = 1.5
+;;; version = 1
+;;; api = 1.9
 ;;;
 ;;; [config]
 ;;; proxy_url = 
@@ -1406,6 +1412,7 @@ class SchemeIdeModal {
             this._updateStatusLine();
             this._populateAppSelector();
             this._populateLibSelector();
+            editorLoadApiSince();
         }
         if (tabRepl) {
             tabRepl.classList.remove('active');
@@ -1476,8 +1483,8 @@ class SchemeIdeModal {
         } catch (e) {
             console.warn('The app library list (app_source.js):', e);
         }
-        select.innerHTML = [`<option value="">不使用 applib（allinone 文件，或只用固件 API）</option>`]
-            .concat(this.libVersions.map((v) => `<option value="${escapeHtml(v.version)}">applib ${escapeHtml(v.version)}（固件 API ≥ ${escapeHtml(v.api || '?')}）</option>`))
+        select.innerHTML = [`<option value="" title="allinone 文件（库已在代码里），或只用固件 API 的应用">不使用 applib</option>`]
+            .concat(this.libVersions.map((v) => `<option value="${escapeHtml(v.version)}" title="需要固件 API ${escapeHtml(v.api || '?')} 或更新">applib ${escapeHtml(v.version)}</option>`))
             .join('');
         select.value = this.libVersion;
         this._showLibs();
@@ -1606,8 +1613,8 @@ class SchemeIdeModal {
             id: getVal('editor-meta-id', 'custom_app'),
             name: getVal('editor-meta-name', '自定义应用'),
             description: getVal('editor-meta-desc', ''),
-            version: getVal('editor-meta-version', '1.0.0'),
-            api_version: getVal('editor-meta-api', '1.5'),
+            version: getVal('editor-meta-version', '1'),
+            api_version: getVal('editor-meta-api', '1.9'),
             proxy_url: getVal('editor-meta-proxy', ''),
             converter_url: getVal('editor-meta-converter', '')
         };
@@ -1663,8 +1670,10 @@ class SchemeIdeModal {
         if (meta.description) ini = editorIniSet(ini, 'app', 'description', meta.description);
         ini = editorIniSet(ini, 'app', 'version', meta.version);
         // the firmware API: the higher of the app's own and the chosen library version's
+        // (and never below what the code itself calls: detectApiRequirement)
         const lib = this.libVersion && this.libVersions.find((v) => v.version === this.libVersion);
-        const api = lib && lib.api && AppSource.compare(lib.api, meta.api_version) > 0 ? lib.api : meta.api_version;
+        const api = [lib && lib.api, detectApiRequirement(this.codeArea.value)]
+            .reduce((a, v) => (v && AppSource.compare(v, a) > 0 ? v : a), meta.api_version || '1.9');
         ini = editorIniSet(ini, 'app', 'api', api);
         if (this.libVersion && !editorIniGet(ini, 'app', 'applib')) ini = editorIniSet(ini, 'app', 'applib', this.libVersion);
         // the drawer's servers: the app's defaults ([config], written to its config.ini when it first

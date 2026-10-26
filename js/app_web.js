@@ -212,16 +212,16 @@ class AppWebPanel {
                         <section class="aw-section">
                             <h3 class="aw-sec-title">🌐 应用代理与安全</h3>
                             <div class="aw-grid-2">
-                                <label>应用代理地址 (proxy_url)
+                                <label>应用代理地址 ([app] proxy)
                                     <input type="text" id="aw-sys-proxy-url" placeholder="http://127.0.0.1:8087 (留空默认本地)">
                                 </label>
-                                <label>协议转换地址 (converter_url)
+                                <label>协议转换器地址 ([app] https_proxy)
                                     <input type="text" id="aw-sys-conv-url" placeholder="http://127.0.0.1:8087">
                                 </label>
-                                <label id="aw-sys-proxy-pw-row">应用服务密码 (proxy_url_password)
+                                <label id="aw-sys-proxy-pw-row">应用服务密码 ([app] proxy_password)
                                     <input type="text" id="aw-sys-proxy-pw" autocomplete="off" spellcheck="false" maxlength="64">
                                 </label>
-                                <label id="aw-sys-conv-pw-row">转换器服务密码 (converter_url_password)
+                                <label id="aw-sys-conv-pw-row">转换器服务密码 ([app] https_proxy_password)
                                     <input type="text" id="aw-sys-conv-pw" autocomplete="off" spellcheck="false" maxlength="64" placeholder="与应用代理同一台服务器时留空">
                                 </label>
                             </div>
@@ -229,11 +229,11 @@ class AppWebPanel {
                                 应用服务密码：设备每次请求都把它放在请求头里（base64 编码，不是加密）发给这台服务器，服务器第一次收到时用它登记设备，以后密码不对就拒绝；也是该服务器用户门户的登录密码。明文 HTTP 上网络中的人能看到它，请不要用在别处用过的密码。明文显示。
                             </div>
                             <div style="margin-top: 10px;">
-                                <label>硬件密码 (hardware_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
+                                <label>硬件密码 ([http] http_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
                                     <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
                                 </label>
                                 <div id="aw-sys-hw-pass-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                    硬件密码只保护设备网页和 HTTP 接口，可以随时修改；连接服务器用上面的应用服务密码。
+                                    硬件密码只保护设备网页和 HTTP 接口，可以随时修改；连接应用服务器用的是应用服务密码（连接真实设备时在上面填写）。
                                 </div>
                             </div>
                         </section>
@@ -266,20 +266,31 @@ class AppWebPanel {
                         <section class="aw-section">
                             <h3 class="aw-sec-title">🖥️ 屏幕显示与常用设置</h3>
                             <div class="aw-grid-2">
-                                <label>屏幕规格与方向
-                                    <select id="aw-sys-orientation">
-                                        <option value="0" selected>320×480 竖屏 (默认 ILI9488)</option>
-                                        <option value="1">480×320 横屏 (旋转 90°)</option>
-                                        <option value="2">320×480 倒竖屏 (旋转 180°)</option>
-                                        <option value="3">480×320 倒横屏 (旋转 270°)</option>
+                                <label>屏幕类型 ([display] panel)
+                                    <select id="aw-sys-panel">
+                                        <option value="ips" selected>IPS（默认，驱动中设置反色）</option>
+                                        <option value="tft">TFT（不反色）</option>
                                     </select>
                                 </label>
-                                <label>色彩调色板 (palette)
+                                <label>颜色位数 ([display] color_bits)
+                                    <select id="aw-sys-bits">
+                                        <option value="16" selected>16 位 RGB565（默认）</option>
+                                        <option value="8">8 位调色板</option>
+                                        <option value="4">4 位调色板</option>
+                                        <option value="2">2 位调色板</option>
+                                        <option value="1">1 位调色板</option>
+                                    </select>
+                                </label>
+                                <label>调色板 ([display] palette，颜色位数低于 16 时)
                                     <select id="aw-sys-palette">
-                                        <option value="0" selected>彩色 (color)</option>
-                                        <option value="1">灰度 (gray)</option>
-                                        <option value="2">墨水屏 (eink)</option>
-                                        <option value="3">复古绿 (gameboy)</option>
+                                        <option value="color" selected>彩色 (color)</option>
+                                        <option value="gray">灰度 (gray)</option>
+                                        <option value="eink">墨水屏 (eink)</option>
+                                        <option value="green">绿色 (green)</option>
+                                        <option value="amber">琥珀色 (amber)</option>
+                                        <option value="cyan">青色 (cyan)</option>
+                                        <option value="gameboy">GameBoy (gameboy)</option>
+                                        <option value="invert">反色 (invert)</option>
                                     </select>
                                 </label>
                             </div>
@@ -288,7 +299,7 @@ class AppWebPanel {
                                     <input type="text" id="aw-sys-dev-name" placeholder="MiniScheme-Sim">
                                 </label>
                                 <label>开机启动应用 (boot_app)
-                                    <input type="text" id="aw-sys-boot-app" placeholder="apps/weather.msbc">
+                                    <input type="text" id="aw-sys-boot-app" placeholder="apps/weather/app.msbc">
                                 </label>
                             </div>
                         </section>
@@ -359,7 +370,7 @@ class AppWebPanel {
                     <!-- Tab 4: 应用管理 -->
                     <div class="aw-pane" id="aw-pane-manage" hidden>
                         <section class="aw-section">
-                            <h3 class="aw-sec-title">📦 已安装的应用列表 (/spiffs/apps/)</h3>
+                            <h3 class="aw-sec-title">📦 已安装的应用（/spiffs/apps/ 市场安装，/spiffs/user/ 自己上传）</h3>
                             <div id="aw-manage-apps-list">读取中...</div>
                         </section>
                     </div>
@@ -457,7 +468,8 @@ class AppWebPanel {
             sysFsOpen: root.querySelector('#aw-sys-fs-open'),
             sysHwPass: root.querySelector('#aw-sys-hw-pass'),
             sysHwPassNote: root.querySelector('#aw-sys-hw-pass-note'),
-            sysOrientation: root.querySelector('#aw-sys-orientation'),
+            sysPanel: root.querySelector('#aw-sys-panel'),
+            sysBits: root.querySelector('#aw-sys-bits'),
             sysPalette: root.querySelector('#aw-sys-palette'),
             sysDevName: root.querySelector('#aw-sys-dev-name'),
             sysBootApp: root.querySelector('#aw-sys-boot-app'),
@@ -940,11 +952,6 @@ class AppWebPanel {
 
         // 1. WiFi Online Switch
         const isOnline = window.isSimWifiOnline ? window.isSimWifiOnline() : true;
-        /* the simulator's own API (minischeme_api.c, the same table as the firmware's) */
-        let apiVer = '?';
-        try {
-            if (ex && ex.mini_api_version && typeof readStringFromWasm === 'function') apiVer = readStringFromWasm(ex.mini_api_version()) + '（扩展 esp32）';
-        } catch (e) { /* an older VM */ }
         if (this.el.sysWifiOnline) this.el.sysWifiOnline.checked = isOnline;
 
         // 2. WiFi credentials
@@ -1011,8 +1018,13 @@ class AppWebPanel {
 
         // 5. Display & General
         const disp = ini['display'] || {};
-        if (this.el.sysOrientation) this.el.sysOrientation.value = disp['orientation'] || '0';
-        if (this.el.sysPalette) this.el.sysPalette.value = disp['palette'] || '0';
+        if (this.el.sysPanel) this.el.sysPanel.value = /^tft$/i.test(disp['panel'] || '') ? 'tft' : 'ips';
+        if (this.el.sysBits) this.el.sysBits.value = ['1', '2', '4', '8', '16'].includes(disp['color_bits']) ? disp['color_bits'] : '16';
+        if (this.el.sysPalette) {   // a name; an earlier version of this page wrote 0..3
+            const legacy = { 0: 'color', 1: 'gray', 2: 'eink', 3: 'gameboy' };
+            const p = String(disp['palette'] || 'color').toLowerCase();
+            this.el.sysPalette.value = legacy[p] || ([...this.el.sysPalette.options].some((o) => o.value === p) ? p : 'color');
+        }
         if (this.el.sysDevName) this.el.sysDevName.value = sys['device_name'] || 'MiniScheme-Sim';
         if (this.el.sysBootApp) this.el.sysBootApp.value = sys['boot_app'] || '';
 
@@ -1153,8 +1165,9 @@ class AppWebPanel {
                 'app.https_proxy': keepKey('app.https_proxy', convUrl),
                 'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
                 'system.boot_app': (this.el.sysBootApp ? this.el.sysBootApp.value : '').trim(),
-                'display.orientation': this.el.sysOrientation ? this.el.sysOrientation.value : '0',
-                'display.palette': this.el.sysPalette ? this.el.sysPalette.value : '0',
+                'display.panel': this.el.sysPanel ? this.el.sysPanel.value : 'ips',
+                'display.color_bits': this.el.sysBits ? this.el.sysBits.value : '16',
+                'display.palette': this.el.sysPalette ? this.el.sysPalette.value : 'color',
                 'display.auto_backlight': fixedBl ? '0' : '1',
                 'display.backlight': String(fixedVal),
                 'display.backlight_offset': String(blOffset),
@@ -1720,39 +1733,62 @@ class AppWebPanel {
         }
     }
 
+    /* The installed apps as the app manager lists them (the firmware's /api/apps,
+     * the simulator's wasm_apps_json): name, version, where from, the boot app */
     async loadManageTab() {
-        let files = [];
-        if (this.target && this.target.kind === 'wasm') {
-            files = this._fsList();
-        } else {
-            const link = (this.target && this.target.link) || window.activeLink;
-            if (link && typeof link.fsList === 'function') {
-                try {
-                    const res = await link.fsList();
-                    files = Array.isArray(res) ? res : (res && res.files) || [];
-                } catch (e) {}
-            }
+        const box = this.el.manageAppsList;
+        if (!box) return;
+        let r = null;
+        try {
+            this._manageBackend = (typeof appManager !== 'undefined') ? appManager.getBackend() : null;
+            r = this._manageBackend ? await this._manageBackend.apps() : null;
+        } catch (e) {
+            box.innerHTML = `<div style="color:var(--text-secondary); padding:8px 0;">读取应用列表失败：${this._esc(e.message || e)}</div>`;
+            return;
         }
-        const msbcFiles = files.filter(f => f.path && f.path.endsWith('.msbc'));
-        if (this.el.manageAppsList) {
-            if (msbcFiles.length === 0) {
-                this.el.manageAppsList.innerHTML = '<div style="color:var(--text-secondary); padding:8px 0;">暂无已安装的 .msbc 应用镜像</div>';
-            } else {
-                let html = '<table style="width:100%; border-collapse:collapse; font-size:13px;">';
-                html += '<tr style="border-bottom:1px solid var(--border-color); color:var(--text-secondary); text-align:left;"><th>应用路径</th><th>大小</th><th>操作</th></tr>';
-                for (const f of msbcFiles) {
-                    html += `
-                        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                            <td style="padding:6px 0; font-family:var(--font-mono);">${this._esc(f.path)}</td>
-                            <td style="padding:6px 0;">${((f.size || 0) / 1024).toFixed(1)} KB</td>
-                            <td style="padding:6px 0;">
-                                <button class="pill-btn compact" onclick="if(window.appManager) window.appManager.runWasmApp('${this._esc(f.path)}')">▶ 启动</button>
-                            </td>
-                        </tr>`;
-                }
-                html += '</table>';
-                this.el.manageAppsList.innerHTML = html;
+        const apps = (r && r.apps) || [];
+        const rel = (p) => String(p || '').replace(/^\/spiffs\//, '');
+        const kb = (n) => `${((Number(n) || 0) / 1024).toFixed(1)} KB`;
+        let html = '<div style="margin-bottom:8px;"><button class="pill-btn compact" data-aw-manage="open">📦 打开 App 管理（安装、更新、配置、删除）</button></div>';
+        if (!apps.length) {
+            html += '<div style="color:var(--text-secondary); padding:8px 0;">设备上没有应用</div>';
+        } else {
+            html += '<table style="width:100%; border-collapse:collapse; font-size:13px;">' +
+                '<tr style="border-bottom:1px solid var(--border-color); color:var(--text-secondary); text-align:left;"><th>应用</th><th>版本</th><th>来源</th><th>大小</th><th></th></tr>';
+            for (const a of apps) {
+                const where = /^\/spiffs\/user\//.test(a.path || '') ? '自己上传' : (/^\/spiffs\/apps\//.test(a.path || '') ? '市场安装' : '内置');
+                html += `<tr style="border-bottom:1px solid rgba(127,127,127,0.12);">
+                    <td style="padding:6px 0;" title="${this._esc(a.path)}">${this._esc(a.name || a.id)} <span style="color:var(--text-secondary);">${this._esc(a.id || '')}</span>${a.boot ? ' <span class="am-tag">开机</span>' : ''}</td>
+                    <td>v${this._esc(a.version || '?')}</td>
+                    <td>${where}</td>
+                    <td>${kb(a.size)}</td>
+                    <td style="text-align:right;">${a.boot ? '' : `<button class="pill-btn compact" data-aw-manage="boot" data-path="${this._esc(rel(a.path))}">设为开机并重启</button>`}</td>
+                </tr>`;
             }
+            html += '</table>';
+        }
+        box.innerHTML = html;
+        if (!this._manageListener) {
+            this._manageListener = true;
+            box.addEventListener('click', async (e) => {
+                const b = e.target.closest('[data-aw-manage]');
+                if (!b) return;
+                if (b.dataset.awManage === 'open') {
+                    if (typeof appManager !== 'undefined') appManager.open();
+                    return;
+                }
+                const be = this._manageBackend;
+                if (!be || !be.reset) return;
+                b.disabled = true;
+                try {
+                    await be.run(`(config-set! "system" "boot_app" "${b.dataset.path}")`);
+                    await be.reset();
+                    this.log('info', `🚀 开机应用改为 ${b.dataset.path}，设备重启中`);
+                } catch (err) {
+                    this.log('error', `设置开机应用失败：${err.message || err}`);
+                }
+                setTimeout(() => this.loadManageTab(), 3000);
+            });
         }
     }
 
@@ -1804,21 +1840,26 @@ class AppWebPanel {
             }
             return;
         }
-        if (titleEl) titleEl.textContent = 'ℹ️ 仿真硬件与运行状态';
+        if (titleEl) titleEl.textContent = 'ℹ️ 仿真设备与运行状态';
         const ex = (this.target && typeof this.target.exports === 'function') ? this.target.exports() : null;
-        const alloc = (ex && ex.wasm_heap_alloc) ? ex.wasm_heap_alloc() : 0;
-        const cap = (ex && ex.wasm_heap_capacity) ? ex.wasm_heap_capacity() : 0;
+        const num = (f) => (ex && typeof ex[f] === 'function') ? ex[f]() : 0;
+        const str = (f) => { try { return (ex && ex[f] && typeof readStringFromWasm === 'function') ? readStringFromWasm(ex[f]()) : ''; } catch (e) { return ''; } };
+        const kb = (n) => `${((Number(n) || 0) / 1024).toFixed(1)} KB`;
+        let fs = {};
+        try { fs = JSON.parse(str('wasm_fs_list') || '{}'); } catch (e) { /* none */ }
+        const nfiles = Array.isArray(fs.files) ? fs.files.length : 0;
+        const mode = ['条带 band（与固件一致）', '全帧 full', '直驱 direct'][num('wasm_get_display_mode')] || '条带 band';
         const isOnline = window.isSimWifiOnline ? window.isSimWifiOnline() : true;
-
+        const canvas = document.getElementById('virtual-lcd');
+        const size = canvas ? `${canvas.width}×${canvas.height}` : '320×480';
         if (this.el.infoGrid) {
             this.el.infoGrid.innerHTML = `<div class="aw-kv-grid">
-                <b>虚拟硬件平台:</b> <span>ESP32 (WASM 仿真)</span>
-                <b>Scheme 虚拟机:</b> <span>Native C VM + Pure Scheme Compiler</span>
-                <b>固件 API 版本:</b> <span>${this._esc(apiVer)}</span>
-                <b>虚拟显存规格:</b> <span>320×480 RGB565 (~300 KB VFB)</span>
-                <b>堆内存分配 (Heap):</b> <span>${(alloc / 1024).toFixed(1)} KB / ${(cap / 1024).toFixed(1)} KB</span>
-                <b>WiFi 联网状态:</b> <span>${isOnline ? '🟢 已联网 (网络在线)' : '🔴 已断开 (网络离线)'}</span>
-                <b>存储系统 (Flash):</b> <span>/spiffs 文件系统 (持久化于浏览器 IndexedDB)</span>
+                <b>设备:</b> <span>ESP32 显示板的 WASM 仿真（与固件相同的 C 运行时）</span>
+                <b>固件 API:</b> <span>${this._esc(str('mini_api_version') || '?')}（扩展 esp32）</span>
+                <b>应用 VM 堆:</b> <span>${kb(num('wasm_get_app_heap_allocated'))} / ${kb(num('wasm_get_heap_capacity'))}（板上开机时按剩余内存分配，约 112 KB）</span>
+                <b>屏幕:</b> <span>${size}，${this._esc(mode)}，显示缓冲 ${kb(num('wasm_get_gui_buffer_ram'))}</span>
+                <b>文件系统:</b> <span>${kb(fs.used)} / ${kb(fs.total)}，${nfiles} 个文件（模拟 Flash 保存在浏览器里，文件管理中可清空）</span>
+                <b>WiFi:</b> <span>${isOnline ? '🟢 在线' : '🔴 离线（系统配置里的开关）'}</span>
             </div>`;
         }
     }

@@ -289,10 +289,12 @@ class AppManager {
         /* an installed app's update: the index of its newer image in this.bundled */
         const updateOf = new Map(this._updatable().map((i) => [this.bundled[i].id, i]));
         this.el.boot.innerHTML = `启动应用：<b>${amEsc(bootApp ? bootApp.name : amRel(this.bootPath))}</b>`;
+        /* the market's entry of an installed app: its whole description (the device's list cuts it) */
+        const marketOf = new Map(this.bundled.map((b) => [b.id, b]));
         this.el.installed.innerHTML = this.apps.map((a, i) => `
             <div class="am-app">
-                <div class="am-name">${amEsc(a.name)}${a.boot ? '<span class="am-tag">启动</span>' : ''}${updateOf.has(a.id) ? ' <span class="am-note">有更新</span>' : ''}</div>
-                <div class="am-desc">${amEsc(a.description)}</div>
+                <div class="am-name">${amEsc(a.name)}${a.boot ? '<span class="am-tag">启动</span>' : ''}${updateOf.has(a.id) ? ` <span class="am-note">有更新 v${amEsc(a.version)} → v${amEsc(this.bundled[updateOf.get(a.id)].version)}</span>` : ''}</div>
+                <div class="am-desc">${amEsc((marketOf.get(a.id) || {}).description || a.description)}</div>
                 <div class="am-desc">${amEsc(amRel(a.path))} · ${amSize(a.size)} · v${amEsc(a.version)} · 配置 ${amEsc(amRel(a.ini))}</div>
                 <div class="am-actions">
                     ${updateOf.has(a.id) ? `<button class="pill-btn highlight" data-act="install" data-i="${updateOf.get(a.id)}" title="v${amEsc(a.version)} → v${amEsc(this.bundled[updateOf.get(a.id)].version)}">⇪ 更新</button>` : ''}

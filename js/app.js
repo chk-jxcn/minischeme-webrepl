@@ -116,6 +116,10 @@ async function initWasm() {
         const results = await WebAssembly.instantiate(bytes, importObject);
         wasmInstance = results.instance;
         wasmMemory = wasmInstance.exports.memory;
+        const bannerTitle = document.getElementById('repl-banner-title');
+        if (bannerTitle && wasmInstance.exports.mini_api_version) {   // the firmware API the simulator provides
+            bannerTitle.textContent = `  MiniScheme WebREPL · 固件 API ${readStringFromWasm(wasmInstance.exports.mini_api_version())}   `;
+        }
 
         // Saved flash first: config.ini ([fonts]) and the font ROM apply at boot
         const restored = await simStorage.restore(wasmInstance.exports, () => wasmMemory);
@@ -821,10 +825,20 @@ function syncHardwareTelemetry() {
             if (simWifiRssi) {
                 simWifiRssi.textContent = `${wasmInstance.exports.wasm_get_wifi_rssi()} dBm`;
             }
+        } else if (window.isSimWifiOnline && window.isSimWifiOnline()) {
+            // no (wifi-connect) ran, yet the simulator reaches the network through the PC
+            ledWifi.classList.add('active');
+            if (simWifiStatus) {
+                simWifiStatus.textContent = "在线（经电脑上网）";
+                simWifiStatus.style.color = "#10b981";
+            }
+            if (simWifiSsid) simWifiSsid.textContent = "--";
+            if (simWifiIp) simWifiIp.textContent = "--";
+            if (simWifiRssi) simWifiRssi.textContent = "-- dBm";
         } else {
             ledWifi.classList.remove('active');
             if (simWifiStatus) {
-                simWifiStatus.textContent = "未连接 (Offline)";
+                simWifiStatus.textContent = "离线（联网开关关闭）";
                 simWifiStatus.style.color = "#ef4444";
             }
             if (simWifiSsid) simWifiSsid.textContent = "--";
@@ -856,7 +870,7 @@ function syncHardwareTelemetry() {
         const compilerAlloc = wasmInstance.exports.wasm_get_compiler_heap_allocated ? wasmInstance.exports.wasm_get_compiler_heap_allocated() : 0;
         devHeapAlloc.textContent = `${(appFootprint / 1024).toFixed(1)} KB (设备VM) / 编译器VM ${(compilerAlloc / 1024).toFixed(0)} KB`;
         if (devHeapCapacity) {
-            devHeapCapacity.textContent = `${(cap / 1024).toFixed(0)} KB (与固件相同)`;
+            devHeapCapacity.textContent = `${(cap / 1024).toFixed(0)} KB（板上开机时按剩余内存分配，约 112 KB）`;
         }
 
         const esp32Semispace = cap || 98304;
@@ -875,14 +889,9 @@ function syncHardwareTelemetry() {
         if (heapProgressText) {
             heapProgressText.textContent = `${(appFootprint / 1024).toFixed(1)} / ${(esp32Semispace / 1024).toFixed(1)} KB (${pct}%)`;
         }
-        if (devEsp32Estimate) {
-            if (appFootprint <= 45000) {
-                devEsp32Estimate.innerHTML = `<span class="status-badge-ok">🟢 充裕 (板上 VM 堆约 102 KB，当前 ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
-            } else if (appFootprint <= esp32Semispace) {
-                devEsp32Estimate.innerHTML = `<span class="status-badge-warn">🟡 偏高 (常驻数据超过堆的约 45% 后 GC 变频繁, ${(appFootprint / 1024).toFixed(1)}KB)</span>`;
-            } else {
-                devEsp32Estimate.innerHTML = `<span class="status-badge-crit">🔴 接近堆上限 (${(appFootprint / 1024).toFixed(1)}KB)</span>`;
-            }
+        if (devEsp32Estimate) {   // as for a board (applyHardwareStats): the share of the VM heap in use
+            devEsp32Estimate.innerHTML = pct < 60 ? badge('ok', `🟢 充裕 (VM 堆 ${pct}%)`)
+                : (pct < 85 ? badge('warn', `🟡 偏高 (VM 堆 ${pct}%，GC 会更频繁)`) : badge('crit', `🔴 接近上限 (VM 堆 ${pct}%)`));
         }
 
         // 6. Framebuffer RAM & Total ESP32 SRAM Pressure
@@ -901,35 +910,17 @@ function syncHardwareTelemetry() {
             }
         }
 
-        if (devVfbEstimate && displayMode === 0) {
-            devVfbEstimate.innerHTML = `<span class="status-badge-ok">🟢 与固件一致 (条带缓冲 ${(vfbRam / 1024).toFixed(1)} KB)</span>`;
-        } else if (devVfbEstimate) {
-            if (!fbEnabled || vfbRam === 0) {
-                devVfbEstimate.innerHTML = `<span class="status-badge-ok">🟢 零显存 (直驱流式传输, 适合标准 ESP32)</span>`;
-            } else if (vfbRam <= 40 * 1024) {
-                devVfbEstimate.innerHTML = `<span class="status-badge-ok">🟢 超低开销 (<40KB, 内部 SRAM 极充裕)</span>`;
-            } else if (vfbRam <= 80 * 1024) {
-                devVfbEstimate.innerHTML = `<span class="status-badge-ok">🟢 推荐平衡 (~75KB, 内部 SRAM 安全)</span>`;
-            } else if (vfbRam <= 160 * 1024) {
-                devVfbEstimate.innerHTML = `<span class="status-badge-warn">🟡 显存偏大 (~150KB, 内部 SRAM 紧张)</span>`;
-            } else {
-                devVfbEstimate.innerHTML = `<span class="status-badge-crit">🔴 需外部 PSRAM (>180KB 超出内部SRAM)</span>`;
-            }
+        if (devVfbEstimate) {   // the firmware's band buffer; a whole 16-bit frame (300 KB) does not fit a board
+            const big = displayMode !== 0 && vfbRam > 100 * 1024;
+            devVfbEstimate.innerHTML = displayMode === 0
+                ? badge('ok', `🟢 与固件一致 (条带缓冲 ${(vfbRam / 1024).toFixed(1)} KB)`)
+                : (big ? badge('warn', `🟡 ${(vfbRam / 1024).toFixed(1)} KB：板上的空闲内存放不下，固件会改用条带`)
+                       : badge('ok', `🟢 ${(vfbRam / 1024).toFixed(1)} KB`));
         }
 
         if (devIramRow) devIramRow.style.display = 'none';   // the simulator has no IRAM
-        if (devSramTotalEstimate) {
-            const totalSram = appFootprint + ((fbEnabled || displayMode === 0) ? vfbRam : 0);
-            if (totalSram <= 65536) {
-                devSramTotalEstimate.innerHTML = `<span class="status-badge-ok">🟢 极佳安全 (${(totalSram / 1024).toFixed(1)} KB / ~184 KB 内部SRAM)</span>`;
-            } else if (totalSram <= 135000) {
-                devSramTotalEstimate.innerHTML = `<span class="status-badge-ok">🟢 正常适配 (${(totalSram / 1024).toFixed(1)} KB / ~184 KB 内部SRAM)</span>`;
-            } else if (totalSram <= 184000) {
-                devSramTotalEstimate.innerHTML = `<span class="status-badge-warn">🟡 接近芯片极限 (${(totalSram / 1024).toFixed(1)} KB / 184 KB)</span>`;
-            } else {
-                devSramTotalEstimate.innerHTML = `<span class="status-badge-crit">🔴 超标需PSRAM (${(totalSram / 1024).toFixed(1)} KB > 184 KB)</span>`;
-            }
-        }
+        const sramRow = document.getElementById('dev-sram-row');
+        if (sramRow) sramRow.style.display = 'none';         // nor the board's free memory: shown for a board
     }
 }
 
@@ -1714,7 +1705,7 @@ const fontManager = new FontManager({
             if (!wasmInstance || !wasmInstance.exports.wasm_fs_list) throw new Error('WASM 引擎未就绪');
             const fs = new WasmFsBackend(() => wasmInstance && wasmInstance.exports, () => wasmMemory);
             return {
-                label: 'WASM 设备仿真 (模拟 768 KB 字库分区)',
+                label: 'WASM 设备仿真 (模拟板上的 320 KB 字库分区)',
                 async run(source) {
                     const r = evalLocalWasm(source);
                     if (!r.success) throw new Error(r.error || r.result);
@@ -2099,7 +2090,7 @@ function applyHardwareStats(st) {
     if (!st) return;
     if (st.color_bits) adoptDeviceDisplay(st);
     // panel: the board's own numbers
-    if (devPanelTitle) devPanelTitle.textContent = '📟 运行内存与 ESP32 负荷 (硬件实测)';
+    if (devPanelTitle) devPanelTitle.textContent = '📟 运行内存（板上实测）';
     if (devExecLabel) devExecLabel.textContent = '实测渲染/负载:';
     if (devVmMode) devVmMode.textContent = `ESP32 硬件实测 (${activeLink ? activeLink.label : 'HTTP'})`;
     const pct = st.vm_heap_capacity ? Math.min(100, Math.round(st.vm_heap_allocated * 100 / st.vm_heap_capacity)) : 0;
@@ -2120,6 +2111,8 @@ function applyHardwareStats(st) {
     const layout = st.gui_mode === 'band' ? `${st.band_lines} 行条带` : (st.gui_mode === 'full' ? '全帧' : '直驱，无缓冲');
     if (devVfbRam) devVfbRam.textContent = `${kb(st.buffer_bytes)} KB (${layout}, ${bits}) + DMA ${kb(st.dma_bytes)} KB`;
     if (devVfbEstimate) devVfbEstimate.innerHTML = badge('ok', `🟢 显示共占 ${kb(st.buffer_bytes + st.dma_bytes)} KB (${st.width}×${st.height} ${st.gui_mode})`);
+    const sramRow = document.getElementById('dev-sram-row');
+    if (sramRow) sramRow.style.display = '';
     if (devSramTotalEstimate) {
         const text = `空闲 ${kb(st.free_heap)} KB · 历史最低 ${kb(st.min_free_heap)} KB · 最大块 ${kb(st.largest_block)} KB / 内部 SRAM ${kb(st.internal_total)} KB`;
         devSramTotalEstimate.innerHTML = st.min_free_heap >= 24 * 1024 ? badge('ok', `🟢 ${text}`)
@@ -2793,18 +2786,20 @@ function getCandidates(prefix) {
         }
     }
 
-    // 2. Built-in functions with curated descriptions
-    for (const item of SCHEME_SYMBOLS) {
+    // 2. What the device VM resolves (primitives with the firmware's own help text,
+    //    app definitions): the truth about what exists
+    if (deviceSymbolsStale) loadDeviceSymbols();
+    const deviceNames = new Set(deviceSymbols.map((d) => d.name));
+    for (const item of deviceSymbols) {
         if (!seen.has(item.name)) {
             seen.add(item.name);
             all.push(item);
         }
     }
 
-    // 3. Everything else the device VM resolves (primitives, app definitions)
-    if (deviceSymbolsStale) loadDeviceSymbols();
-    for (const item of deviceSymbols) {
-        if (!seen.has(item.name)) {
+    // 3. The curated list: only names the device has, and the language's syntax
+    for (const item of SCHEME_SYMBOLS) {
+        if (!seen.has(item.name) && (deviceNames.size === 0 || deviceNames.has(item.name) || item.cat === 'special')) {
             seen.add(item.name);
             all.push(item);
         }

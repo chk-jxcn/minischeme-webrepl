@@ -315,6 +315,10 @@ class FontManager {
         for (const f of presets) {
             const isInstalled = this.fonts.some((installed) => installed.name === f.name);
             const isDefault = this._defaultFont() === f.name;
+            /* the board's font ROM is 320 KB: a second CJK font rarely fits beside simsun-16 */
+            const free = Math.max(0, this.capacity - this.used);
+            const fits = isInstalled || !this.capacity || (f.bytes || f.size || 0) <= free;
+            const noRoom = fits ? '' : ` disabled title="字库分区只剩 ${fmFormatSize(free)}，放不下：先删除一个字库"`;
             const card = document.createElement('div');
             card.style.cssText = 'background:rgba(0,0,0,0.22); border:1px solid rgba(255,255,255,0.07); border-radius:6px; padding:10px; display:flex; flex-direction:column; justify-content:space-between;';
             card.innerHTML = `
@@ -324,12 +328,13 @@ class FontManager {
                         <span style="font-size:11px; color:#98c379;">${fmFormatSize(f.bytes || f.size)}</span>
                     </div>
                     <div style="font-size:11px; opacity:0.75; margin:6px 0 10px 0; line-height:1.4;">${f.desc || ''}</div>
+                    ${fits ? '' : `<div style="font-size:11px; color:#e5c07b; margin-bottom:8px;">放不下：字库分区只剩 ${fmFormatSize(free)}，先删除一个字库</div>`}
                 </div>
                 <div style="display:flex; gap:6px; margin-top:4px;">
-                    <button class="pill-btn highlight" style="flex:1; padding:4px 8px; font-size:11px;" data-act="install-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}">
+                    <button class="pill-btn highlight" style="flex:1; padding:4px 8px; font-size:11px;" data-act="install-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}"${noRoom}>
                         ${isInstalled ? '⚡ 重新安装' : '⚡ 安装到字库'}
                     </button>
-                    <button class="pill-btn" style="flex:1; padding:4px 8px; font-size:11px; ${isDefault ? 'color:#e5c07b; font-weight:bold;' : ''}" data-act="default-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}">
+                    <button class="pill-btn" style="flex:1; padding:4px 8px; font-size:11px; ${isDefault ? 'color:#e5c07b; font-weight:bold;' : ''}" data-act="default-preset" data-name="${f.name}" data-file="${f.file || ('fonts/' + f.name + '.mfnt')}"${noRoom}>
                         ${isDefault ? '⭐ 已为默认' : '⭐ 安装并设默认'}
                     </button>
                 </div>

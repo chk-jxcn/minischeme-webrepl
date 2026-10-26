@@ -286,8 +286,8 @@ static Value prim_mock_time_synced_p(MiniVM *vm, int argc, Value *argv) {
 /* Simulated SPIFFS: the files the firmware's file manager and fs-* primitives
  * see, binary-safe and NUL-terminated. Starts with the firmware's config.ini.
  * The bump allocator never frees, so a slot keeps its largest buffer. */
-#define MOCK_FS_FILES 64
-#define MOCK_FS_TOTAL 1378241u /* usable SPIFFS bytes of the board's 1472K partition */
+#define MOCK_FS_FILES 256        /* the board has no limit of its own; an app's picture cache needs many */
+#define MOCK_FS_TOTAL 1638400u   /* the board's storage partition (1600K since firmware 1.0.74), as its file list reports it */
 static struct { char path[64]; uint8_t *data; size_t len, cap; bool used; } g_mock_fs[MOCK_FS_FILES];
 /* Bumped by every change of the simulated SPIFFS / font ROM: the page keeps
  * both in IndexedDB (js/sim_storage.js) and saves when they move */
@@ -553,9 +553,9 @@ static const uint8_t *mock_fs_font_file(const char *path, size_t *len) {
     return g_mock_fs[slot].data;
 }
 
-/* The board's 768 KB fontrom partition, as NOR flash: erase sets 0xFF and
- * writes can only clear bits. Kept while the page is open, like the mock FS. */
-#define MOCK_FONT_ROM_BYTES (768u * 1024u)
+/* The board's 320 KB fontrom partition (since firmware 1.0.74), as NOR flash: erase sets
+ * 0xFF and writes can only clear bits. Kept while the page is open, like the mock FS. */
+#define MOCK_FONT_ROM_BYTES (320u * 1024u)
 static uint8_t *g_font_rom = NULL;
 
 static bool mock_font_rom_erase(size_t off, size_t len, void *user) {
@@ -684,7 +684,7 @@ static size_t mock_dir_used(const char *dir) {
 /* ------------------------------------------------------------------------- */
 /* File manager exports: same results as the firmware's /api/fs routes      */
 /* ------------------------------------------------------------------------- */
-static char g_fs_json[4096];
+static char g_fs_json[32768];   /* MOCK_FS_FILES paths of up to 63 bytes */
 
 __attribute__((visibility("default")))
 const char *wasm_fs_list(void) {

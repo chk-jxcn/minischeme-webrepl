@@ -27,13 +27,28 @@ function fmValidName(name) {
 const FM_TEXT_EXT = /\.(ini|cfg|conf|txt|scm|ss|json|csv|md|log|html?|js|css|xml|ya?ml|py|sh)$/i;
 const FM_EDIT_MAX = 64 * 1024;
 
+/* What a file is, by folder: the root holds the system's files, apps/<id>/ and
+ * user/<id>/ an app's (market and uploaded ones) */
 const FM_SPECIAL = {
-    'app.msbc': '开机应用 · 字节码，开机时构建 Flash ROM 镜像',
-    'app.fasl': '开机应用 · 堆快照',
+    'app.msbc': '旧式开机应用 · 字节码',
+    'app.fasl': '旧式开机应用 · 堆快照',
     'config.ini': '系统配置 · 重启后生效',
+    'theme.css': '系统配色（所有应用）',
     'app.romsig': '内嵌应用签名',
     'upload.tmp': '上传暂存文件',
 };
+const FM_APP_SPECIAL = {
+    'app.msbc': '应用镜像 · 字节码，启动时映射为 Flash ROM',
+    'app.fasl': '应用镜像 · 堆快照',
+    'config.ini': '应用配置',
+    'schedule.ini': '定时启动',
+    'theme.css': '应用配色',
+};
+
+function fmTag(dir, name) {
+    if (!dir) return FM_SPECIAL[name] || '';
+    return /^(apps|user)\/[^/]+\/$/.test(dir) ? (FM_APP_SPECIAL[name] || '') : '';
+}
 
 const FM_ERRORS = {
     'no such file': '文件不存在',
@@ -55,6 +70,8 @@ function fmFormatSize(n) {
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     return `${(n / 1048576).toFixed(2)} MB`;
 }
+
+const FM_FOLD_AT = 10;   // a folder of more files starts folded (an app's picture cache)
 
 function fmBaseName(path) {
     return path.startsWith(FM_ROOT) ? path.slice(FM_ROOT.length) : path;
@@ -448,11 +465,41 @@ class FileManager {
             : fmFormatSize(used);
     }
 
+    /* The files grouped by folder: a header row per folder (its files and their size),
+     * a click folds it; a folder of more than FM_FOLD_AT files starts folded */
     _renderList() {
         const tbody = this.el.tbody;
         tbody.textContent = '';
+        if (!this.folded) this.folded = new Map();   // folder -> folded?
+        const groups = new Map();
         for (const f of this.files) {
-            const name = fmBaseName(f.path);
+            const rel = fmBaseName(f.path);
+            const cut = rel.lastIndexOf('/');
+            const dir = cut >= 0 ? rel.slice(0, cut + 1) : '';
+            if (!groups.has(dir)) groups.set(dir, []);
+            groups.get(dir).push(f);
+        }
+        for (const [dir, files] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+            if (!this.folded.has(dir)) this.folded.set(dir, files.length > FM_FOLD_AT);
+            const folded = this.folded.get(dir);
+            const head = document.createElement('tr');
+            head.className = 'fm-dir-row';
+            const td = document.createElement('td');
+            td.colSpan = 3;
+            const total = files.reduce((n, f) => n + (f.size || 0), 0);
+            td.textContent = `${folded ? '▸' : '▾'} ${dir || '/'}  ·  ${files.length} 个文件，${fmFormatSize(total)}`;
+            td.title = folded ? '点击展开' : '点击折叠';
+            head.appendChild(td);
+            head.addEventListener('click', () => { this.folded.set(dir, !folded); this._renderList(); });
+            tbody.appendChild(head);
+            if (!folded) for (const f of files) this._renderFile(tbody, f, dir);
+        }
+        this.el.empty.hidden = this.files.length > 0;
+    }
+
+    _renderFile(tbody, f, dir) {
+        {
+            const name = fmBaseName(f.path).slice(dir.length);
             const tr = document.createElement('tr');
 
             const nameTd = document.createElement('td');
@@ -461,10 +508,10 @@ class FileManager {
             nameSpan.textContent = name;
             nameSpan.title = f.path;
             nameTd.appendChild(nameSpan);
-            if (FM_SPECIAL[name]) {
+            if (fmTag(dir, name)) {
                 const tag = document.createElement('span');
                 tag.className = 'fm-tag';
-                tag.textContent = FM_SPECIAL[name];
+                tag.textContent = fmTag(dir, name);
                 nameTd.appendChild(tag);
             }
 
@@ -485,7 +532,6 @@ class FileManager {
             tr.append(nameTd, sizeTd, actTd);
             tbody.appendChild(tr);
         }
-        this.el.empty.hidden = this.files.length > 0;
     }
 
     _rowButton(act, path, text, title = '', disabled = false, danger = false) {
