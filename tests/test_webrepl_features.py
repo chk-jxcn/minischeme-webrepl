@@ -24,6 +24,13 @@ import shutil
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
+# The market's apps in the git-ignored apps/ (the WebREPL carries none): also when this
+# file runs alone under unittest (CI), without tests/conftest.py
+sys.path.insert(0, os.path.join(ROOT_DIR, "tools"))
+from fetch_apps import ensure_apps  # noqa: E402
+os.environ.setdefault("MINISCHEME_MARKET_SYNC", "0")
+ensure_apps()
 APPS_DIR = os.path.join(ROOT_DIR, "apps")
 TEST_PORT = 8095
 

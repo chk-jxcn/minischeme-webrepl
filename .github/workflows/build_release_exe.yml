@@ -26,6 +26,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pillow fonttools cryptography tzdata
 
+      - name: Fetch the market's apps for the tests
+        run: |
+          python tools/fetch_apps.py
+
       - name: Run Test Suite
         run: |
           python -m unittest tests/test_webrepl_features.py -v
