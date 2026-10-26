@@ -2139,6 +2139,13 @@ const char *wasm_reboot(void) {
     return r;
 }
 
+/* The system settings built into the simulator (app_settings_msbc.h): the page boots
+ * them without a download (the WebREPL carries no app images of its own) */
+__attribute__((visibility("default")))
+const char *wasm_boot_builtin_settings(void) {
+    return wasm_boot_app(app_settings_msbc_data, APP_SETTINGS_MSBC_LEN);
+}
+
 __attribute__((visibility("default")))
 const char *wasm_boot_app(const uint8_t *buf, uint32_t len) {
     if (!g_dev && wasm_init() != 0) return "Error: VM initialization failed";

@@ -50,6 +50,9 @@ import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fetch_apps import ensure_apps  # noqa: E402  (the market's apps: the WebREPL carries none)
 import urllib.parse
 import urllib.request
 
@@ -199,6 +202,8 @@ class Simulator:
                 port = port or free_port()
                 env = dict(os.environ)
                 env.setdefault("MINISCHEME_ADMIN_PASSWORD", "sim-local-admin")
+                env.setdefault("MINISCHEME_MARKET_SYNC", "0")   # no background downloads for a run
+                ensure_apps()   # the bundled apps (--app NAME, --install NAME) in apps/
                 if fresh:   # the server's database and config.ini too: nothing of this run is kept
                     self.tmp_data = tempfile.mkdtemp(prefix="minischeme-sim-data-")
                     env["MINISCHEME_DATA_DIR"] = self.tmp_data

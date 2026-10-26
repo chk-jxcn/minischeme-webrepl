@@ -20,3 +20,9 @@ config.ini
 dist/
 build/
 *.spec
+
+# The apps: not part of the WebREPL (the page downloads them from minischeme-apps,
+# js/app_source.js); tools/fetch_apps.py or build_apps.py --sync fills apps/ for
+# the tests, tools/sim.py and a local server, market_cache/ is the local server's market
+apps/
+market_cache/

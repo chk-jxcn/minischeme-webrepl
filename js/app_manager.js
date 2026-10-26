@@ -14,8 +14,6 @@
  * (minischeme-esp32 main/setup_page.html); keep the two in step.
  */
 
-const AM_GITHUB_APPS_INDEX = 'https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json';
-const AM_GITHUB_RELEASE_BASE = 'https://github.com/chk-jxcn/minischeme-apps/releases/latest/download/';
 const AM_LOCAL_INDEX = 'apps/index.json';
 
 function amEsc(s) {
@@ -169,7 +167,7 @@ class AppManager {
                 <div class="am-body">
                     <h4 class="am-h">设备上的应用</h4>
                     <div class="am-installed">—</div>
-                    <h4 class="am-h">可安装的应用 <span class="am-note am-market-note">（读取自 GitHub 官方应用仓库）</span></h4>
+                    <h4 class="am-h">可安装的应用 <span class="am-note am-market-note">（读取自 GitHub 应用仓库）</span></h4>
                     <div class="am-bundled">—</div>
                 </div>
                 <div class="fm-status" role="status" aria-live="polite"></div>
@@ -233,6 +231,8 @@ class AppManager {
         }
     }
 
+    /* The device's apps, and the market's list: the newest minischeme-apps release (looked up
+     * again by this refresh, app_source.js), plus the local builds of a PC's server.py */
     async refresh() {
         await this._run('读取应用列表…', async () => {
             const r = await this.backend.apps();
@@ -240,22 +240,16 @@ class AppManager {
             this.apps = r.apps || [];
             this.bootPath = r.boot || '';
             this.open_ = {};
+            const src = window.appSource;
             try {
-                let res = await fetch(AM_GITHUB_APPS_INDEX, { cache: 'no-store' });
-                if (!res.ok) res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
-                const list = res.ok ? await res.json() : [];
-                this.bundled = list.filter((b) => (b.kind || 'app') === 'app');
-                this.marketSource = res.url.includes('github') ? 'GitHub 官方市场' : '本地离线包';
-                if (res.url.includes('github')) await this._mergeLocal();
+                await src.refresh();
+                this.bundled = (await src.index({ remoteOnly: true })).filter((b) => (b.kind || 'app') === 'app');
+                this.marketSource = `GitHub 应用仓库 ${src.tag}${src.lastSource === 'cache' ? '（离线：缓存）' : ''}`;
+                await this._mergeLocal();
             } catch (e) {
-                try {
-                    const res = await fetch(AM_LOCAL_INDEX, { cache: 'no-store' });
-                    this.bundled = (res.ok ? await res.json() : []).filter((b) => (b.kind || 'app') === 'app');
-                    this.marketSource = '本地离线包';
-                } catch (err) {
-                    this.bundled = [];
-                    this.marketSource = '离线';
-                }
+                this.bundled = [];
+                this.marketSource = `离线（${e.message || e}）`;
+                await this._mergeLocal();
             }
             this._render();
         });
@@ -283,7 +277,7 @@ class AppManager {
                     added++;
                 }
             }
-            if (added) this.marketSource = `GitHub 官方市场 + 本地编译的 ${added} 个`;
+            if (added) this.marketSource = `${this.marketSource || 'GitHub 应用仓库'} + 本地编译的 ${added} 个`;
         } catch (e) { /* the market's list only */ }
     }
 
@@ -651,29 +645,12 @@ class AppManager {
         const update = this.apps.some((a) => a.id === b.id);
         const ok = await this._run(`安装 ${b.name}…`, async () => {
             let bytes = null;
-            const urls = [
-                ...(b.local ? [`apps/${b.file}`] : []),   /* a local build: the page's own apps/ */
-                `/api/release_asset?repo=minischeme-apps&asset=${encodeURIComponent(b.file)}`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${b.file}`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${b.file}`,
-                `apps/${b.file}`,
-                `${AM_GITHUB_RELEASE_BASE}${b.file}`
-            ];
-            for (const url of urls) {
-                try {
-                    const res = await fetch(url, { cache: 'no-store' });
-                    if (res.ok) {
-                        const buf = await res.arrayBuffer();
-                        if (buf.byteLength > 100) {
-                            bytes = new Uint8Array(buf);
-                            break;
-                        }
-                    }
-                } catch (e) { /* try next */ }
+            if (b.local) {                                    /* a local build: the page's own apps/ */
+                const res = await fetch(`apps/${b.file}`, { cache: 'no-store' });
+                if (res.ok) bytes = new Uint8Array(await res.arrayBuffer());
             }
-            if (!bytes) {
-                throw new Error(`读取 ${b.file} 失败 (GitHub 与本地均未获取到)`);
-            }
+            if (!bytes) bytes = await window.appSource.image(b.file, { remoteOnly: true });
+            if (!bytes || bytes.length < 100) throw new Error(`读取 ${b.file} 失败`);
 
             await this.backend.fsWrite(`/spiffs/apps/${b.id}/app.msbc`, bytes);   /* the app's folder, as the market */
             return true;

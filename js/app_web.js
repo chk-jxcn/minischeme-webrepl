@@ -940,6 +940,11 @@ class AppWebPanel {
 
         // 1. WiFi Online Switch
         const isOnline = window.isSimWifiOnline ? window.isSimWifiOnline() : true;
+        /* the simulator's own API (minischeme_api.c, the same table as the firmware's) */
+        let apiVer = '?';
+        try {
+            if (ex && ex.mini_api_version && typeof readStringFromWasm === 'function') apiVer = readStringFromWasm(ex.mini_api_version()) + '（扩展 esp32）';
+        } catch (e) { /* an older VM */ }
         if (this.el.sysWifiOnline) this.el.sysWifiOnline.checked = isOnline;
 
         // 2. WiFi credentials
@@ -1763,6 +1768,13 @@ class AppWebPanel {
             if (link && link.kind === 'http' && typeof link._json === 'function') {
                 try {
                     const hw = await link._json('/api/hardware', {}, 10000);
+                    if (hw && hw.success && hw.firmware && !hw.firmware.api) {   /* firmware before 1.0.85 */
+                        try {
+                            const info = await link._json('/api/info', {}, 10000);
+                            hw.firmware.api = info.api;
+                            hw.firmware.api_extensions = info.api_extensions;
+                        } catch (e) { /* shown as — */ }
+                    }
                     if (hw && hw.success && this.el.infoGrid) {
                         this.el.infoGrid.innerHTML = this._hardwareHtml(hw);
                         return;
@@ -1802,7 +1814,7 @@ class AppWebPanel {
             this.el.infoGrid.innerHTML = `<div class="aw-kv-grid">
                 <b>虚拟硬件平台:</b> <span>ESP32 (WASM 仿真)</span>
                 <b>Scheme 虚拟机:</b> <span>Native C VM + Pure Scheme Compiler</span>
-                <b>固件 API 版本:</b> <span>1.5 (全兼容 ESP32 固件 1.x)</span>
+                <b>固件 API 版本:</b> <span>${this._esc(apiVer)}</span>
                 <b>虚拟显存规格:</b> <span>320×480 RGB565 (~300 KB VFB)</span>
                 <b>堆内存分配 (Heap):</b> <span>${(alloc / 1024).toFixed(1)} KB / ${(cap / 1024).toFixed(1)} KB</span>
                 <b>WiFi 联网状态:</b> <span>${isOnline ? '🟢 已联网 (网络在线)' : '🔴 已断开 (网络离线)'}</span>
@@ -1830,6 +1842,7 @@ class AppWebPanel {
             ['MAC', esc(c.mac)],
             ['Flash', kb(c.flash)],
             ['固件', `${esc(f.version)}，${esc(f.built)}`],
+            ['固件 API', f.api ? `${esc(f.api)}${(f.api_extensions || []).length ? '（扩展 ' + esc(f.api_extensions.join('、')) + '）' : ''}` : '—'],
             ['ESP-IDF', esc(f.idf)],
             ['固件镜像', `${kb(f.image)} / ${kb(f.partition)} 分区${pct(f.image, f.partition)}`],
             ['运行时间', `${dur((f.uptime_ms || 0) / 1000)}，复位原因 ${esc(f.reset)}，时间${f.time_synced ? '已' : '未'}同步`],

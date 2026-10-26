@@ -1,9 +1,9 @@
 /*
  * 合并应用: several apps' pages in one app (apps/lib/combo.scm), built here.
  *
- * The chosen apps' code (apps/<id>/<id>.scm, as the market ships it; their
- * meta.ini from the image's trailer, apps/<id>.msbc) goes
- * after applib and combo.scm, each followed by (combo-member! id page-ids
+ * The chosen apps' code (apps/<id>/<id>.scm of the newest minischeme-apps
+ * release, app_source.js; their meta.ini from the image's trailer) goes
+ * after the app library (the newest version that serves every member) and combo.scm, each followed by (combo-member! id page-ids
  * defaults) (its meta.ini page_ids and [config] defaults), then
  * (combo-start! name); the WASM compiler makes the image, a meta.ini trailer
  * names the members ([combo] members: the firmware lets the app read their
@@ -13,10 +13,11 @@
  * entries. Each member keeps its settings in its own config.ini.
  */
 
-const CB_LIBS = ['apps/lib/gui.scm', 'apps/lib/infopages.scm', 'apps/lib/applib.scm'];
-const CB_WEB_LIB = 'apps/lib/appweb.scm';
-const CB_COMBO_LIB = 'apps/lib/combo.scm';
-const CB_COMBO_PAGE = 'apps/lib/combo_web.html';   // its own web page: pages, carousel, alerts
+/* The app library's files (dist/lib/<applib version>/ of minischeme-apps, app_source.js) */
+const CB_LIBS = ['gui.scm', 'infopages.scm', 'applib.scm'];
+const CB_WEB_LIB = 'appweb.scm';
+const CB_COMBO_LIB = 'combo.scm';
+const CB_COMBO_PAGE = 'combo_web.html';   // its own web page: pages, carousel, alerts
 const CB_EXCLUDE = new Set(['settings', 'pcmonitor', 'combo']);   // not built on applib's app-define!
 const CB_ID = 'combo';
 const CB_PATH = `/spiffs/apps/${CB_ID}/app.msbc`;
@@ -179,26 +180,30 @@ class ComboBuilder {
 
     close() { if (this.el) this.el.root.hidden = true; }
 
-    async _fetchText(path) {
-        const r = await fetch(path, { cache: 'no-store' });
-        if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
-        return r.text();
+    /* A file of the app library version this combined app is built with */
+    async _lib(name) {
+        if (!this.libVersion) {
+            const idx = await window.appSource.libIndex();
+            const need = this._members().map(m => m.applib).filter(Boolean)
+                .reduce((a, v) => (AppSource.compare(v, a) > 0 ? v : a), '');
+            this.libVersion = need ? AppSource.pickLib(need, idx.versions) : idx.current;
+            if (!this.libVersion) throw new Error(`没有能满足成员要求（applib ${need}）的应用库版本`);
+        }
+        return window.appSource.libFile(this.libVersion, name);
     }
 
     /* The apps the market ships with their code: name, English page names,
      * page names (from the code's app-page calls), views, defaults */
     async _loadApps() {
-        const index = JSON.parse(await this._fetchText('apps/index.json'));
+        const index = await window.appSource.index();
         const out = [];
         for (const a of index) {
             if (CB_EXCLUDE.has(a.id)) continue;
             let source, meta;
             try {
                 // the meta.ini the image carries (local servers do not serve .ini files)
-                const image = await fetch(`apps/${a.file || a.id + '.msbc'}`, { cache: 'no-store' });
-                if (!image.ok) continue;
-                meta = cbImageMeta(new Uint8Array(await image.arrayBuffer()));
-                source = await this._fetchText(`apps/${a.id}/${a.id}.scm`);
+                meta = cbImageMeta(await window.appSource.image(a.file || a.id + '.msbc'));
+                source = await window.appSource.appFile(a.source || `apps/${a.id}/${a.id}.scm`);
             } catch (e) { continue; }
             if (!/\(app-define!/.test(source)) continue;
             const secs = cbIniSections(meta);
@@ -211,7 +216,8 @@ class ComboBuilder {
                 if (m) defaults.push([m[1], m[2]]);
             }
             out.push({ id: a.id, name: cbIniValue(secs.app, 'name') || a.name || a.id, ids, pages, views,
-                       web: !!a.web, api: cbIniValue(secs.app, 'api') || a.api || '1.0', defaults, source });
+                       web: !!a.web, api: cbIniValue(secs.app, 'api') || a.api || '1.0', defaults, source,
+                       applib: cbIniValue(secs.app, 'applib') || a.applib || '' });
         }
         this.apps = out;
     }
@@ -265,8 +271,9 @@ class ComboBuilder {
     }
 
     _source(members, name) {
+        this.libVersion = '';   // the newest version that serves the members chosen now
         return Promise.all([...CB_LIBS, CB_WEB_LIB, CB_COMBO_LIB]
-            .map(p => this._fetchText(p))).then(libs => {
+            .map(p => this._lib(p))).then(libs => {
             const parts = libs.slice();
             for (const m of members) {
                 parts.push(`(combo-loading! ${cbSchemeString(m.id)})`);   // its folder and settings while it loads
@@ -289,6 +296,7 @@ description = 合并应用：${members.map(m => m.name).join('、')} 的页面�
 version = 1
 pages = ${pages}
 api = ${api}
+applib = ${this.libVersion}
 
 [combo]
 members = ${members.map(m => m.id).join(', ')}
@@ -310,8 +318,8 @@ alerts =
     /* The page section of the image (as tools/build_apps.py web_section): the
      * combined app's page with appweb.css and appweb.js inlined, gzip'd */
     async _pageSection() {
-        const [html, css, js] = await Promise.all([CB_COMBO_PAGE, 'apps/lib/appweb.css', 'apps/lib/appweb.js']
-            .map(p => this._fetchText(p)));
+        const [html, css, js] = await Promise.all([CB_COMBO_PAGE, 'appweb.css', 'appweb.js']
+            .map(p => this._lib(p)));
         const page = html.replace('<!-- appweb -->', `<style>\n${css}</style>\n<script>\n${js}</script>`);
         const gz = new Uint8Array(await new Response(new Blob([new TextEncoder().encode(page)])
             .stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());

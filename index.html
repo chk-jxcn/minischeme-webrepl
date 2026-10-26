@@ -133,6 +133,10 @@
                         <select id="editor-app-select" class="compact-select">
                             <option value="__blank__">🌟 新建应用 (空白模板)</option>
                         </select>
+                        <label for="editor-applib-select" title="编译时拼在代码前面的应用库 (minischeme-apps apps/lib/) 版本：主版本相同、次版本不低于应用声明的 applib">应用库:</label>
+                        <select id="editor-applib-select" class="compact-select" title="编译时拼在代码前面的应用库版本"></select>
+                        <span id="editor-libs-note" class="editor-status-line" title="编译时依次拼上的库文件"></span>
+                        <button class="pill-btn compact" id="editor-api-docs-btn" title="固件 API 与所选应用库的函数：搜索、查看说明与示例、插入到光标处">📖 API 文档</button>
                         <button class="pill-btn compact" id="editor-toggle-meta-btn" title="展开或收起应用元数据配置面板">📋 应用元数据 ▾</button>
                     </div>
                     <div class="editor-tool-group">
@@ -172,7 +176,7 @@
                 <!-- 代码主编辑区 -->
                 <div class="editor-code-pane">
                     <div class="editor-code-header">
-                        <span class="editor-code-title">Scheme 源代码 (All-in-One 单文件可直接编译)</span>
+                        <span class="editor-code-title" title="开头的 ;;; 注释是应用的 meta.ini（[app]、[fields]、[config]），编译后放进镜像的元数据">Scheme 源代码（应用自己的代码；开头 ;;; 注释为 meta.ini；编译时拼上所选应用库）</span>
                         <span id="editor-status-line" class="editor-status-line">共 0 行，0 字符</span>
                     </div>
                     <textarea id="editor-code" class="editor-code-area" spellcheck="false" autocomplete="off" placeholder="在此编写或粘贴 MiniScheme 源代码..."></textarea>
@@ -646,6 +650,7 @@
     <script src="js/file_manager.js"></script>
     <script src="js/font_generator.js"></script>
     <script src="js/font_manager.js"></script>
+    <script src="js/app_source.js"></script>
     <script src="js/app_manager.js"></script>
     <script src="js/combo_builder.js"></script>
     <script src="js/app_web.js"></script>

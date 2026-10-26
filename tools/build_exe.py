@@ -21,7 +21,6 @@ def main():
         ("js", "js"),
         ("wasm", "wasm"),
         ("data", "data"),
-        ("apps", "apps"),
         ("fonts", "fonts"),
         ("firmware", "firmware"),
         ("proxy", "proxy"),

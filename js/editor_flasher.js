@@ -105,8 +105,8 @@ function generateSchemeHeaderComment(meta) {
     return `;;; [app]\n;;; id = ${meta.id}\n;;; name = ${meta.name}\n;;; description = ${meta.description}\n;;; version = ${meta.version}\n;;; api = ${meta.api_version}\n;;;\n;;; [config]\n;;; proxy_url = ${meta.proxy_url || ''}\n;;; converter_url = ${meta.converter_url || ''}\n\n`;
 }
 
-function attachMetaTrailerToMsbc(msbcBytes, meta) {
-    const iniText = generateMetaIniText(meta);
+function attachMetaTrailerToMsbc(msbcBytes, meta, ini) {
+    const iniText = ini || generateMetaIniText(meta);
     const metaBytes = new TextEncoder().encode(iniText);
     const metaLen = metaBytes.length;
     const hash = fnv1a32(metaBytes);
@@ -953,6 +953,230 @@ class WebSerialFirmwareFlasher {
 // ---------------------------------------------------------------------------
 // 4. Scheme In-Browser IDE & Online Compiler
 // ---------------------------------------------------------------------------
+
+/* The editor holds an app's own code (apps/<id>/<id>.scm), its meta.ini as the
+ * ";;; " comment block at the top (as tools/build_apps.py writes the
+ * all-in-one header). Compiling puts the chosen app library version's files
+ * before it (gui, infopages, applib, and appweb for an app with app-web; from
+ * minischeme-apps dist/lib/<version>/, app_source.js), the whole meta.ini
+ * after it as the image's metadata, and the app's web page (web.html, with
+ * that version's appweb.css / appweb.js) as its page section: the same image
+ * build_apps.py makes. "No library" compiles the code alone (an all-in-one
+ * file, or an app on the firmware's API only). */
+const EDITOR_DEFAULT_LIBS = ['gui', 'infopages', 'applib'];
+const EDITOR_NO_LIB = '';
+
+/* The meta.ini text of the code's leading ";;;" block (from its [app] line), or '' */
+function editorHeaderIni(code) {
+    const out = [];
+    let started = false;
+    for (const raw of String(code || '').split('\n')) {
+        const line = raw.replace(/\r$/, '');
+        if (!/^;;;/.test(line)) break;
+        const text = line.replace(/^;;; ?/, '');
+        if (!started && /^\s*\[app\]/i.test(text)) started = true;
+        if (started) out.push(text);
+    }
+    return started ? out.join('\n').replace(/\s+$/, '') + '\n' : '';
+}
+
+/* ini text with key = value set in [section] (the line replaced, or added at the section's end) */
+function editorIniSet(ini, section, key, value) {
+    const lines = String(ini || '').split('\n');
+    let sec = '', secEnd = -1, found = false;
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].match(/^\s*\[(.+)\]\s*$/);
+        if (m) { sec = m[1].trim().toLowerCase(); continue; }
+        if (sec === section) {
+            secEnd = i;
+            const kv = lines[i].match(/^(\s*)([A-Za-z0-9_]+)(\s*=\s*)([^;#]*?)(\s*[;#].*)?$/);
+            if (kv && kv[2] === key) { lines[i] = `${kv[1]}${key}${kv[3]}${value}${kv[5] || ''}`; found = true; break; }
+        }
+    }
+    if (!found) {
+        const at = lines.findIndex((l) => new RegExp(`^\\s*\\[${section}\\]`, 'i').test(l));
+        if (at < 0) lines.unshift(`[${section}]`, `${key} = ${value}`);
+        else lines.splice(Math.max(secEnd, at) + 1, 0, `${key} = ${value}`);
+    }
+    return lines.join('\n');
+}
+
+function editorIniGet(ini, section, key) {
+    let sec = '';
+    for (const line of String(ini || '').split('\n')) {
+        const m = line.match(/^\s*\[(.+)\]\s*$/);
+        if (m) { sec = m[1].trim().toLowerCase(); continue; }
+        const kv = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*([^;#]*)/);
+        if (sec === section && kv && kv[1] === key) return kv[2].trim();
+    }
+    return '';
+}
+
+/* The MSWP page section of an image (tools/build_apps.py web_section): html with the
+ * library's appweb.css / appweb.js in place of <!-- appweb -->, gzip'd */
+async function editorWebSection(html, css, js) {
+    const page = html.replace('<!-- appweb -->', `<style>\n${css}</style>\n<script>\n${js}</script>`);
+    const gz = new Uint8Array(await new Response(new Blob([new TextEncoder().encode(page)])
+        .stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    const out = new Uint8Array(gz.length + 12);
+    out.set(gz, 0);
+    const dv = new DataView(out.buffer, gz.length);
+    dv.setUint32(0, gz.length, true);
+    dv.setUint32(4, fnv1a32(gz), true);
+    out.set([0x4D, 0x53, 0x57, 0x50], gz.length + 8);   // "MSWP"
+    return out;
+}
+
+/* 📖 API 文档: the firmware API (minischeme-apps dist/api.json) and the chosen app
+ * library version's definitions (dist/lib/<version>/api.json); search, details,
+ * insert at the editor's cursor */
+class EditorApiPanel {
+    constructor(editor) {
+        this.editor = editor;
+        this.items = [];
+        this.libVersion = null;
+        this.root = null;
+    }
+
+    _build() {
+        const root = document.createElement('div');
+        root.className = 'fm-overlay';
+        root.hidden = true;
+        root.innerHTML = `
+            <div class="fm-dialog" role="dialog" aria-modal="true" aria-labelledby="eap-title" style="max-width:1100px;width:96vw;">
+                <div class="fm-head">
+                    <span class="fm-title" id="eap-title">📖 API 文档</span>
+                    <span class="fm-target eap-source"></span>
+                    <button class="fm-close" data-act="close" title="关闭 (Esc)" aria-label="关闭">&times;</button>
+                </div>
+                <div class="fm-toolbar" style="gap:8px;">
+                    <input type="search" class="eap-search" placeholder="搜索名称、说明（如 gui-text、提醒、http）" style="flex:1;min-width:180px;">
+                    <select class="eap-kind compact-select">
+                        <option value="all">全部</option>
+                        <option value="fw">固件 API</option>
+                        <option value="lib">应用库 applib</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:10px;min-height:0;flex:1;height:62vh;">
+                    <div class="eap-list" style="flex:0 0 42%;overflow:auto;border-right:1px solid var(--border-color, #333);"></div>
+                    <div class="eap-detail" style="flex:1;overflow:auto;padding:4px 6px;"></div>
+                </div>
+                <div class="fm-status" role="status" aria-live="polite"></div>
+            </div>`;
+        document.body.appendChild(root);
+        this.root = root;
+        const q = (s) => root.querySelector(s);
+        this.el = { search: q('.eap-search'), kind: q('.eap-kind'), list: q('.eap-list'), detail: q('.eap-detail'),
+                    source: q('.eap-source'), status: q('.fm-status') };
+        root.addEventListener('click', (e) => {
+            if (e.target === root) { this.close(); return; }
+            const b = e.target.closest('[data-act]');
+            if (!b) return;
+            if (b.dataset.act === 'close') this.close();
+            else if (b.dataset.act === 'show') this._show(Number(b.dataset.i));
+            else if (b.dataset.act === 'insert') this._insert(Number(b.dataset.i), b.dataset.what);
+        });
+        root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); this.close(); } });
+        this.el.search.addEventListener('input', () => this._render());
+        this.el.kind.addEventListener('change', () => this._render());
+    }
+
+    async open() {
+        if (!this.root) this._build();
+        this.root.hidden = false;
+        this.el.search.focus();
+        const lib = this.editor.libVersion;
+        if (this.items.length && this.libVersion === lib) { this._render(); return; }
+        this.el.status.textContent = '读取 API 文档…';
+        const items = [];
+        let fwVer = '', note = [];
+        try {
+            const ref = await window.appSource.apiReference();
+            fwVer = ref.api || '';
+            for (const e of ref.entries || []) {
+                if (e.status === 'alias') continue;
+                items.push({ kind: 'fw', name: e.name, sig: e.sig || e.name, text: e.desc || '', e });
+            }
+        } catch (e) { note.push(`固件 API：${e.message || e}`); }
+        if (lib) {
+            try {
+                const d = await window.appSource.libApi(lib);
+                for (const e of d.definitions || []) {
+                    items.push({ kind: 'lib', name: e.name, sig: e.sig, text: e.doc || '', e,
+                                 sectionText: (d.sections || {})[`${e.file}: ${e.section}`] || '' });
+                }
+            } catch (e) { note.push(`应用库 ${lib}：${e.message || e}`); }
+        }
+        this.items = items;
+        this.libVersion = lib;
+        this.el.source.textContent = `固件 API ${fwVer || '?'}` + (lib ? ` · 应用库 ${lib}` : ' · 未选应用库');
+        this.el.status.textContent = note.join('；');
+        this._render();
+    }
+
+    close() { if (this.root) this.root.hidden = true; }
+
+    _render() {
+        const q = this.el.search.value.trim().toLowerCase();
+        const kind = this.el.kind.value;
+        const esc = (s) => escapeHtml(String(s == null ? '' : s));
+        const shown = [];
+        this.items.forEach((it, i) => {
+            if (kind !== 'all' && it.kind !== kind) return;
+            if (q && !(`${it.name} ${it.sig} ${it.text} ${it.e.component || it.e.section || ''}`.toLowerCase().includes(q))) return;
+            shown.push(i);
+        });
+        this.el.list.innerHTML = shown.slice(0, 600).map((i) => {
+            const it = this.items[i];
+            const tag = it.kind === 'fw' ? (it.e.status === 'reserved' ? '保留' : (it.e.component || '固件')) : (it.e.file || 'applib').replace('.scm', '');
+            return `<div class="am-app" style="padding:4px 6px;cursor:pointer;" data-act="show" data-i="${i}">
+                <div class="am-name" style="font-family:monospace;font-size:12px;">${esc(it.sig)} <span class="am-note">${esc(tag)}</span></div>
+                <div class="am-desc" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(it.text.split('\n')[0])}</div>
+            </div>`;
+        }).join('') || '<div class="am-desc">没有匹配的条目</div>';
+        if (shown.length > 600) this.el.list.insertAdjacentHTML('beforeend', `<div class="am-desc">还有 ${shown.length - 600} 条，请缩小搜索范围</div>`);
+        if (shown.length && !this.el.detail.innerHTML) this._show(shown[0]);
+    }
+
+    _show(i) {
+        const it = this.items[i];
+        if (!it) return;
+        const esc = (s) => escapeHtml(String(s == null ? '' : s));
+        const pre = (s) => `<pre style="white-space:pre-wrap;background:rgba(127,127,127,.12);padding:6px;border-radius:4px;font-size:12px;">${esc(s)}</pre>`;
+        const e = it.e;
+        let html = `<h4 style="font-family:monospace;margin:4px 0;">${esc(it.sig)}</h4>`;
+        if (it.kind === 'fw') {
+            html += `<div class="am-desc">固件 API · ${esc(e.component || '')} · 自 ${esc(e.since || '1.0')}${e.ext ? ' · 扩展 ' + esc(e.ext) : ''}${e.status === 'reserved' ? ' · <b>保留（尚未实现）</b>' : ''}${e.where && e.where !== 'all' ? ' · ' + esc(e.where) : ''}</div>`;
+            html += `<p>${esc(e.desc || '')}</p>`;
+            if (e.returns) html += `<p><b>返回：</b>${esc(e.returns)}</p>`;
+            if (e.example) html += `<b>示例</b>${pre(e.example)}`;
+            if (e.notes) html += `<p class="am-desc">${esc(e.notes)}</p>`;
+        } else {
+            html += `<div class="am-desc">应用库 ${esc(this.libVersion)} · ${esc(e.file)}${e.section ? ' · ' + esc(e.section) : ''} · ${e.kind === 'procedure' ? '过程' : '变量'}</div>`;
+            if (it.text) html += pre(it.text);
+            if (it.sectionText) html += `<b>本节说明</b>${pre(it.sectionText)}`;
+            if (!it.text && !it.sectionText) html += '<p class="am-desc">（源码中没有说明）</p>';
+        }
+        html += `<div class="am-actions" style="margin-top:8px;">
+            <button class="pill-btn" data-act="insert" data-i="${i}" data-what="sig">插入调用</button>
+            ${it.kind === 'fw' && e.example ? `<button class="pill-btn" data-act="insert" data-i="${i}" data-what="example">插入示例</button>` : ''}
+        </div>`;
+        this.el.detail.innerHTML = html;
+    }
+
+    _insert(i, what) {
+        const it = this.items[i];
+        const area = this.editor.codeArea;
+        if (!it || !area) return;
+        const text = what === 'example' ? it.e.example : it.sig;
+        const a = area.selectionStart, b = area.selectionEnd;
+        area.value = area.value.slice(0, a) + text + area.value.slice(b);
+        area.selectionStart = area.selectionEnd = a + text.length;
+        this.editor._updateStatusLine();
+        this.close();
+        area.focus();
+    }
+}
 const DEFAULT_SCHEME_TEMPLATE = `;;; [app]
 ;;; id = my_app
 ;;; name = 我的自定义应用
@@ -995,6 +1219,11 @@ class SchemeIdeModal {
         this.codeArea = null;
         this.lastCompiled = null;
         this.bundledApps = [];
+        this.libVersion = EDITOR_NO_LIB;   // the app library version compiled before the code ('' none)
+        this.libs = EDITOR_DEFAULT_LIBS.slice();
+        this.libVersions = [];
+        this.webPage = '';                 // the loaded app's web.html (its image's page section)
+        this.apiPanel = new EditorApiPanel(this);
     }
 
     init() {
@@ -1072,9 +1301,8 @@ class SchemeIdeModal {
                 if (!file) return;
                 const reader = new FileReader();
                 reader.onload = () => {
-                    this.codeArea.value = reader.result;
-                    this.syncMetaFromCode();
-                    this._updateStatusLine();
+                    this.webPage = '';
+                    this._setCode(reader.result, null);
                     this.compile();
                 };
                 reader.readAsText(file, 'utf-8');
@@ -1093,6 +1321,13 @@ class SchemeIdeModal {
                 reader.readAsArrayBuffer(file);
             });
         }
+
+        const libSelect = document.getElementById('editor-applib-select');
+        if (libSelect) {
+            libSelect.addEventListener('change', () => { this.libVersion = libSelect.value; this._showLibs(); });
+        }
+        const btnApi = document.getElementById('editor-api-docs-btn');
+        if (btnApi) btnApi.addEventListener('click', () => this.apiPanel.open());
 
         // Template selector
         const appSelect = document.getElementById('editor-app-select');
@@ -1156,6 +1391,7 @@ class SchemeIdeModal {
             this.syncMetaFromCode();
             this._updateStatusLine();
             this._populateAppSelector();
+            this._populateLibSelector();
         }
         if (tabRepl) {
             tabRepl.classList.remove('active');
@@ -1199,31 +1435,82 @@ class SchemeIdeModal {
     async _populateAppSelector() {
         const select = document.getElementById('editor-app-select');
         if (!select || select.options.length > 2) return;
-
         try {
-            let list = null;
-            try {
-                const ghRes = await fetch('https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/index.json', { cache: 'no-store' });
-                if (ghRes.ok) list = await ghRes.json();
-            } catch (e) { /* fallback to local */ }
-
-            if (!list) {
-                const res = await fetch('apps/index.json', { cache: 'no-store' });
-                if (res.ok) list = await res.json();
-            }
-
-            if (list && Array.isArray(list)) {
-                this.bundledApps = list;
-                for (const app of list) {
-                    const opt = document.createElement('option');
-                    opt.value = app.id;
-                    opt.textContent = `📦 ${app.name} (${app.id}.allinone.scm)`;
-                    select.appendChild(opt);
-                }
+            const list = await window.appSource.index();
+            this.bundledApps = list;
+            for (const app of list) {
+                const opt = document.createElement('option');
+                opt.value = app.id;
+                opt.textContent = `📦 ${app.name} (${app.id}${app.applib ? '，applib ' + app.applib : ''})`;
+                select.appendChild(opt);
             }
         } catch (e) {
-            console.warn('Failed to load apps/index.json', e);
+            console.warn('The market list (app_source.js):', e);
         }
+    }
+
+    /* The app library versions (newest first) and "none"; keeps the current choice */
+    async _populateLibSelector() {
+        const select = document.getElementById('editor-applib-select');
+        if (!select) return;
+        try {
+            if (!this.libVersions.length) {
+                const idx = await window.appSource.libIndex();
+                this.libVersions = idx.versions || [];
+                if (this.libVersion === EDITOR_NO_LIB && !this._libChosen) this._pickLibFor(this.codeArea ? this.codeArea.value : '');
+            }
+        } catch (e) {
+            console.warn('The app library list (app_source.js):', e);
+        }
+        select.innerHTML = [`<option value="">不使用 applib（allinone 文件，或只用固件 API）</option>`]
+            .concat(this.libVersions.map((v) => `<option value="${escapeHtml(v.version)}">applib ${escapeHtml(v.version)}（固件 API ≥ ${escapeHtml(v.api || '?')}）</option>`))
+            .join('');
+        select.value = this.libVersion;
+        this._showLibs();
+    }
+
+    /* The library version for code: none for code that carries the library itself (an
+     * all-in-one file); else the newest that serves the applib its meta.ini declares (or
+     * hint: the market's index for an app); else, for code that calls the library
+     * (app-define!, txt ...), the newest; else none (an app on the firmware's API alone) */
+    _pickLibFor(code, hint) {
+        const need = editorIniGet(editorHeaderIni(code), 'app', 'applib') || hint || '';
+        if (/Section: apps\/lib\/(gui|applib)\.scm/.test(code)) {
+            this.libVersion = EDITOR_NO_LIB;
+        } else if (need) {
+            this.libVersion = AppSource.pickLib(need, this.libVersions) || EDITOR_NO_LIB;
+        } else if (/\((app-define!|app-page|txt|txt-fit|app-local-page)\s/.test(code)) {
+            this.libVersion = (this.libVersions[0] && this.libVersions[0].version) || EDITOR_NO_LIB;
+        } else {
+            this.libVersion = EDITOR_NO_LIB;
+        }
+        const select = document.getElementById('editor-applib-select');
+        if (select) select.value = this.libVersion;
+        this._showLibs();
+    }
+
+    _codeLibs() {
+        const libs = this.libs.slice();
+        if (/\(define\s+\(app-web\b/.test(this.codeArea ? this.codeArea.value : '') && !libs.includes('appweb')) libs.push('appweb');
+        return libs;
+    }
+
+    _showLibs() {
+        const note = document.getElementById('editor-libs-note');
+        if (!note) return;
+        note.textContent = this.libVersion ? `拼上: ${this._codeLibs().join(' + ')}${this.webPage ? ' · 含网页' : ''}`
+                                           : (this.webPage ? '含网页' : '');
+    }
+
+    /* New code in the editor: its metadata, and the library its meta.ini asks for
+     * (libs: the library files of a market app, else gui + infopages + applib) */
+    _setCode(code, libs, hint) {
+        this.codeArea.value = code;
+        this.libs = (libs && libs.length ? libs.filter((l) => l !== 'appweb') : EDITOR_DEFAULT_LIBS).slice();
+        this._libChosen = true;
+        this._pickLibFor(code, hint);
+        this.syncMetaFromCode();
+        this._updateStatusLine();
     }
 
     async loadAppFromMarketOrTemplate(appId) {
@@ -1235,40 +1522,32 @@ class SchemeIdeModal {
         }
 
         const statusEl = document.getElementById('editor-build-status');
-        if (statusEl) statusEl.textContent = `正在从 GitHub/本地加载 ${appId}.allinone.scm 源码...`;
+        if (statusEl) statusEl.textContent = `正在载入 ${appId} 的源码…`;
 
         try {
-            let scmText = null;
-
-            // 1. Try GitHub repo apps/<id>.allinone.scm
-            const urls = [
-                `apps/${appId}.allinone.scm`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}.allinone.scm`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/dist/${appId}.allinone.scm`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.allinone.scm`,
-                `https://raw.githubusercontent.com/chk-jxcn/minischeme-apps/main/apps/${appId}/${appId}.scm`,
-                `apps/${appId}.scm`
-            ];
-
-            for (const url of urls) {
-                try {
-                    const res = await fetch(url);
-                    if (res.ok) {
-                        scmText = await res.text();
-                        if (scmText && scmText.trim().length > 10) break;
-                    }
-                } catch (e) { /* try next */ }
+            const src = window.appSource;
+            if (!this.bundledApps.length) this.bundledApps = await src.index();
+            const app = this.bundledApps.find((a) => a.id === appId) || {};
+            if (!this.libVersions.length) await this._populateLibSelector();
+            let code, libs = app.libs, what;
+            this.webPage = '';
+            if (app.source) {
+                // the app's own code, its meta.ini as the ;;; header, its web page kept aside
+                const [meta, body] = await Promise.all([src.appFile(app.meta || `apps/${appId}/meta.ini`),
+                                                        src.appFile(app.source)]);
+                code = meta.replace(/\r\n/g, '\n').replace(/\s+$/, '').split('\n').map((l) => (l ? `;;; ${l}` : ';;;')).join('\n') +
+                       '\n\n' + body;
+                if (app.web_page) this.webPage = await src.appFile(app.web_page);
+                what = `${app.source}（应用库由下拉框选择）`;
+            } else {
+                // no code of its own (a combined app): the all-in-one file, libraries included
+                code = await src.text(`dist/${app.scm || appId + '.allinone.scm'}`);
+                libs = null;
+                what = `${app.scm || appId + '.allinone.scm'}（已包含库）`;
             }
-
-            if (!scmText) {
-                throw new Error(`未能获取 ${appId}.allinone.scm 源码 (请确认网络或手动打开本地文件)`);
-            }
-
-            this.codeArea.value = scmText;
-            this.syncMetaFromCode();
-            this._updateStatusLine();
-            this.compile();
-            if (statusEl) statusEl.textContent = `✔ 已载入并编译 ${appId}.allinone.scm (点击“本地模拟”可在右侧屏幕预览)`;
+            this._setCode(code, libs, libs ? (app.applib || (app.libs && app.libs.length ? '1.0' : '')) : '');
+            await this.compile();
+            if (statusEl) statusEl.textContent = `✔ 已载入并编译 ${what}（点击“本地模拟”可在右侧屏幕预览）`;
         } catch (e) {
             alert(`加载源码失败: ${e.message}`);
             if (statusEl) statusEl.textContent = `加载失败: ${e.message}`;
@@ -1343,15 +1622,40 @@ class SchemeIdeModal {
         if (!this.codeArea) return;
         const meta = this._getMetaFromInputs();
         let code = this.codeArea.value;
-        code = code.replace(/^;;;.*?\n\n/s, '');
-        const header = generateSchemeHeaderComment(meta);
-        this.codeArea.value = header + code;
+        const ini = editorHeaderIni(code);
+        if (ini) {   // the whole meta.ini stays; the drawer's keys are written into it
+            const lines = code.split('\n');
+            let n = 0;
+            while (n < lines.length && /^;;;/.test(lines[n])) n++;
+            const header = this._metaIni(meta, ini).replace(/\s+$/, '').split('\n').map((l) => (l ? `;;; ${l}` : ';;;')).join('\n');
+            this.codeArea.value = header + '\n' + lines.slice(n).join('\n');
+        } else {
+            code = code.replace(/^;;;.*?\n\n/s, '');
+            this.codeArea.value = generateSchemeHeaderComment(meta) + code;
+        }
         this._updateStatusLine();
     }
 
-    compile() {
+    /* The image's meta.ini: the code's ;;; header (every section) with the drawer's
+     * keys, and applib when a library is compiled in; the old generated one without a header */
+    _metaIni(meta, headerIni) {
+        let ini = headerIni != null ? headerIni : editorHeaderIni(this.codeArea.value);
+        if (!ini) ini = generateMetaIniText(meta);
+        ini = editorIniSet(ini, 'app', 'id', meta.id);
+        ini = editorIniSet(ini, 'app', 'name', meta.name);
+        if (meta.description) ini = editorIniSet(ini, 'app', 'description', meta.description);
+        ini = editorIniSet(ini, 'app', 'version', meta.version);
+        // the firmware API: the higher of the app's own and the chosen library version's
+        const lib = this.libVersion && this.libVersions.find((v) => v.version === this.libVersion);
+        const api = lib && lib.api && AppSource.compare(lib.api, meta.api_version) > 0 ? lib.api : meta.api_version;
+        ini = editorIniSet(ini, 'app', 'api', api);
+        if (this.libVersion && !editorIniGet(ini, 'app', 'applib')) ini = editorIniSet(ini, 'app', 'applib', this.libVersion);
+        return ini;
+    }
+
+    async compile() {
         if (!this.codeArea) return null;
-        const source = this.codeArea.value;
+        let source = this.codeArea.value;
         const statusEl = document.getElementById('editor-build-status');
         const metricTime = document.getElementById('editor-metric-time');
         const metricBytecode = document.getElementById('editor-metric-bytes');
@@ -1363,6 +1667,29 @@ class SchemeIdeModal {
             return null;
         }
 
+        const meta = this._getMetaFromInputs();
+        const iniText = this._metaIni(meta);
+        const need = editorIniGet(iniText, 'app', 'applib');
+        let page = null;
+        try {
+            if (this.libVersion) {
+                if (need && !AppSource.serves(need, this.libVersion)) {
+                    throw new Error(`应用声明需要 applib ${need}，所选 ${this.libVersion} 不满足（主版本相同、次版本不低于它）`);
+                }
+                if (statusEl) statusEl.textContent = `读取应用库 ${this.libVersion}…`;
+                const libs = await Promise.all(this._codeLibs().map((l) => window.appSource.libFile(this.libVersion, `${l}.scm`)));
+                source = libs.join('\n') + '\n' + source;
+            }
+            if (this.webPage) {
+                const v = this.libVersion || (this.libVersions[0] && this.libVersions[0].version);
+                const [css, js] = v ? await Promise.all(['appweb.css', 'appweb.js'].map((f) => window.appSource.libFile(v, f))) : ['', ''];
+                page = await editorWebSection(this.webPage, css, js);
+            }
+        } catch (e) {
+            if (statusEl) statusEl.innerHTML = `<span style="color:#f87171;">❌ ${escapeHtml(e.message || String(e))}</span>`;
+            return null;
+        }
+
         const res = compileWithWasm(source);
         if (!res || !res.success) {
             const err = (res && res.error) || '编译失败';
@@ -1370,8 +1697,13 @@ class SchemeIdeModal {
             return null;
         }
 
-        const meta = this._getMetaFromInputs();
-        const packaged = attachMetaTrailerToMsbc(res.bytes, meta);
+        let code = res.bytes;
+        if (page) {   // [image][page section][meta trailer], as tools/build_apps.py
+            code = new Uint8Array(res.bytes.length + page.length);
+            code.set(res.bytes, 0);
+            code.set(page, res.bytes.length);
+        }
+        const packaged = attachMetaTrailerToMsbc(code, meta, iniText);
 
         this.lastCompiled = {
             ...packaged,
@@ -1384,14 +1716,14 @@ class SchemeIdeModal {
         if (metricTotal) metricTotal.textContent = `${packaged.combinedBytes.length} B`;
 
         if (statusEl) {
-            statusEl.innerHTML = `<span style="color:#4ade80;">✔ 编译成功！字节码: ${res.bytes.length} B, 元数据: ${packaged.metaLen} B, 总大小: ${packaged.combinedBytes.length} B</span>`;
+            statusEl.innerHTML = `<span style="color:#4ade80;">✔ 编译成功！${this.libVersion ? `应用库 ${escapeHtml(this.libVersion)}，` : ''}字节码: ${res.bytes.length} B${page ? `, 网页: ${page.length} B` : ''}, 元数据: ${packaged.metaLen} B, 总大小: ${packaged.combinedBytes.length} B</span>`;
         }
 
         return this.lastCompiled;
     }
 
-    runLocal() {
-        if (!this.compile()) return;
+    async runLocal() {
+        if (!(await this.compile())) return;
         const bytes = this.lastCompiled.combinedBytes;
         const statusEl = document.getElementById('editor-build-status');
         // boot it as the device boots an app (hooks, timers), and show what went wrong
@@ -1418,7 +1750,7 @@ class SchemeIdeModal {
     }
 
     async uploadToHardware() {
-        if (!this.compile()) return;
+        if (!(await this.compile())) return;
 
         const meta = this._getMetaFromInputs();
         const targetPath = `/spiffs/apps/${meta.id}/app.msbc`;
@@ -1463,8 +1795,8 @@ class SchemeIdeModal {
         if (statusEl) statusEl.innerHTML = `<span style="color:#4ade80;">✔ 草稿已保存到浏览器 LocalStorage (${meta.id})</span>`;
     }
 
-    downloadMsbc() {
-        if (!this.compile()) return;
+    async downloadMsbc() {
+        if (!(await this.compile())) return;
         const meta = this._getMetaFromInputs();
         const filename = `${meta.id}.msbc`;
         const blob = new Blob([this.lastCompiled.combinedBytes], { type: 'application/octet-stream' });
@@ -1481,7 +1813,7 @@ class SchemeIdeModal {
     downloadScm() {
         if (!this.codeArea) return;
         const meta = this._getMetaFromInputs();
-        const filename = `${meta.id}.allinone.scm`;
+        const filename = `${meta.id}${this.libVersion ? '' : '.allinone'}.scm`;   // the app's own code, or an all-in-one file
         const blob = new Blob([this.codeArea.value], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

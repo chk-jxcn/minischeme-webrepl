@@ -322,6 +322,12 @@ function execLastOnWasmDevice() {
 // from a Code ROM image. Falls back to a RAM run for older WASM builds.
 function bootAppOnWasmDevice(bytes) {
     deviceSymbolsStale = true;
+    if (!bytes) {   // the system settings built into the simulator
+        if (!wasmInstance.exports.wasm_boot_builtin_settings) return 'Error: 需要新版 minischeme_vm.wasm';
+        const r = readStringFromWasm(wasmInstance.exports.wasm_boot_builtin_settings());
+        pumpDisplay();
+        return r;
+    }
     if (!wasmInstance.exports.wasm_boot_app) return execBytesOnWasmDevice(bytes);
     const ptr = wasmInstance.exports.wasm_alloc_buffer(bytes.length);
     new Uint8Array(wasmMemory.buffer, ptr, bytes.length).set(bytes);
@@ -1303,35 +1309,30 @@ if (simLightRemote) {
 // Quick Toolbar Actions & Application Loaders
 // =========================================================================
 
-/* The bundled app (the system settings or calendar): booted
- * on the WASM device with its app loop, or sent to the linked board */
+/* The default app: the calendar of the newest minischeme-apps release
+ * (app_source.js, kept in the browser), else the system settings built into
+ * the simulator; booted on the WASM device with its app loop, or the
+ * calendar sent to the linked board */
 async function bootBundledApp(prefix = '', preferredApp = 'calendar') {
     stopPcMonitor();
     try {
-        const candidates = preferredApp === 'calendar'
-            ? ['apps/calendar.msbc', 'calendar.msbc', 'apps/settings.msbc', 'settings.msbc', 'apps/settings/app.msbc']
-            : ['apps/settings.msbc', 'settings.msbc', 'apps/calendar.msbc', 'calendar.msbc', 'apps/settings/app.msbc'];
-        let res = null;
-        let chosen = '';
-        for (const path of candidates) {
+        let bytes = null;
+        if (preferredApp === 'calendar') {
             try {
-                res = await fetch(path, { cache: 'no-store' });
-                if (res && res.ok) {
-                    chosen = path;
-                    break;
-                }
-            } catch (e) {}
+                bytes = await window.appSource.image('calendar.msbc');
+            } catch (e) {
+                appendTerminalLine('info', `万年历下载失败（${e.message || e}），改为内置系统设置`);
+            }
         }
-        if (!res || !res.ok) throw new Error(`No bundled app found: HTTP ${res ? res.status : 'fetch failed'}`);
-        const bytes = new Uint8Array(await res.arrayBuffer());
         if (activeLink) {
+            if (!bytes) throw new Error('设备自带系统设置：在设备上中长按（3.5 秒）进入');
             await installOnDevice(bytes, 'app.msbc');
             return;
         }
         const r = startAppOnWasmDevice(bytes);
         if (r.startsWith('Error:')) throw new Error(r);
-        const name = chosen.includes('calendar') ? '万年历' : '内置系统设置';
-        appendTerminalLine('output', `=> ${prefix}已启动${name} (${bytes.length} 字节): ${r}`);
+        const name = bytes ? '万年历' : '内置系统设置';
+        appendTerminalLine('output', `=> ${prefix}已启动${name}${bytes ? ` (${bytes.length} 字节)` : ''}: ${r}`);
     } catch (e) {
         appendTerminalLine('error', `启动应用失败: ${e.message || e}`);
     }
@@ -1608,7 +1609,7 @@ function readAppImageId(bytes) {
 /* Boot an app image on the WASM device and run its loop, as after a reboot */
 function startAppOnWasmDevice(bytes) {
     stopPcMonitor();
-    const appId = readAppImageId(bytes);
+    const appId = bytes ? readAppImageId(bytes) : 'settings';   // null: the built-in settings
     if (appId === 'pcmonitor') {
         setSimulatorResolution(480, 320);
         if (simResolutionSelect) simResolutionSelect.value = '480x320';

@@ -23,7 +23,7 @@ Code that exists in more than one repository (update every copy and release each
 |------|--------|
 | C core | `minischeme/src`, `minischeme-esp32/components/minischeme/src` (plus the device/GUI sources), compiled into `minischeme-webrepl/wasm/minischeme_vm.wasm` |
 | Proxy | `minischeme-proxy/{server.py,proxy/}` and `minischeme-webrepl/{server.py,proxy/}` (identical files) |
-| App images | `minischeme-apps/dist`, `minischeme-esp32/main/app_*_msbc.h`, `minischeme-webrepl/apps` (`python tools/build_apps.py --sync`) |
+| App images | `minischeme-apps/dist` (released; the WebREPL page downloads them, `js/app_source.js`), `minischeme-esp32/main/app_*_msbc.h` (`python tools/build_apps.py --sync`); `minischeme-webrepl/apps` is git-ignored (local builds, `tools/fetch_apps.py` for the tests) |
 
 Writing or fixing an app: follow [APP_DEVELOPMENT_GUIDE.md](https://github.com/chk-jxcn/minischeme-apps/blob/main/docs/APP_DEVELOPMENT_GUIDE.md)
 in minischeme-apps (language subset, layout, servers, simulator and board testing, memory
@@ -200,7 +200,7 @@ cd repos/minischeme-esp32 && idf.py build
 MINISCHEME_BOARD=192.168.2.119 MINISCHEME_PASSWORD=... python -m unittest tests/test_board_http.py -v
 python tools/make_manifest.py <dir with the 3 images> <version> 6.1
 
-# apps: compile to dist/, update index.json; --sync also updates the firmware and WebREPL copies
+# apps: compile to dist/, update index.json; --sync also updates the firmware headers and the WebREPL's local apps/
 cd repos/minischeme-apps && python tools/build_apps.py --sync
 cd repos/minischeme-apps && python -m unittest discover -s tests -v   # pages, metadata, stale images (CI too)
 
