@@ -9,21 +9,25 @@
  * build: index.json, the images, dist/lib/<applib version>/, dist/api.json; the
  * apps' own code under apps/<id>/) through jsDelivr (reachable from mainland
  * China) or raw.githubusercontent.com. A file of a tag never changes, so it is
- * kept in the browser's Cache Storage and read from there next time; offline,
- * the copy of an earlier tag is used. Served by a local server.py, the page's
- * own apps/ comes first: build_apps.py --sync puts the PC's builds there.
+ * kept in the browser (IndexedDB, which also works on an http:// LAN address)
+ * and read from there next time; offline, the copy of an earlier tag is used.
+ * The files of the current and the previous release are kept. The WebREPL is a
+ * static page: no server keeps apps for it. Served by a local server.py, the
+ * page's own apps/ (when there is one) comes first: build_apps.py --sync puts
+ * the PC's builds there.
  */
 
 const AS_REPO = 'chk-jxcn/minischeme-apps';
-const AS_CACHE = 'minischeme-apps';
+const AS_DB = 'minischeme-apps';          // IndexedDB: store "files", key "<tag>/<path>"
 const AS_TAG_KEY = 'minischeme-apps-tag';
-const AS_CACHE_HOST = 'https://minischeme-apps.cache/';   // Cache Storage keys: <host><tag>/<path>
+const AS_KEEP_TAGS = 2;                    // the current release and the one before
 
 class AppSource {
     constructor() {
         this.tag = '';
         try { this.tag = localStorage.getItem(AS_TAG_KEY) || ''; } catch (e) { /* private window */ }
-        this.memory = new Map();            // without Cache Storage (an http:// LAN address)
+        this.memory = new Map();            // without IndexedDB (a private window may lack it)
+        this.dbp = null;
         this.lastSource = '';               // where the last file came from: 'local', 'cache', 'jsdelivr', 'github'
     }
 
@@ -61,11 +65,16 @@ class AppSource {
         return 'v' + vs[0];
     }
 
-    /* Looks the newest tag up again (the user's 刷新); keeps the old one when offline */
+    /* Looks the newest tag up again (the user's 刷新); keeps the old one when offline.
+     * A new release: the files of releases before the previous one are dropped */
     async refresh() {
         try {
-            this.tag = await this.latestTag();
-            try { localStorage.setItem(AS_TAG_KEY, this.tag); } catch (e) { /* not kept */ }
+            const tag = await this.latestTag();
+            if (tag !== this.tag) {
+                this.tag = tag;
+                try { localStorage.setItem(AS_TAG_KEY, tag); } catch (e) { /* not kept */ }
+                this._prune(tag).catch(() => {});
+            }
         } catch (e) {
             if (!this.tag) throw e;
         }
@@ -85,8 +94,62 @@ class AppSource {
         return 0;
     }
 
-    async _cache() {
-        try { return (typeof caches !== 'undefined') ? await caches.open(AS_CACHE) : null; } catch (e) { return null; }
+    /* The IndexedDB database, or null (then the files are kept for this page only) */
+    _db() {
+        if (!this.dbp) {
+            this.dbp = new Promise((resolve) => {
+                try {
+                    const rq = indexedDB.open(AS_DB, 1);
+                    rq.onupgradeneeded = () => rq.result.createObjectStore('files');
+                    rq.onsuccess = () => resolve(rq.result);
+                    rq.onerror = () => resolve(null);
+                    rq.onblocked = () => resolve(null);
+                } catch (e) { resolve(null); }
+            });
+        }
+        return this.dbp;
+    }
+
+    async _store(mode, fn) {
+        const db = await this._db();
+        if (!db) return null;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction('files', mode);
+                const rq = fn(tx.objectStore('files'));
+                tx.oncomplete = () => resolve(rq ? rq.result : true);
+                tx.onerror = tx.onabort = () => resolve(null);
+            } catch (e) { resolve(null); }
+        });
+    }
+
+    /* {data, type} kept for key, or null */
+    async _load(key) {
+        if (this.memory.has(key)) return this.memory.get(key);
+        return (await this._store('readonly', (s) => s.get(key))) || null;
+    }
+
+    async _save(key, value) {
+        this.memory.set(key, value);
+        await this._store('readwrite', (s) => s.put(value, key));
+    }
+
+    async _keys() {
+        return (await this._store('readonly', (s) => s.getAllKeys())) || [...this.memory.keys()];
+    }
+
+    /* Only the files of the newest AS_KEEP_TAGS releases stay */
+    async _prune(current) {
+        const keys = await this._keys();
+        const tags = [...new Set(keys.map((k) => String(k).split('/')[0]).concat([current]))]
+            .sort((a, b) => AppSource.compare(b, a));
+        const keep = new Set(tags.slice(0, AS_KEEP_TAGS));
+        const drop = keys.filter((k) => !keep.has(String(k).split('/')[0]));
+        if (drop.length) await this._store('readwrite', (s) => { drop.forEach((k) => s.delete(k)); return null; });
+    }
+
+    _response(v) {
+        return new Response(v.data, { headers: { 'Content-Type': v.type || '' } });
     }
 
     /* The page's own apps/ for a path of the repository: dist/<x> -> apps/<x>, apps/<id>/<x> -> apps/<id>/<x> */
@@ -103,30 +166,27 @@ class AppSource {
             } catch (e) { /* GitHub */ }
         }
         const tag = await this.ensureTag();
-        const key = `${AS_CACHE_HOST}${tag}/${path}`;
-        const cache = await this._cache();
-        const kept = cache ? await cache.match(key) : (this.memory.get(key) || null);
-        if (kept) { this.lastSource = 'cache'; return cache ? kept : kept.clone(); }
+        const key = `${tag}/${path}`;
+        const kept = await this._load(key);
+        if (kept) { this.lastSource = 'cache'; return this._response(kept); }
         let err = null;
         for (const [url, from] of [[`https://cdn.jsdelivr.net/gh/${AS_REPO}@${tag}/${path}`, 'jsdelivr'],
                                    [`https://raw.githubusercontent.com/${AS_REPO}/${tag}/${path}`, 'github']]) {
             try {
                 const r = await this._fetch(url, 30000);
                 if (!r.ok) { err = new Error(`${path}: HTTP ${r.status}`); continue; }
-                const body = await r.arrayBuffer();
-                const resp = new Response(body, { headers: { 'Content-Type': r.headers.get('Content-Type') || '' } });
-                if (cache) await cache.put(key, resp.clone()).catch(() => {});
-                else this.memory.set(key, resp.clone());
+                const value = { data: await r.arrayBuffer(), type: r.headers.get('Content-Type') || '' };
+                await this._save(key, value);
                 this.lastSource = from;
-                return resp;
+                return this._response(value);
             } catch (e) { err = e; }
         }
         // offline: the copy of an earlier tag
-        if (cache) {
-            const old = (await cache.keys()).map((q) => q.url).filter((u) => u.endsWith('/' + path))
-                .sort((a, b) => AppSource.compare(b.slice(AS_CACHE_HOST.length).split('/')[0],
-                                                  a.slice(AS_CACHE_HOST.length).split('/')[0]));
-            if (old.length) { this.lastSource = 'cache'; return cache.match(old[0]); }
+        const old = (await this._keys()).map(String).filter((k) => k.slice(k.indexOf('/') + 1) === path)
+            .sort((a, b) => AppSource.compare(b.split('/')[0], a.split('/')[0]));
+        for (const k of old) {
+            const v = await this._load(k);
+            if (v) { this.lastSource = 'cache'; return this._response(v); }
         }
         throw new Error(`下载 ${path} 失败（${err ? err.message || err : '无网络'}）`);
     }
