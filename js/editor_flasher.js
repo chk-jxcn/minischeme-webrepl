@@ -990,7 +990,12 @@ function editorIniSet(ini, section, key, value) {
         if (sec === section) {
             secEnd = i;
             const kv = lines[i].match(/^(\s*)([A-Za-z0-9_]+)(\s*=\s*)([^;#]*?)(\s*[;#].*)?$/);
-            if (kv && kv[2] === key) { lines[i] = `${kv[1]}${key}${kv[3]}${value}${kv[5] || ''}`; found = true; break; }
+            if (kv && kv[2] === key) {   // the comment kept, one space after a value
+                const note = kv[5] ? (value ? ' ' : '') + kv[5].replace(/^\s+/, '') : '';
+                lines[i] = `${kv[1]}${key}${kv[3].replace(/\s+$/, ' ')}${value}${note}`;
+                found = true;
+                break;
+            }
         }
     }
     if (!found) {
@@ -1324,7 +1329,16 @@ class SchemeIdeModal {
 
         const libSelect = document.getElementById('editor-applib-select');
         if (libSelect) {
-            libSelect.addEventListener('change', () => { this.libVersion = libSelect.value; this._showLibs(); });
+            libSelect.addEventListener('change', () => {
+                this.libVersion = libSelect.value;
+                this.userLib = libSelect.value;   // the user's choice: '' none, else a version
+                this._showLibs();
+                // a market app: no library -> its all-in-one file; a library -> its own code again
+                const allinone = /Section: apps\/lib\/(gui|applib)\.scm/.test(this.codeArea.value);
+                if (this.currentApp && (this.userLib === '' ? !allinone : allinone)) {
+                    this.loadAppFromMarketOrTemplate(this.currentApp);
+                }
+            });
         }
         const btnApi = document.getElementById('editor-api-docs-btn');
         if (btnApi) btnApi.addEventListener('click', () => this.apiPanel.open());
@@ -1477,8 +1491,9 @@ class SchemeIdeModal {
         const need = editorIniGet(editorHeaderIni(code), 'app', 'applib') || hint || '';
         if (/Section: apps\/lib\/(gui|applib)\.scm/.test(code)) {
             this.libVersion = EDITOR_NO_LIB;
-        } else if (need) {
-            this.libVersion = AppSource.pickLib(need, this.libVersions) || EDITOR_NO_LIB;
+        } else if (need) {   // the version the user picked when it serves the app, else the newest that does
+            this.libVersion = (this.userLib && AppSource.serves(need, this.userLib) ? this.userLib : '') ||
+                              AppSource.pickLib(need, this.libVersions) || EDITOR_NO_LIB;
         } else if (/\((app-define!|app-page|txt|txt-fit|app-local-page)\s/.test(code)) {
             this.libVersion = (this.libVersions[0] && this.libVersions[0].version) || EDITOR_NO_LIB;
         } else {
@@ -1498,8 +1513,7 @@ class SchemeIdeModal {
     _showLibs() {
         const note = document.getElementById('editor-libs-note');
         if (!note) return;
-        note.textContent = this.libVersion ? `拼上: ${this._codeLibs().join(' + ')}${this.webPage ? ' · 含网页' : ''}`
-                                           : (this.webPage ? '含网页' : '');
+        note.textContent = this.webPage ? '含网页' : '';   // applib is the whole library: its files are not listed
     }
 
     /* New code in the editor: its metadata, and the library its meta.ini asks for
@@ -1515,9 +1529,9 @@ class SchemeIdeModal {
 
     async loadAppFromMarketOrTemplate(appId) {
         if (appId === '__blank__') {
-            this.codeArea.value = DEFAULT_SCHEME_TEMPLATE;
-            this.syncMetaFromCode();
-            this._updateStatusLine();
+            this.currentApp = null;
+            this.webPage = '';
+            this._setCode(DEFAULT_SCHEME_TEMPLATE, null);
             return;
         }
 
@@ -1531,7 +1545,8 @@ class SchemeIdeModal {
             if (!this.libVersions.length) await this._populateLibSelector();
             let code, libs = app.libs, what;
             this.webPage = '';
-            if (app.source) {
+            this.currentApp = appId;
+            if (app.source && this.userLib !== '') {
                 // the app's own code, its meta.ini as the ;;; header, its web page kept aside
                 const [meta, body] = await Promise.all([src.appFile(app.meta || `apps/${appId}/meta.ini`),
                                                         src.appFile(app.source)]);
@@ -1540,8 +1555,10 @@ class SchemeIdeModal {
                 if (app.web_page) this.webPage = await src.appFile(app.web_page);
                 what = `${app.source}（应用库由下拉框选择）`;
             } else {
-                // no code of its own (a combined app): the all-in-one file, libraries included
+                // "no library" chosen, or no code of its own (a combined app): the all-in-one
+                // file, libraries included (its web page stays with it)
                 code = await src.text(`dist/${app.scm || appId + '.allinone.scm'}`);
+                if (app.web_page) this.webPage = await src.appFile(app.web_page);
                 libs = null;
                 what = `${app.scm || appId + '.allinone.scm'}（已包含库）`;
             }
@@ -1650,6 +1667,10 @@ class SchemeIdeModal {
         const api = lib && lib.api && AppSource.compare(lib.api, meta.api_version) > 0 ? lib.api : meta.api_version;
         ini = editorIniSet(ini, 'app', 'api', api);
         if (this.libVersion && !editorIniGet(ini, 'app', 'applib')) ini = editorIniSet(ini, 'app', 'applib', this.libVersion);
+        // the drawer's servers: the app's defaults ([config], written to its config.ini when it first
+        // runs); empty: the system's (config.ini [app] proxy / converter_url)
+        ini = editorIniSet(ini, 'config', 'proxy_url', meta.proxy_url || '');
+        ini = editorIniSet(ini, 'config', 'converter_url', meta.converter_url || '');
         return ini;
     }
 
