@@ -228,12 +228,12 @@ class AppWebPanel {
                             <div id="aw-sys-pw-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
                                 应用服务密码：设备每次请求都把它放在请求头里（base64 编码，不是加密）发给这台服务器，服务器第一次收到时用它登记设备，以后密码不对就拒绝；也是该服务器用户门户的登录密码。明文 HTTP 上网络中的人能看到它，请不要用在别处用过的密码。明文显示。
                             </div>
-                            <div style="margin-top: 10px;">
+                            <div style="margin-top: 10px;" id="aw-sys-hw-box">
                                 <label>硬件密码 ([http] http_password) <span style="color: #ef4444;" id="aw-sys-hw-pass-req">*</span>
                                     <input type="text" id="aw-sys-hw-pass" placeholder="必填项：请输入不小于 6 位字符的硬件密码" autocomplete="off" spellcheck="false">
                                 </label>
                                 <div id="aw-sys-hw-pass-note" style="color: var(--text-secondary); font-size: 12px; margin-top: 2px;">
-                                    硬件密码只保护设备网页和 HTTP 接口，可以随时修改；连接应用服务器用的是应用服务密码（连接真实设备时在上面填写）。
+                                    硬件密码只保护设备网页和 HTTP 接口，可以随时修改；这里显示设备 config.ini 里现在的密码。连接应用服务器用的是应用服务密码（在上面填写）。
                                 </div>
                             </div>
                         </section>
@@ -467,6 +467,7 @@ class AppWebPanel {
             sysFsFace: root.querySelector('#aw-sys-fs-face'),
             sysFsOpen: root.querySelector('#aw-sys-fs-open'),
             sysHwPass: root.querySelector('#aw-sys-hw-pass'),
+            sysHwBox: root.querySelector('#aw-sys-hw-box'),
             sysHwPassNote: root.querySelector('#aw-sys-hw-pass-note'),
             sysPanel: root.querySelector('#aw-sys-panel'),
             sysBits: root.querySelector('#aw-sys-bits'),
@@ -988,6 +989,9 @@ class AppWebPanel {
         this.savedHwPassword = hwPass;
         this.lockedHwPassword = '';
         const isWasm = !this.target || this.target.kind === 'wasm';
+        // the simulator has no web page or HTTP API of its own to guard: no hardware password;
+        // a board shows the one in its config.ini ([http] http_password, else [server] hardware_password)
+        if (this.el.sysHwBox) this.el.sysHwBox.style.display = isWasm ? 'none' : '';
         if (this.el.sysHwPass) {
             this.el.sysHwPass.type = 'text';
             this.el.sysHwPass.value = hwPass;
@@ -1076,7 +1080,7 @@ class AppWebPanel {
         }
 
         let hwPassToSave = '';
-        {
+        if (!isWasm) {   // the simulator: no hardware password (its config.ini keeps whatever it has)
             const rawHwPass = (this.el.sysHwPass ? this.el.sysHwPass.value : '').trim();
             if (!rawHwPass) {
                 const msg = '硬件密码为必填项，请输入不小于 6 位字符的硬件密码';
@@ -1158,9 +1162,6 @@ class AppWebPanel {
             const updates = {
                 [`${serverSec}.proxy_url`]: keepKey(`${serverSec}.proxy_url`, proxyUrl),
                 [`${serverSec}.converter_url`]: keepKey(`${serverSec}.converter_url`, convUrl),
-                [`${serverSec}.hardware_password`]: hwPassToSave,
-                // the firmware guards its web page and API with [http] http_password
-                'http.http_password': hwPassToSave,
                 'app.proxy': keepKey('app.proxy', proxyUrl),
                 'app.https_proxy': keepKey('app.https_proxy', convUrl),
                 'system.device_name': (this.el.sysDevName ? this.el.sysDevName.value : '').trim() || 'MiniScheme-Sim',
@@ -1177,6 +1178,9 @@ class AppWebPanel {
             };
 
             if (!isWasm) {
+                updates[`${serverSec}.hardware_password`] = hwPassToSave;
+                // the firmware guards its web page and API with [http] http_password
+                updates['http.http_password'] = hwPassToSave;
                 const proxyPw = (this.el.sysProxyPw ? this.el.sysProxyPw.value : '').trim();
                 const shared = !W || W.urlOrigin(convUrl) === W.urlOrigin(proxyUrl);
                 const convPw = shared ? proxyPw : (this.el.sysConvPw ? this.el.sysConvPw.value : '').trim();

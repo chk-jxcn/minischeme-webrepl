@@ -610,7 +610,7 @@ theme = dark # Slate theme`;
         assertEqual(panel.el.panes.app.hidden, false);
     });
 
-    addTest("8.4 System Configuration Subsystem (WiFi, INI Parser, and Plaintext Editable Password)", () => {
+    addTest("8.4 System Configuration Subsystem (WiFi, INI Parser, and Plaintext Editable Password)", async () => {
         const mockTarget = {
             kind: "wasm",
             exports: () => ({}),
@@ -661,35 +661,53 @@ theme = dark # Slate theme`;
         assertEqual(panel.el.sysHwPass.readOnly, false, "Hardware password must stay editable");
         assertEqual(panel.el.sysHwPass.type, "text", "Hardware password must be plaintext type=text");
 
-        // Test unset hardware password: must be required and >= 6 characters
         const sampleNoPass = sampleIni.replace("hardware_password = LockHwPassword123", "hardware_password = ");
+        const savedTarget = panel.target;
+        const tick = () => new Promise((r) => setTimeout(r, 50));
+
+        // The simulator: no hardware password (nothing to guard); saving needs none and writes none
+        panel.target = { kind: 'wasm' };
         panel.readConfigIni = () => sampleNoPass;
         panel.loadSystemTab();
-        assertEqual(panel.el.sysHwPass.value, "", "Unset password must be blank");
-        assertEqual(panel.el.sysHwPass.disabled, false, "Unset password must be editable");
-        assertEqual(panel.el.sysHwPass.readOnly, false, "Unset password must be editable");
-
-        // Validation: empty password must be rejected
-        panel.el.sysHwPass.value = "";
+        assertEqual(panel.el.sysHwBox.style.display, "none", "The simulator hides the hardware password");
         let savedIni = null;
         panel.writeConfigIni = (ini) => { savedIni = ini; return true; };
         panel.saveSystemConfig();
-        assertEqual(savedIni, null, "Must reject saving when hardware password is empty");
+        await tick();
+        assert(savedIni !== null, "The simulator saves without a hardware password");
+        assert(!/http_password/.test(savedIni), "The simulator writes no http_password");
 
-        // Validation: < 6 characters must be rejected
+        // A board (a 'device' target: its config.ini read over its link): its password is shown
+        // again (plain text, editable), required, >= 6 characters
+        const board = (ini) => ({ kind: 'serial',
+            fsRead: async () => new TextEncoder().encode(savedIni || ini()),
+            fsWrite: async (p, bytes) => { savedIni = new TextDecoder().decode(bytes); } });
+        savedIni = null;
+        panel.target = { kind: 'device', link: board(() => sampleIni) };
+        panel.readConfigIni = () => '';
+        await panel.loadSystemTab();
+        assertEqual(panel.el.sysHwBox.style.display, "", "A board shows its hardware password");
+        assertEqual(panel.el.sysHwPass.value, "LockHwPassword123", "A board's password is shown again");
+        panel.target = { kind: 'device', link: board(() => sampleNoPass) };
+        await panel.loadSystemTab();
+        assertEqual(panel.el.sysHwPass.value, "", "Unset password must be blank");
+        assertEqual(panel.el.sysHwPass.readOnly, false, "Unset password must be editable");
+        panel.el.sysHwPass.value = "";
+        savedIni = null;
+        panel.saveSystemConfig();
+        await tick();
+        assertEqual(savedIni, null, "A board must reject saving when hardware password is empty");
         panel.el.sysHwPass.value = "12345";
-        savedIni = null;
         panel.saveSystemConfig();
-        assertEqual(savedIni, null, "Must reject saving when hardware password is less than 6 characters");
-
-        // Validation: >= 6 characters must be accepted (and stays editable)
+        await tick();
+        assertEqual(savedIni, null, "A board must reject a hardware password under 6 characters");
         panel.el.sysHwPass.value = "SecurePass888";
-        savedIni = null;
-        panel.readConfigIni = () => savedIni || sampleNoPass;
         panel.saveSystemConfig();
-        assert(savedIni !== null && savedIni.includes("hardware_password = SecurePass888"), "Must save hardware password with >= 6 chars");
-        assertEqual(panel.el.sysHwPass.value, "SecurePass888", "Must display saved password in plaintext");
-        assertEqual(panel.el.sysHwPass.disabled, false, "The hardware password stays editable after saving");
+        await tick();
+        assert(savedIni !== null && savedIni.includes("http_password = SecurePass888"), "A board saves [http] http_password");
+        await panel.loadSystemTab();   // opened again: read back from the board
+        assertEqual(panel.el.sysHwPass.value, "SecurePass888", "The board's saved password is shown next time");
+        panel.target = savedTarget;
     });
 
     addTest("Test 31: Proxy Admin Portal Manager and URL resolution", async () => {
