@@ -40,7 +40,9 @@ function fnv1a32(bytes) {
 
 /* The firmware API a source needs: the newest "since" of the API procedures it names
  * (the firmware API reference, minischeme-apps dist/api.json, loaded by the editor),
- * and at least 1.9, the MSBC 2 image format every image of this compiler is in */
+ * and at least 1.9, the MSBC 2 image format every image of this compiler is in, or 1.14
+ * when it compiles with the inline arithmetic instructions (app.js compileInlineArith:
+ * the simulator and boards of API 1.14 or newer) */
 let EDITOR_API_SINCE = null;   // name -> "major.minor"
 function editorLoadApiSince() {
     if (EDITOR_API_SINCE || !window.appSource) return;
@@ -52,7 +54,7 @@ function editorLoadApiSince() {
 }
 
 function detectApiRequirement(sourceCode) {
-    let need = '1.9';
+    let need = typeof compileInlineArith === 'function' && compileInlineArith() ? '1.14' : '1.9';
     if (!EDITOR_API_SINCE) return need;
     const code = String(sourceCode || '').replace(/;[^\n]*/g, ' ').replace(/"(?:[^"\\]|\\.)*"/g, ' ');
     const defined = new Set([...code.matchAll(/\(define\s+\(?\s*([^\s()]+)/g)].map((m) => m[1]));

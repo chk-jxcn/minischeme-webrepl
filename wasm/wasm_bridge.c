@@ -1799,6 +1799,16 @@ void wasm_clear_error(void) {
 /* Compile (compiler VM) & Execute (device VM)                               */
 /* ========================================================================= */
 
+/* The inline arithmetic instructions (API 1.14) in what wasm_compile makes: on (the
+ * default) for the simulator and boards of API 1.14 or newer, off for an older board whose
+ * VM does not have them (the compiler reads *inline-arith* at each compile) */
+__attribute__((visibility("default")))
+void wasm_set_inline_arith(int on) {
+    if (!g_vm && wasm_init() != 0) return;
+    use_compiler();
+    mini_set_global(g_vm, "*inline-arith*", on ? mini_true() : mini_false());
+}
+
 /* Compiles source to MSBC; keeps the code object for the disassembler */
 __attribute__((visibility("default")))
 uint8_t *wasm_compile(const char *scm_code) {
@@ -2250,7 +2260,7 @@ static const char *OPCODE_NAMES[] = {
     "OP_GET_LOCAL", "OP_SET_LOCAL", "OP_GET_UPVALUE", "OP_SET_UPVALUE",
     "OP_GET_GLOBAL", "OP_SET_GLOBAL", "OP_DEF_GLOBAL", "OP_POP",
     "OP_JUMP", "OP_JUMP_IF_FALSE", "OP_CLOSURE", "OP_CALL", "OP_TAIL_CALL",
-    "OP_RETURN", "OP_TAIL_CALL_SELF"
+    "OP_RETURN", "OP_ADD", "OP_SUB", "OP_MUL", "OP_LT", "OP_GT", "OP_LE", "OP_GE", "OP_NUM_EQ"
 };
 
 static const char *disasm_code(Value code_val) {
