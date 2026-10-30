@@ -255,16 +255,15 @@ function readStringFromWasm(ptr) {
     return new TextDecoder('utf-8').decode(mem.subarray(ptr, end));
 }
 
-/* The inline arithmetic instructions (firmware API 1.14) in what the WASM compiler makes:
- * on for the simulator and a board of API 1.14 or newer, off for an older board (its VM
- * lacks them) or one too old to report its API */
-const INLINE_ARITH_API = '1.14';
-function compileInlineArith() {
+/* The firmware API (major * 1000 + minor) what the WASM compiler makes is for: the simulator's
+ * own (the newest), or a board's (/api/info, @INFO); a board too old to report it: 1.13 (calls,
+ * no inline instructions). 1014: inline arithmetic; 1015: API procedures by number, inline car .. */
+const SIM_TARGET_API = 1015;
+function compileTargetApi() {
     const link = activeLink;
-    if (!link || link.kind === 'sim') return true;
+    if (!link || link.kind === 'sim') return SIM_TARGET_API;
     const api = String(link.firmwareApi || '').split('.').map(Number);
-    const need = INLINE_ARITH_API.split('.').map(Number);
-    return api.length >= 2 && (api[0] > need[0] || (api[0] === need[0] && api[1] >= need[1]));
+    return api.length >= 2 && !api.some(isNaN) ? Math.min(api[0] * 1000 + api[1], SIM_TARGET_API) : 1013;
 }
 
 // Compile Scheme source text using the Scheme compiler in WASM
@@ -272,7 +271,7 @@ function compileWithWasm(source) {
     if (!wasmInstance) {
         return { success: false, error: "WASM compiler not loaded" };
     }
-    if (wasmInstance.exports.wasm_set_inline_arith) wasmInstance.exports.wasm_set_inline_arith(compileInlineArith() ? 1 : 0);
+    if (wasmInstance.exports.wasm_set_target_api) wasmInstance.exports.wasm_set_target_api(compileTargetApi());
     const t0 = performance.now();
     const srcPtr = passStringToWasm(source);
     const msbcPtr = wasmInstance.exports.wasm_compile(srcPtr);
@@ -2336,7 +2335,7 @@ async function connectDeviceOnce() {
     setLinkStatus('连接中...', false);
     try {
         const info = await link.connect();
-        link.firmwareApi = (info && info.api) || '';   // what the compiler may use on it (compileInlineArith)
+        link.firmwareApi = (info && info.api) || '';   // what the compiler may use on it (compileTargetApi)
         activeLink = link;
         if (deviceSrcMode) {
             deviceSrcMode.disabled = !info.compiler;

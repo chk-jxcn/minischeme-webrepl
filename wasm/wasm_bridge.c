@@ -25,6 +25,7 @@
 #include "../../minischeme_fontnet.h"
 #include "../msbc.h"
 #include "compiler_msbc.h"
+#include "minischeme_api_ids.h"
 #include "../../examples/app_settings_msbc.h"
 
 /* Host clock (performance.now() in milliseconds) */
@@ -1799,14 +1800,14 @@ void wasm_clear_error(void) {
 /* Compile (compiler VM) & Execute (device VM)                               */
 /* ========================================================================= */
 
-/* The inline arithmetic instructions (API 1.14) in what wasm_compile makes: on (the
- * default) for the simulator and boards of API 1.14 or newer, off for an older board whose
- * VM does not have them (the compiler reads *inline-arith* at each compile) */
+/* The firmware API (major * 1000 + minor) what wasm_compile makes is for: the instructions it
+ * may use (1014 inline arithmetic, 1015 API procedures by number and inline car..). The page
+ * sets the simulator's own, or an older board's (the compiler reads *target-api* each time). */
 __attribute__((visibility("default")))
-void wasm_set_inline_arith(int on) {
+void wasm_set_target_api(int api) {
     if (!g_vm && wasm_init() != 0) return;
     use_compiler();
-    mini_set_global(g_vm, "*inline-arith*", on ? mini_true() : mini_false());
+    mini_set_global(g_vm, "*target-api*", mini_make_fixnum(api));
 }
 
 /* Compiles source to MSBC; keeps the code object for the disassembler */
@@ -2260,7 +2261,8 @@ static const char *OPCODE_NAMES[] = {
     "OP_GET_LOCAL", "OP_SET_LOCAL", "OP_GET_UPVALUE", "OP_SET_UPVALUE",
     "OP_GET_GLOBAL", "OP_SET_GLOBAL", "OP_DEF_GLOBAL", "OP_POP",
     "OP_JUMP", "OP_JUMP_IF_FALSE", "OP_CLOSURE", "OP_CALL", "OP_TAIL_CALL",
-    "OP_RETURN", "OP_ADD", "OP_SUB", "OP_MUL", "OP_LT", "OP_GT", "OP_LE", "OP_GE", "OP_NUM_EQ"
+    "OP_RETURN", "OP_ADD", "OP_SUB", "OP_MUL", "OP_LT", "OP_GT", "OP_LE", "OP_GE", "OP_NUM_EQ",
+    "OP_CALL_PRIM", "OP_CAR", "OP_CDR", "OP_NOT", "OP_NULLP", "OP_PAIRP", "OP_EQ", "OP_VECTOR_REF"
 };
 
 static const char *disasm_code(Value code_val) {
@@ -2328,6 +2330,15 @@ static const char *disasm_code(Value code_val) {
             case OP_TAIL_CALL:
                 if (pc < co->code_len) {
                     pos += snprintf(g_disasm_buf + pos, cap - pos, " %u", (unsigned)code[pc++]);
+                }
+                break;
+            case OP_CALL_PRIM:   /* the API procedure's number, the argument count */
+                if (pc + 3 <= co->code_len) {
+                    uint16_t id = (uint16_t)(code[pc] | (code[pc + 1] << 8));
+                    unsigned n = code[pc + 2];
+                    pc += 3;
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, " %s/%u (#%u)",
+                                    id < MINI_API_ID_COUNT && mini_api_id_names[id] ? mini_api_id_names[id] : "?", n, (unsigned)id);
                 }
                 break;
             case OP_GET_UPVALUE:
