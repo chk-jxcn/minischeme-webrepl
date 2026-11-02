@@ -48,6 +48,24 @@ window.fetch = function (url, opts) {
 
 /* ---- 配色方案: the board page's theme tab (minischeme-esp32 main/setup_page.html,
  * the same cascade as apps/lib/gui.scm; keep the three in step) ---- */
+/* More built-in schemes, as apps/lib/gui.scm THEME-PRESETS and the device page's THEME_PRESETS
+ * (keep the three in step): listed beside day and night and previewed; a dark one fills in from
+ * night; a block of the same name in theme.css overrides single colors */
+const AW_THEME_PRESETS = {
+    hc_dark: {label: '高对比·深色', dark: true, colors: {bg: '#000000', fg: '#ffffff', border: '#ffffff', card_bg: 'bg', card_border: '#ffffff', titlebar_bg: '#262626', text_fg: '#ffffff', text_sub_fg: '#f0f0f0', text_muted_fg: '#d6d6d6', accent_fg: '#00e5ff', accent_bg: '#003c47', success_fg: '#33ff77', warning_fg: '#ffd400', danger_fg: '#ff5c5c', purple_fg: '#e0a3ff', inactive_fg: '#4d4d4d', divider_border: '#bfbfbf', seg_on_fg: '#ffffff', seg_off_fg: '#1a1a1a', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}},
+    hc_light: {label: '高对比·浅色', dark: false, colors: {bg: '#ffffff', fg: '#000000', border: '#000000', card_bg: 'bg', card_border: '#000000', titlebar_bg: '#e0e0e0', text_fg: '#000000', text_sub_fg: '#1a1a1a', text_muted_fg: '#333333', accent_fg: '#0040a8', accent_bg: '#cfe0ff', success_fg: '#00632a', warning_fg: '#7a4a00', danger_fg: '#a80000', purple_fg: '#5214a0', inactive_fg: '#b3b3b3', divider_border: '#404040', seg_on_fg: '#000000', seg_off_fg: 'bg', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}},
+    dopamine: {label: '多巴胺·浅色', dark: false, colors: {bg: '#fff8e7', fg: '#2b1b47', border: '#ff5fa2', card_bg: 'bg', card_border: '#ff5fa2', titlebar_bg: '#ffd23f', text_fg: '#2b1b47', text_sub_fg: '#45306b', text_muted_fg: '#5f4a85', accent_fg: '#d81b60', accent_bg: '#ffd6e7', success_fg: '#00875a', warning_fg: '#c25e00', danger_fg: '#d0021b', purple_fg: '#7b2ff7', inactive_fg: '#f2dfc0', divider_border: '#b58cff', seg_on_fg: '#d81b60', seg_off_fg: 'bg', bar_fg: '#00a3b8', bar_bg: '#ffe9a8', icon_fg: '#7b2ff7'}},
+    dopamine_dark: {label: '多巴胺·深色', dark: true, colors: {bg: '#1a0f2e', fg: '#fff3fb', border: '#ff4fd8', card_bg: 'bg', card_border: '#ff4fd8', titlebar_bg: '#2f1754', text_fg: '#fff3fb', text_sub_fg: '#e6d6ff', text_muted_fg: '#c2aee6', accent_fg: '#00f0ff', accent_bg: '#40206e', success_fg: '#39ff88', warning_fg: '#ffd23f', danger_fg: '#ff5c7a', purple_fg: '#d08cff', inactive_fg: '#3a2a55', divider_border: '#9a78d9', seg_on_fg: '#ff4fd8', seg_off_fg: '#2a1640', bar_fg: '#ffd23f', bar_bg: 'titlebar_bg', icon_fg: '#00f0ff'}},
+    morandi: {label: '莫兰迪', dark: false, colors: {bg: '#eeeae4', fg: '#3a3632', border: '#a89c8f', card_bg: 'bg', card_border: '#a89c8f', titlebar_bg: '#d9d0c5', text_fg: '#3a3632', text_sub_fg: '#4f4a43', text_muted_fg: '#655e55', accent_fg: '#466168', accent_bg: '#cfdadc', success_fg: '#4a6b4d', warning_fg: '#80602b', danger_fg: '#8f453f', purple_fg: '#6c5a7a', inactive_fg: '#d4ccc2', divider_border: '#a69a8d', seg_on_fg: '#3e4a4e', seg_off_fg: 'bg', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}},
+    ocean: {label: '深海', dark: true, colors: {bg: '#031926', fg: '#d9f2ff', border: '#2f6f8f', card_bg: 'bg', card_border: '#2f6f8f', titlebar_bg: '#072b40', text_fg: '#d9f2ff', text_sub_fg: '#a9d3e8', text_muted_fg: '#86b8d0', accent_fg: '#4fd1e8', accent_bg: '#0c4a63', success_fg: '#5be3a8', warning_fg: '#ffc857', danger_fg: '#ff8080', purple_fg: '#b9a3ff', inactive_fg: '#12384d', divider_border: '#3f84a6', seg_on_fg: '#4fd1e8', seg_off_fg: '#062635', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}},
+    retro: {label: '复古琥珀', dark: true, colors: {bg: '#0a0700', fg: '#ffb000', border: '#8a5f00', card_bg: 'bg', card_border: '#8a5f00', titlebar_bg: '#241900', text_fg: '#ffb000', text_sub_fg: '#e89e00', text_muted_fg: '#c48600', accent_fg: '#ffd36b', accent_bg: '#3d2a00', success_fg: '#a6f05a', warning_fg: '#ffd36b', danger_fg: '#ff6a45', purple_fg: '#ffa8c8', inactive_fg: '#2e2100', divider_border: '#8a5f00', seg_on_fg: '#ffb000', seg_off_fg: '#2a1d00', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}},
+    sakura: {label: '樱花', dark: false, colors: {bg: '#fff4f6', fg: '#4a2c35', border: '#e39ab0', card_bg: 'bg', card_border: '#e39ab0', titlebar_bg: '#ffd9e3', text_fg: '#4a2c35', text_sub_fg: '#62404b', text_muted_fg: '#7d5a66', accent_fg: '#b8325e', accent_bg: '#ffd1df', success_fg: '#2f7a52', warning_fg: '#9a5a10', danger_fg: '#b5232f', purple_fg: '#7a45a8', inactive_fg: '#f2d4dc', divider_border: '#d29aab', seg_on_fg: '#b8325e', seg_off_fg: 'bg', bar_fg: 'accent_fg', bar_bg: 'titlebar_bg', icon_fg: 'accent_fg'}}
+};
+
+function awThemeLabel(n) {
+    return n === 'day' ? '（内置白天）' : n === 'night' ? '（内置黑夜）' : AW_THEME_PRESETS[n] ? `（内置·${AW_THEME_PRESETS[n].label}）` : '';
+}
+
 const AW_THEME_BUILTIN = {
     night: {bg: '#0b1118', fg: '#e6ecf3', border: '#5b7090', card_bg: 'bg', card_border: '#5b7090', titlebar_bg: '#152030',
         text_fg: '#e6ecf3', text_sub_fg: '#bac7d6', text_muted_fg: '#a2b2c6', accent_fg: '#62d0f0', accent_bg: '#173f52',
@@ -107,11 +125,20 @@ function awThemeLiteral(v) {
 function awThemeResolve(ctx, name, depth) {
     const lit = awThemeLiteral(name);
     if (lit || depth >= 8) return lit;
-    const v = awThemeBlockGet(ctx.app, ctx.scheme, name) ?? awThemeBlockGet(ctx.sys, ctx.scheme, name) ?? AW_THEME_BUILTIN[ctx.mode][name];
+    const v = awThemeBlockGet(ctx.app, ctx.scheme, name) ?? awThemeBlockGet(ctx.sys, ctx.scheme, name) ??
+              (AW_THEME_PRESETS[ctx.scheme] ? AW_THEME_PRESETS[ctx.scheme].colors[name] : undefined) ??
+              AW_THEME_BUILTIN[AW_THEME_PRESETS[ctx.scheme] ? (AW_THEME_PRESETS[ctx.scheme].dark ? 'night' : 'day') : ctx.mode][name];
     const r = v != null ? awThemeResolve(ctx, v, depth + 1) : null;
     if (r) return r;
     const u = name.lastIndexOf('_');
     return u >= 0 ? awThemeResolve(ctx, name.slice(u + 1), depth + 1) : null;
+}
+
+/* a built-in scheme's block, every alias with its name */
+function awThemeBlockText(name) {
+    const b = AW_THEME_BUILTIN[name] || AW_THEME_PRESETS[name].colors;
+    return (AW_THEME_PRESETS[name] ? `/* 内置配色：${AW_THEME_PRESETS[name].label} */\n` : '') + `${name} {\n` +
+        Object.entries(b).map(([k, v]) => `  ${k}: ${v};${AW_THEME_NAMES[k] ? '  /* ' + AW_THEME_NAMES[k] + ' */' : ''}`).join('\n') + '\n}\n';
 }
 
 /* text with `alias: value;` set in the block named scheme alone (added when missing) */
@@ -410,11 +437,12 @@ class AppWebPanel {
                             <h3 class="aw-sec-title">🎨 配色（类似 CSS）</h3>
                             <label>编辑 <select id="aw-th-scope"></select></label>
                             <textarea id="aw-th-css" spellcheck="false" style="width: 100%; min-height: 240px; margin-top: 6px; font-family: var(--font-mono); font-size: 12px;"></textarea>
-                            <div style="color: var(--text-secondary); font-size: 12px; margin: 4px 0 8px;">每块是一套配色：<b>day</b>、<b>night</b>、自己起名的（如 sakura，可在上面选为白天或黑夜用的配色），<b>*</b> 对所有配色生效。块里写 <code>别名: 颜色;</code>，颜色是 #rgb、#rrggbb、rgb(r, g, b) 或另一个别名，也可以起自己的别名再引用。查找顺序：程序里直接给的颜色 → 应用目录的 theme.css → 系统的 theme.css → 应用自带的默认值 → 内置的白天 / 黑夜配色；都没写的别名用它最后一段的大类（titlebar_bg → bg，text_sub_fg → fg，card_border → border）。</div>
+                            <div style="color: var(--text-secondary); font-size: 12px; margin: 4px 0 8px;">每块是一套配色：<b>day</b>、<b>night</b>、自己起名的（如 my_theme，可在上面选为白天或黑夜用的配色），<b>*</b> 对所有配色生效。另有内置配色（高对比、多巴胺、莫兰迪、深海、复古琥珀、樱花），在上面选为白天或黑夜用的配色即可（应用用 applib 1.2 以上编译，市场里的应用会自动更新）；要改其中的颜色，写一个同名的块，只写要改的别名（点下面预览里的颜色就会这样写）。块里写 <code>别名: 颜色;</code>，颜色是 #rgb、#rrggbb、rgb(r, g, b) 或另一个别名，也可以起自己的别名再引用。查找顺序：程序里直接给的颜色 → 应用目录的 theme.css → 系统的 theme.css → 应用自带的默认值 → 内置的白天 / 黑夜配色；都没写的别名用它最后一段的大类（titlebar_bg → bg，text_sub_fg → fg，card_border → border）。</div>
                             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                                 <button class="pill-btn" data-th="save-css">保存</button>
-                                <button class="pill-btn compact" data-th="insert-day">插入内置白天配色</button>
-                                <button class="pill-btn compact" data-th="insert-night">插入内置黑夜配色</button>
+                                <select id="aw-th-insert" style="width: auto;">${['day', 'night', ...Object.keys(AW_THEME_PRESETS)]
+                                    .map((n) => `<option value="${n}">${n}${awThemeLabel(n)}</option>`).join('')}</select>
+                                <button class="pill-btn compact" data-th="insert">插入内置配色</button>
                                 <button class="pill-btn compact" data-th="reload">重新读取</button>
                             </div>
                             <h4 style="margin: 12px 0 4px;">预览（系统和所选应用的 theme.css 加内置配色；应用自带的默认值不在这里）</h4>
@@ -2029,14 +2057,14 @@ class AppWebPanel {
     }
 
     _themeSelects() {
-        const names = new Set(['day', 'night']);
+        const names = new Set(['day', 'night', ...Object.keys(AW_THEME_PRESETS)]);
         const texts = [this.themeSys, this._th('scope').value === 'sys' ? this._th('css').value : ''];
         for (const t of texts) for (const b of awThemeParse(t)) if (b.name !== '*') names.add(b.name);
         for (const [id, key, def] of [['day-scheme', 'theme_day', 'day'], ['night-scheme', 'theme_night', 'night']]) {
             const sel = this._th(id);
             const cur = sel.value || this.themeCfg[key] || def;
             sel.innerHTML = [...names].map(n => `<option value="${this._esc(n)}"${n === cur ? ' selected' : ''}>${this._esc(n)}` +
-                `${n === 'day' ? '（内置白天）' : n === 'night' ? '（内置黑夜）' : ''}</option>`).join('');
+                `${awThemeLabel(n)}</option>`).join('');
         }
     }
 
@@ -2112,6 +2140,7 @@ class AppWebPanel {
         if (ini == null) { this._status('读取 config.ini 失败，没有保存', 'error'); return; }
         const ok = await this._writeConfigIniAsync(this._updateIni(ini, updates));
         if (ok) this.themeCfg = Object.assign({}, this.themeCfg, vals);
+        this._themePreview();
         this._status(ok ? '已保存，应用 10 秒内换上' : '保存失败', ok ? 'ok' : 'error');
     }
 
@@ -2125,8 +2154,7 @@ class AppWebPanel {
     }
 
     _themeInsert(mode) {
-        const text = `${mode} {\n` + Object.entries(AW_THEME_BUILTIN[mode]).map(([k, v]) =>
-            `  ${k}: ${v};${AW_THEME_NAMES[k] ? '  /* ' + AW_THEME_NAMES[k] + ' */' : ''}`).join('\n') + '\n}\n';
+        const text = awThemeBlockText(mode);
         const ta = this._th('css');
         ta.value = (ta.value.trim() ? ta.value.replace(/\s*$/, '\n\n') : '') + text;
         this._themeSelects();
@@ -2136,7 +2164,7 @@ class AppWebPanel {
     /* a color picked in the preview: written into the css being edited (saved with 保存) */
     _themePicked(mode, alias, value) {
         const scheme = this._th(mode === 'day' ? 'day-scheme' : 'night-scheme').value || mode;
-        this._th('css').value = awThemeSetAlias(this._th('css').value, scheme, alias, value);
+        this._th('css').value = awThemeSetAlias(this._th('css').value, scheme, alias, value);   // a built-in scheme: an override
         this._themePreview();
         this._status(`${scheme} 的 ${alias} 改成 ${value}，点“保存”生效`);
     }
@@ -2151,8 +2179,7 @@ class AppWebPanel {
             const act = b.dataset.th;
             if (act === 'save-mode') this.themeSaveMode();
             else if (act === 'save-css') this.themeSaveCss();
-            else if (act === 'insert-day') this._themeInsert('day');
-            else if (act === 'insert-night') this._themeInsert('night');
+            else if (act === 'insert') this._themeInsert(this._th('insert').value);
             else if (act === 'reload') this._themeLoadCss();
         });
         pane.addEventListener('change', (e) => {

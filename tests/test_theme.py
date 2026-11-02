@@ -52,7 +52,7 @@ SYS_CSS = """/* the system's */
 night { titlebar_bg: #400000; my_gold: #ffcc33; accent_fg: my_gold; card_border: rgb(16, 32, 48); }
 day { titlebar_bg: #fedcba; }
 * { seg_on_fg: #0f0; }
-sakura { bg: #fff0f5; }
+my_theme { bg: #fff0f5; }
 """
 APP_CSS = "night { titlebar_bg: #004000; }"
 
@@ -75,8 +75,14 @@ CHECKS = [
      str(rgb("#fedcba"))),
     ("day: the built-in day scheme", '(theme-color "text_fg")', str(rgb("#17202b"))),
     ("a scheme of one's own for the day",
-     '(begin (config-set! "theme" "theme_day" "sakura") (theme-apply!) (list theme-scheme (theme-color "bg") (theme-color "text_fg")))',
-     f'("sakura" {rgb("#fff0f5")} {rgb("#17202b")})'),
+     '(begin (config-set! "theme" "theme_day" "my_theme") (theme-apply!) (list theme-scheme (theme-color "bg") (theme-color "text_fg")))',
+     f'("my_theme" {rgb("#fff0f5")} {rgb("#17202b")})'),
+    ("a built-in scheme (applib 1.2): high contrast by day",
+     '(begin (config-set! "theme" "theme_day" "hc_light") (theme-apply!) (list theme-scheme (theme-color "bg") (theme-color "text_fg")))',
+     f'("hc_light" {rgb("#ffffff")} {rgb("#000000")})'),
+    ("a built-in dark scheme by day fills in from night",
+     '(begin (config-set! "theme" "theme_day" "ocean") (theme-apply!) (list (theme-base-mode) (theme-color "text_fg") (theme-color "photo_bg")))',
+     f'("night" {rgb("#d9f2ff")} 0)'),
     ("by the clock", '(begin (config-set! "theme" "theme" "auto") (config-set! "theme" "theme_switch" "time") '
      '(config-set! "theme" "theme_day_start" "00:00") (config-set! "theme" "theme_night_start" "00:00") (theme-pick-mode))',
      '"night"'),
