@@ -1341,6 +1341,13 @@ class AppWebPanel {
                 </label>${help}
             </div>`;
         }
+        if (f.type === 'pages' && (f.pages || []).length && typeof amPagesHtml === 'function') {
+            return `<div style="margin:8px 0 4px;">
+                <label style="display:block; color:var(--text-secondary); font-size:12px; margin-bottom:4px;">${this._esc(f.label)}</label>
+                ${amPagesHtml(id, f, value)}
+                ${f.help ? `<div style="color:var(--text-secondary); font-size:11.5px; margin-top:2px;">${this._esc(f.help.replace(/。直接填写.*$/, ''))}</div>` : ''}
+            </div>`;
+        }
         let input;
         if (f.type.startsWith('select:')) {
             const opts = f.type.slice(7).split(',').map((o) => o.split('='));

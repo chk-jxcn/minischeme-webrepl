@@ -98,15 +98,66 @@ function amIniSet(text, section, key, value) {
 }
 
 /* [config] keys in order, described by [fields] ("type | label | help") */
+/* The settings field type pages (show_pages, applib 1.1): the app's pages (page_ids /
+ * page_names) in an order of the user's, a page possibly several times; the value (page
+ * ids, comma separated) sits in a hidden input, edited as a list (as the device page) */
+const amPageFields = {};
+function amPagesOf(id) {
+    const el = document.getElementById(id);
+    return String(el ? el.value : '').split(',').map((x) => x.trim()).filter(Boolean);
+}
+function amPageLabel(pages, s) {
+    const p = pages.find((x) => x.id === s) || (/^\d+$/.test(s) ? pages[Number(s) - 1] : null) ||
+              pages.find((x) => x.name === s);
+    return p ? p.name : `${s}（未知页面）`;
+}
+function amPagesList(id) {
+    const pages = amPageFields[id] || [], list = amPagesOf(id);
+    const btn = (op, i, label, on) => `<button type="button" class="pill-btn" onclick="amPagesEdit('${id}','${op}',${i})"${on ? '' : ' disabled'}>${label}</button>`;
+    const rows = list.map((s, i) => `<div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+        <span style="flex:1">${i + 1}. ${amEsc(amPageLabel(pages, s))}</span>
+        ${btn('up', i, '上移', i > 0)}${btn('down', i, '下移', i < list.length - 1)}${btn('del', i, '删除', true)}</div>`).join('');
+    return (rows || '<div class="am-help">（全部页面，按应用自己的顺序）</div>') +
+        `<div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+        <select id="${id}_add" style="flex:1">${pages.map((p) => `<option value="${amEsc(p.id)}">${amEsc(p.name)}</option>`).join('')}</select>
+        ${btn('add', 0, '添加', true)}${list.length ? btn('clear', 0, '恢复全部', true) : ''}</div>`;
+}
+function amPagesEdit(id, op, i) {
+    const list = amPagesOf(id);
+    if (op === 'add') list.push(document.getElementById(`${id}_add`).value);
+    else if (op === 'del') list.splice(i, 1);
+    else if (op === 'clear') list.length = 0;
+    else {
+        const j = op === 'up' ? i - 1 : i + 1;
+        if (j >= 0 && j < list.length) [list[i], list[j]] = [list[j], list[i]];
+    }
+    document.getElementById(id).value = list.join(', ');
+    document.getElementById(`${id}_list`).innerHTML = amPagesList(id);
+}
+/* the control: a hidden input with the value and its list (rendered once it is in the page) */
+function amPagesHtml(id, f, value) {
+    amPageFields[id] = f.pages;
+    setTimeout(() => {
+        const el = document.getElementById(`${id}_list`);
+        if (el) el.innerHTML = amPagesList(id);
+    });
+    return `<input type="hidden" id="${id}" value="${amEsc(value)}"><div id="${id}_list"></div>`;
+}
+
 function amAppFields(meta) {
     const ini = amParseIni(meta);
     const desc = {
         proxy_url: { type: 'text', label: '应用代理地址', help: '留空默认使用系统配置 (config.ini)' },
         converter_url: { type: 'text', label: '协议转换器地址', help: '留空默认使用系统配置 (config.ini)' },
     };
+    const app = {};
+    for (const it of ini.app || []) app[it.key] = it.value;
+    const list = (k) => String(app[k] || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const ids = list('page_ids'), names = list('page_names');
     for (const f of ini.fields || []) {
         const [type, label, help] = `${f.value}||`.split('|').map((x) => x.trim());
         desc[f.key] = { type: type || 'text', label, help };
+        if (type === 'pages') desc[f.key].pages = ids.map((id, i) => ({ id, name: names[i] || id }));
     }
     return (ini.config || []).map((c) => {
         let defVal = c.value;
@@ -411,6 +462,10 @@ class AppManager {
         if (f.type === 'bool') {
             const on = value === '1' || value === 'true' || value === 'on';
             return `<label class="am-check"><input type="checkbox" id="${id}"${on ? ' checked' : ''}> ${amEsc(f.label)}</label>${help}`;
+        }
+        if (f.type === 'pages' && (f.pages || []).length) {
+            return `<label class="am-label">${amEsc(f.label)}</label>${amPagesHtml(id, f, value)}` +
+                (f.help ? `<div class="am-help">${amEsc(f.help.replace(/。直接填写.*$/, ''))}</div>` : '');
         }
         let input;
         if (f.type.startsWith('select:')) {
