@@ -2081,11 +2081,13 @@ const char *wasm_reboot(void) {
         g_market_auto = MARKET_AUTO_NONE;
         if (g_settings_mode && market_auto == MARKET_AUTO_NEXT_UPDATE) {
             g_market_auto = MARKET_AUTO_NEXT_SKIP;
-            mini_market_auto_start(MINI_MARKET_AUTO_UPDATE);
+            mini_market_auto_start(MINI_MARKET_AUTO_UPDATE, "");
         } else if (!g_settings_mode && market_auto != MARKET_AUTO_NEXT_SKIP) {
-            mini_market_auto_start(MINI_MARKET_AUTO_CHECK);
+            /* the running app alone, when the market keeps it (as the firmware) */
+            bool kept = strncmp(g_app_path, "/spiffs/apps/", 13) == 0 || strcmp(g_app_path, "/spiffs/app.msbc") == 0;
+            mini_market_auto_start(MINI_MARKET_AUTO_CHECK, kept ? g_app_id : "");
         } else {
-            mini_market_auto_start(MINI_MARKET_AUTO_OFF);
+            mini_market_auto_start(MINI_MARKET_AUTO_OFF, "");
         }
     }
     if (!g_settings_mode) {
@@ -2749,6 +2751,30 @@ static const uint8_t *mk_builtin(const char *id, size_t *len) {
     return app_settings_msbc_data;
 }
 
+/* The apps the market keeps here, as the firmware: the built-in settings, the
+ * root app and the folders /spiffs/apps/<id>/ with an app.msbc */
+static int mk_installed(char (*ids)[MINI_MARKET_ID_MAX], int max) {
+    int n = 0;
+    if (n < max) snprintf(ids[n++], MINI_MARKET_ID_MAX, "settings");
+    char *meta = mk_file_meta("/spiffs/app.msbc");
+    char id[MINI_MARKET_ID_MAX] = "";
+    if (meta && mini_device_config_value(meta, "id", id, sizeof(id)) && id[0] && n < max) {
+        snprintf(ids[n++], MINI_MARKET_ID_MAX, "%s", id);
+    }
+    free(meta);
+    for (int i = 0; i < MOCK_FS_FILES && n < max; i++) {
+        const char *p = g_mock_fs[i].path;
+        if (!g_mock_fs[i].used || strncmp(p, "/spiffs/apps/", 13) != 0) continue;
+        const char *slash = strchr(p + 13, '/');
+        size_t len = slash ? (size_t)(slash - (p + 13)) : 0;
+        if (!slash || strcmp(slash, "/app.msbc") != 0 || len == 0 || len >= MINI_MARKET_ID_MAX) continue;
+        memcpy(id, p + 13, len);
+        id[len] = '\0';
+        if (mini_app_id_ok(id)) snprintf(ids[n++], MINI_MARKET_ID_MAX, "%s", id);
+    }
+    return n;
+}
+
 static void mk_log(const char *msg) {
     js_print("[market] ", 9);
     js_print(msg, (int)strlen(msg));
@@ -2758,7 +2784,7 @@ static void mk_log(const char *msg) {
 static const MiniMarketHost MK_HOST = {
     mk_fetch_start, mk_fetch_poll, mk_fetch_data, mk_fetch_release, mk_fetch_cancel,
     mk_file_hash, mk_file_meta, mk_file_replace, mk_file_remove, mk_config, mk_online, mk_log, mk_install_here,
-    mk_auto_update, mk_builtin,
+    mk_auto_update, mk_builtin, mk_installed,
 };
 
 static void mk_attach(void) { mini_market_set_host(&MK_HOST); }
