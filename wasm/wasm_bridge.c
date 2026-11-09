@@ -2264,8 +2264,16 @@ static const char *OPCODE_NAMES[] = {
     "OP_GET_GLOBAL", "OP_SET_GLOBAL", "OP_DEF_GLOBAL", "OP_POP",
     "OP_JUMP", "OP_JUMP_IF_FALSE", "OP_CLOSURE", "OP_CALL", "OP_TAIL_CALL",
     "OP_RETURN", "OP_ADD", "OP_SUB", "OP_MUL", "OP_LT", "OP_GT", "OP_LE", "OP_GE", "OP_NUM_EQ",
-    "OP_CALL_PRIM", "OP_CAR", "OP_CDR", "OP_NOT", "OP_NULLP", "OP_PAIRP", "OP_EQ", "OP_VECTOR_REF"
+    "OP_CALL_PRIM", "OP_CAR", "OP_CDR", "OP_NOT", "OP_NULLP", "OP_PAIRP", "OP_EQ", "OP_VECTOR_REF",
+    /* API 1.16 */
+    "OP_CALL_SELF", "OP_TAIL_CALL_SELF", "OP_JUMP_IF_TRUE_KEEP", "OP_CONS", "OP_VECTOR_SET",
+    "OP_REM", "OP_QUOT", "OP_DIV", "OP_GET_LOCAL2", "OP_SET_LOCAL_POP",
+    "OP_ADD_LOC_IMM", "OP_SUB_LOC_IMM", "OP_ADD_LOC_LOC", "OP_SUB_LOC_LOC", "OP_MUL_LOC_LOC",
+    "OP_EQ_LOC_IMM", "OP_LT_LOC_IMM", "OP_GT_LOC_IMM",
+    "OP_EQ_LOC_LOC", "OP_LT_LOC_LOC", "OP_LE_LOC_LOC", "OP_GT_LOC_LOC",
+    "OP_CAR_LOC", "OP_CDR_LOC", "OP_NULLP_LOC"
 };
+_Static_assert(sizeof(OPCODE_NAMES) / sizeof(OPCODE_NAMES[0]) == OP_COUNT, "a name for every opcode");
 
 static const char *disasm_code(Value code_val) {
     CodeObj *co = (CodeObj *)UNTAG_PTR(code_val);
@@ -2330,8 +2338,44 @@ static const char *disasm_code(Value code_val) {
             case OP_SET_LOCAL:
             case OP_CALL:
             case OP_TAIL_CALL:
+            case OP_CALL_SELF:          /* the argument count */
+            case OP_TAIL_CALL_SELF:
+            case OP_SET_LOCAL_POP:      /* a local's slot */
+            case OP_CAR_LOC:
+            case OP_CDR_LOC:
+            case OP_NULLP_LOC:
                 if (pc < co->code_len) {
                     pos += snprintf(g_disasm_buf + pos, cap - pos, " %u", (unsigned)code[pc++]);
+                }
+                break;
+            case OP_JUMP_IF_TRUE_KEEP:  /* a signed offset */
+                if (pc + 2 <= co->code_len) {
+                    int16_t off = (int16_t)(code[pc] | (code[pc + 1] << 8));
+                    pc += 2;
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, " %+d", (int)off);
+                }
+                break;
+            case OP_GET_LOCAL2:         /* two slots */
+            case OP_ADD_LOC_LOC:
+            case OP_SUB_LOC_LOC:
+            case OP_MUL_LOC_LOC:
+            case OP_EQ_LOC_LOC:
+            case OP_LT_LOC_LOC:
+            case OP_LE_LOC_LOC:
+            case OP_GT_LOC_LOC:
+                if (pc + 2 <= co->code_len) {
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, " %u, %u", (unsigned)code[pc], (unsigned)code[pc + 1]);
+                    pc += 2;
+                }
+                break;
+            case OP_ADD_LOC_IMM:        /* a slot and a small integer */
+            case OP_SUB_LOC_IMM:
+            case OP_EQ_LOC_IMM:
+            case OP_LT_LOC_IMM:
+            case OP_GT_LOC_IMM:
+                if (pc + 2 <= co->code_len) {
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, " %u, %d", (unsigned)code[pc], (int)(int8_t)code[pc + 1]);
+                    pc += 2;
                 }
                 break;
             case OP_CALL_PRIM:   /* the API procedure's number, the argument count */

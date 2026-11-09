@@ -258,7 +258,7 @@ function readStringFromWasm(ptr) {
 /* The firmware API (major * 1000 + minor) what the WASM compiler makes is for: the simulator's
  * own (the newest), or a board's (/api/info, @INFO); a board too old to report it: 1.13 (calls,
  * no inline instructions). 1014: inline arithmetic; 1015: API procedures by number, inline car .. */
-const SIM_TARGET_API = 1015;
+const SIM_TARGET_API = 1016;
 function compileTargetApi() {
     const link = activeLink;
     if (!link || link.kind === 'sim') return SIM_TARGET_API;
