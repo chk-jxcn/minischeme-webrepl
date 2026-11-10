@@ -2271,7 +2271,10 @@ static const char *OPCODE_NAMES[] = {
     "OP_ADD_LOC_IMM", "OP_SUB_LOC_IMM", "OP_ADD_LOC_LOC", "OP_SUB_LOC_LOC", "OP_MUL_LOC_LOC",
     "OP_EQ_LOC_IMM", "OP_LT_LOC_IMM", "OP_GT_LOC_IMM",
     "OP_EQ_LOC_LOC", "OP_LT_LOC_LOC", "OP_LE_LOC_LOC", "OP_GT_LOC_LOC",
-    "OP_CAR_LOC", "OP_CDR_LOC", "OP_NULLP_LOC"
+    "OP_CAR_LOC", "OP_CDR_LOC", "OP_NULLP_LOC",
+    /* API 1.17 */
+    "OP_LOOP", "OP_ADD_L", "OP_SUB_L", "OP_MUL_L", "OP_LT_L", "OP_LE_L", "OP_GT_L", "OP_GE_L",
+    "OP_NUM_EQ_L", "OP_VECTOR_REF_L"
 };
 _Static_assert(sizeof(OPCODE_NAMES) / sizeof(OPCODE_NAMES[0]) == OP_COUNT, "a name for every opcode");
 
@@ -2344,8 +2347,30 @@ static const char *disasm_code(Value code_val) {
             case OP_CAR_LOC:
             case OP_CDR_LOC:
             case OP_NULLP_LOC:
+            case OP_ADD_L:              /* the second operand's slot */
+            case OP_SUB_L:
+            case OP_MUL_L:
+            case OP_LT_L:
+            case OP_LE_L:
+            case OP_GT_L:
+            case OP_GE_L:
+            case OP_NUM_EQ_L:
+            case OP_VECTOR_REF_L:
                 if (pc < co->code_len) {
                     pos += snprintf(g_disasm_buf + pos, cap - pos, " %u", (unsigned)code[pc++]);
+                }
+                break;
+            case OP_LOOP:               /* n, the n slots the values go to (top first), a signed offset */
+                if (pc < co->code_len && pc + 1u + code[pc] + 2u <= co->code_len) {
+                    unsigned n = code[pc++];
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, " [");
+                    for (unsigned k = 0; k < n && pos < cap - 80; k++) {
+                        pos += snprintf(g_disasm_buf + pos, cap - pos, k ? " %u" : "%u", (unsigned)code[pc + k]);
+                    }
+                    pc += n;
+                    int16_t off = (int16_t)(code[pc] | (code[pc + 1] << 8));
+                    pc += 2;
+                    pos += snprintf(g_disasm_buf + pos, cap - pos, "] %+d", (int)off);
                 }
                 break;
             case OP_JUMP_IF_TRUE_KEEP:  /* a signed offset */
