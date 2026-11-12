@@ -1401,7 +1401,11 @@ function localServerBase() {
 function simDeviceHeaders() {
     let id = '';
     try { id = localStorage.getItem('minischeme_sim_uuid') || ''; } catch (e) { /* private window */ }
-    return id ? { 'X-MiniScheme-Device': id } : {};
+    // the simulator's clock is the browser's: minutes east of UTC, as a board says its own
+    // (the app proxy answers dates and times in the asking device's zone)
+    const headers = { 'X-MiniScheme-UTC-Offset': String(-new Date().getTimezoneOffset()) };
+    if (id) headers['X-MiniScheme-Device'] = id;
+    return headers;
 }
 
 async function feedFetch(ex, url) {
