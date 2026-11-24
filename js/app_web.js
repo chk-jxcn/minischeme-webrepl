@@ -284,6 +284,13 @@ class AppWebPanel {
                                 <label>向服务器要的字体 (font_server_face)
                                     <input type="text" id="aw-sys-fs-face" placeholder="留空：simsun（板载系统字体）" maxlength="15">
                                 </label>
+                                <label>简繁 (font_chinese)：屏幕上的中文逐字转换
+                                    <select id="aw-sys-chinese">
+                                        <option value="keep">不转换（按原文显示）</option>
+                                        <option value="simplified">简体</option>
+                                        <option value="traditional">繁体（字形从字体服务器下载）</option>
+                                    </select>
+                                </label>
                                 <label>&nbsp;
                                     <button type="button" class="pill-btn" id="aw-sys-fs-open">打开字体服务器管理页</button>
                                 </label>
@@ -493,6 +500,7 @@ class AppWebPanel {
             sysFsUrl: root.querySelector('#aw-sys-fs-url'),
             sysFsFirst: root.querySelector('#aw-sys-fs-first'),
             sysFsFace: root.querySelector('#aw-sys-fs-face'),
+            sysChinese: root.querySelector('#aw-sys-chinese'),
             sysFsOpen: root.querySelector('#aw-sys-fs-open'),
             sysHwPass: root.querySelector('#aw-sys-hw-pass'),
             sysHwBox: root.querySelector('#aw-sys-hw-box'),
@@ -1003,6 +1011,10 @@ class AppWebPanel {
         if (this.el.sysFsOn) this.el.sysFsOn.checked = !/^(0|false|no|off)$/i.test(fonts['font_server_on'] || '1');
         if (this.el.sysFsFirst) this.el.sysFsFirst.value = fonts['font_server_first'] === '1' ? '1' : '0';
         if (this.el.sysFsFace) this.el.sysFsFace.value = fonts['font_server_face'] || '';
+        if (this.el.sysChinese) {
+            const script = fonts['font_chinese'] || '';
+            this.el.sysChinese.value = /^(simplified|traditional)$/.test(script) ? script : 'keep';
+        }
         if (this.el.sysFsOpen && !this.el.sysFsOpen.dataset.bound) {
             this.el.sysFsOpen.dataset.bound = '1';
             this.el.sysFsOpen.addEventListener('click', () => {
@@ -1151,7 +1163,8 @@ class AppWebPanel {
             'fonts.font_server': (this.el.sysFsUrl ? this.el.sysFsUrl.value : '').trim(),
             'fonts.font_server_on': this.el.sysFsOn && !this.el.sysFsOn.checked ? '0' : '1',
             'fonts.font_server_first': this.el.sysFsFirst ? this.el.sysFsFirst.value : '0',
-            'fonts.font_server_face': (this.el.sysFsFace ? this.el.sysFsFace.value : '').trim()
+            'fonts.font_server_face': (this.el.sysFsFace ? this.el.sysFsFace.value : '').trim(),
+            'fonts.font_chinese': this.el.sysChinese ? this.el.sysChinese.value : 'keep'
         };
         for (const [k, v] of Object.entries(fontUpdates)) {
             if (/[;#&\s]/.test(v)) {

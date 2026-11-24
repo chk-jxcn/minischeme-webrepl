@@ -1255,6 +1255,11 @@ static Value prim_mock_config_set(MiniVM *vm, int argc, Value *argv) {
     if (!next) return mini_false();
     bool ok = mock_fs_put("/spiffs/config.ini", (const uint8_t *)next, strlen(next)) == NULL;
     free(next);
+    if (ok && strcmp(mini_string_data(argv[1]), "font_chinese") == 0) {
+        /* simplified / traditional from the settings app: the firmware applies it at once */
+        slot = mock_fs_find("/spiffs/config.ini");
+        mini_device_apply_fontnet_config(slot >= 0 ? (const char *)g_mock_fs[slot].data : NULL);
+    }
     return ok ? mini_true() : mini_false();
 }
 
@@ -3188,8 +3193,8 @@ void wasm_fontnet_deliver(const uint8_t *buf, uint32_t len, int status) {
     mini_fontnet_deliver(buf, len, status, status ? "" : "cannot connect");
 }
 
-/* The page saved [fonts] font_server*: applied at once, as the board's
- * settings page does */
+/* The page saved [fonts] font_server* or font_chinese: applied at once, as the
+ * board's settings page does */
 __attribute__((visibility("default")))
 void wasm_fontnet_reconfigure(void) {
     int slot = mock_fs_find("/spiffs/config.ini");
